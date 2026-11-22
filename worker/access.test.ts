@@ -174,7 +174,7 @@ const APP_ROUTES = [
 	["liaison", "POST /notices"],
 ] as const;
 
-const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && route.startsWith("GET ") && !["GET /withings/connect", "GET /nights"].includes(route)).map(([tool, route]) => `${tool} ${route}`);
+const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && route.startsWith("GET ") && route !== "GET /withings/connect").map(([tool, route]) => `${tool} ${route}`);
 
 const REACHABLE: Record<string, readonly string[]> = {
 	nutrition: [...APP_ROUTES.filter(([tool, route]) => tool === "nutrition" && (route.startsWith("GET ") || route === "POST /mcp")).map(([tool, route]) => `${tool} ${route}`), "activity GET /days", "activity GET /weights", "activity GET /health"],

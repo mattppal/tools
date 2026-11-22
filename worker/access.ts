@@ -36,7 +36,7 @@ export const BOTS = {
 			worker: ["GET /health", "GET /debug"],
 			nutrition: ["GET *", "POST /mcp"],
 			workouts: ["GET *"],
-			activity: ["GET /days", "GET /weights", "GET /health", "GET /workouts", "GET /sleep", "GET /measures", "GET /intraday", "GET /apple-health/workouts"],
+			activity: ["GET /days", "GET /weights", "GET /health", "GET /workouts", "GET /sleep", "GET /measures", "GET /intraday", "GET /apple-health/workouts", "GET /nights"],
 		},
 	},
 	"apple-health": {
