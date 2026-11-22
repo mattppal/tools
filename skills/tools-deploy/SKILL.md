@@ -41,7 +41,7 @@ Use the service token `tools-agent-verify`, which has a Service Auth policy on t
 curl -H "CF-Access-Client-Id: $CFA_ID" -H "CF-Access-Client-Secret: $CFA_SECRET" https://tools.mattpalmer.io/api/health
 ```
 
-Playwright takes the same headers through `extraHTTPHeaders`. A 302 to `cloudflareaccess.com` means the headers were missing or wrong.
+Playwright takes the same headers through `extraHTTPHeaders`. A 302 to `cloudflareaccess.com` means the headers were missing or wrong. A 403 with Cloudflare error 1010 means Browser Integrity Check blocked the client's default User-Agent, such as Python urllib's; send an explicit `User-Agent`.
 
 ## Bot credentials
 
@@ -51,4 +51,4 @@ Each bot has its own Access service token, a Service Auth policy with the same n
 2. Find the app with `GET /accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps` and pick the one named "tools - Cloudflare Workers". Add the policy with `POST /accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps/<app id>/policies`, sending `{"name":"<bot>-bot","decision":"non_identity","include":[{"service_token":{"token_id":"<token id>"}}]}`. Its precedence goes after the existing policies, and those policies stay as they are.
 3. Generate the bearer token with `openssl rand -base64 32` and set it with `bunx wrangler secret put BOT_TOKEN_<BOT>`.
 4. Write all three values to a file only the owner can read (mode 0600), outside the repo and the Project store, and tell the user its path so the values go into 1Password. Never commit them.
-5. Check that the bot's endpoint answers through Access with all three headers. It should answer 401 when the bearer token is missing.
+5. Check that the bot's endpoint answers through Access with all three headers and an explicit `User-Agent`. It should answer 401 when the bearer token is missing.

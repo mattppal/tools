@@ -58,6 +58,8 @@ Bots reach a tool through an MCP endpoint or bot-only HTTP routes. Every bot req
 - an Access service token, sent as `CF-Access-Client-Id` and `CF-Access-Client-Secret`, which Cloudflare Access checks at the edge;
 - `Authorization: Bearer <token>`, which the Worker checks against the bot's Worker secret.
 
+The bot also sends an explicit `User-Agent`. Cloudflare's Browser Integrity Check blocks some clients' default User-Agent, such as Python urllib's, with a 403 and error 1010, before Access or the Worker sees the request.
+
 `worker/bot-auth.ts` lists each bot, its secret name, and the tools it may call. `requireBot(request, env, "<slug>")` returns the bot's name or a 401 `Response`. A bot whose secret is unset can't authenticate, so a preview deployment without the secret rejects every bot. To add a bot, add a `BOTS` entry, declare its secret on `Env` in the same file, and set the secret with `bunx wrangler secret put <NAME>`.
 
 `worker/mcp.ts` serves MCP as stateless Streamable HTTP with JSON responses, and no Durable Object is needed. `toolMcp` calls `requireBot` before it handles a request.
