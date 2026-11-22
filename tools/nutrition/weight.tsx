@@ -49,14 +49,15 @@ function Summary({ rows, average, phaseKind, range }: { rows: SeriesRow[]; avera
 			? { label: "Weekly rate", value: "Under a week" }
 			: { label: "Weekly rate", value: `${signedHundredths(summary.weeklyRate)} lb a week`, tone: tint(summary.weeklyRate, phaseKind, FLAT_RATE, FULL_WEEKLY_RATE) },
 	];
+	const short = spent !== null && spent.tdee === null && spent.loggedDays < spent.minDays;
 	const energyItems: SummaryItem[] =
 		spent === null
 			? []
 			: [
 					{
 						label: "Expenditure",
-						value: spent.tdee === null ? "Not enough logged days" : `${whole(spent.tdee)} kcal a day`,
-						note: `from ${whole(spent.loggedDays)} logged ${spent.loggedDays === 1 ? "day" : "days"}`,
+						value: spent.tdee !== null ? `${whole(spent.tdee)} kcal a day` : short ? `Needs ${whole(spent.minDays)} logged days` : "Needs a longer range",
+						note: short ? `${whole(spent.loggedDays)} so far` : `from ${whole(spent.loggedDays)} logged ${spent.loggedDays === 1 ? "day" : "days"}`,
 					},
 					...(spent.avgSteps === null ? [] : [{ label: "Steps", value: `${whole(spent.avgSteps)} a day` }]),
 				];

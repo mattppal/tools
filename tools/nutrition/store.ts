@@ -1,7 +1,7 @@
 import type { Database } from "../../worker/db.ts";
 import { queueForLiaison } from "../liaison/webhook.ts";
 import { addDays, today } from "./dates.ts";
-import { type Expenditure, type LoggedDay, type PhaseSummary, phaseSummary, rangeExpenditure, type TrackerSettings, type WeightPoint } from "./phase.ts";
+import { type Expenditure, type LoggedDay, MIN_EXPENDITURE_DAYS, type PhaseSummary, phaseSummary, rangeExpenditure, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
 import { parseSource } from "./sources.ts";
 import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
@@ -301,7 +301,7 @@ async function fullDays(client: Database, from: string, to: string): Promise<Log
 		.map((day) => ({ date: String(day["date"]), kcal: num(day["kcal"]) }));
 }
 
-export type ExpenditureView = Expenditure & { avgSteps: number | null; stepDays: number };
+export type ExpenditureView = Expenditure & { minDays: number; avgSteps: number | null; stepDays: number };
 
 export async function getExpenditure(client: Database, from: string, to: string): Promise<ExpenditureView> {
 	const weights: WeightPoint[] = (
@@ -317,7 +317,7 @@ export async function getExpenditure(client: Database, from: string, to: string)
 		[from, to],
 	);
 	const avg = numOrNull(rows[0]?.["avg_steps"]);
-	return { ...rangeExpenditure(weights, days, from, to), avgSteps: avg === null ? null : Math.round(avg), stepDays: num(rows[0]?.["step_days"] ?? 0) };
+	return { ...rangeExpenditure(weights, days, from, to), minDays: MIN_EXPENDITURE_DAYS, avgSteps: avg === null ? null : Math.round(avg), stepDays: num(rows[0]?.["step_days"] ?? 0) };
 }
 
 export async function getHistory(client: Database): Promise<HistoryDay[]> {

@@ -537,7 +537,7 @@ th[aria-sort] .sortButton {
 
 	.weightTable .table tbody tr {
 		display: grid;
-		grid-template-columns: 1fr auto;
+		grid-template-columns: minmax(0, 1fr) auto;
 		padding: var(--space-2) var(--space-1);
 		border-bottom: var(--border-width) solid var(--border-color);
 	}

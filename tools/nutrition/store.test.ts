@@ -203,7 +203,7 @@ test("history shows each day's steps, nothing when there are none", async () => 
 
 test("expenditure needs 14 full logged days and averages steps over the range", async () => {
 	const spent = await getExpenditure(client, "2026-11-01", "2026-11-30");
-	expect(spent).toMatchObject({ tdee: null, avgSteps: Math.round((11234 + 9000) / 2), stepDays: 2 });
+	expect(spent).toMatchObject({ tdee: null, minDays: 14, avgSteps: Math.round((11234 + 9000) / 2), stepDays: 2 });
 	expect((await getExpenditure(client, "2027-01-01", "2027-01-31")).avgSteps).toBeNull();
 });
 

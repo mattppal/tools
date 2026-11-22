@@ -169,6 +169,32 @@ function tailwindDots(file: string, text: string): void {
 	}
 }
 
+function withoutMinmax(value: string): string {
+	let out = "";
+	let i = 0;
+	while (i < value.length) {
+		if (value.startsWith("minmax(", i)) {
+			let depth = 0;
+			for (i += "minmax".length; i < value.length; i++) {
+				if (value[i] === "(") depth++;
+				else if (value[i] === ")" && --depth === 0) break;
+			}
+			i++;
+			continue;
+		}
+		out += value[i];
+		i++;
+	}
+	return out;
+}
+
+function cssGridTracks(file: string, text: string): void {
+	for (const declaration of text.matchAll(/grid-template-columns\s*:\s*([^;}]+)/g)) {
+		if (!/\d*\.?\d+fr\b/.test(withoutMinmax(declaration[1] ?? ""))) continue;
+		problems.push({ file, line: lineAt(text, declaration.index), message: "a bare fr track can't shrink below its content, so long text overflows into the next column. Use minmax(0, 1fr)." });
+	}
+}
+
 function toolConnections(file: string, text: string): void {
 	for (const use of text.matchAll(/\bwithRequestDb\b/g)) {
 		problems.push({ file, line: lineAt(text, use.index), message: `a tool opens its own connection. Use the db() a tool gets, and deliverSoon from worker/webhooks.ts for a first delivery attempt.` });
@@ -182,7 +208,10 @@ for (const file of [...files].sort()) {
 	const text = await readFile(join(ROOT, file), "utf8");
 	const comments = file.endsWith(".css") ? cssComments(text) : file.endsWith(".sql") ? sqlComments(text) : file.endsWith(".html") ? htmlComments(text) : scriptComments(text);
 	for (const index of comments) problems.push({ file, line: lineAt(text, index), message: `code comment. ${COMMENT_FIX}` });
-	if (file.endsWith(".css")) cssDots(file, text);
+	if (file.endsWith(".css")) {
+		cssDots(file, text);
+		cssGridTracks(file, text);
+	}
 	if (file.endsWith(".tsx")) tailwindDots(file, text);
 	if (file.startsWith("tools/") && !/\.test\.tsx?$/.test(file)) toolConnections(file, text);
 }
