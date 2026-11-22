@@ -15,6 +15,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run migrate` | Apply pending `tools/<slug>/migrations/*.sql` to the database in `.env`. Add `--dry-run` to list them. |
 | `bun run build` | Skill check, then build the Worker, client, and service worker into `dist/`. |
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
+| `bun run test` | `bun test` over `worker`, `tools`, `src`, and `scripts`. Vendored skills keep their own tests, which this skips. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
 | `bun run icons` | Regenerate the favicons and app icons in `public/` from `src/assets/logo.png`. |
@@ -22,7 +23,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run preview` | Build and upload a preview with `wrangler preview`. |
 | `bunx wrangler types` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc`. |
 
-Run `bun run build` and `bun run typecheck` before you push.
+Run `bun run build`, `bun run typecheck`, and `bun run test` before you push.
 
 ## Database
 

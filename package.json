@@ -17,7 +17,7 @@
     "new-tool": "bun scripts/new-tool.ts",
     "deploy": "bun run build && wrangler deploy",
     "preview": "bun run build && wrangler preview",
-    "test": "bun test"
+    "test": "bun test ./worker ./tools ./src ./scripts"
   },
   "packageManager": "bun@1.4.5",
   "dependencies": {
