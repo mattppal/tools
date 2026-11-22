@@ -86,11 +86,10 @@ function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inb
 				<p className={styles.muted}>Pick a post to reply.</p>
 			) : (
 				<>
-					<p className={styles.liveHead}>
-						<Avatar post={selected} />
-						<span className={styles.liveName}>{selected.name || selected.handle}</span>
-						<span>@{selected.handle}</span>
-					</p>
+					<div className={styles.postFoot}>
+						<p className={styles.meta}>@{selected.handle}</p>
+						<CopyLink url={selected.url} />
+					</div>
 					<p className={styles.paneText}>{selected.text}</p>
 					{connected || selected.reply !== null ? (
 						<ReplyBox
@@ -232,20 +231,20 @@ function PostBody({ post, time }: { post: OwnerPost; time: string }) {
 }
 
 function PostFoot({ post }: { post: OwnerPost }) {
-	const meta = [post.reply === null ? null : "replied", post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
-	return (
-		<div className={styles.postFoot}>
-			<p className={styles.meta}>{meta.join(" · ")}</p>
-			<CopyLink url={post.url} />
-		</div>
-	);
+	const meta = [post.reply === null ? null : "replied", post.status === "pending" ? null : post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	return meta.length === 0 ? null : <p className={styles.meta}>{meta.join(" · ")}</p>;
+}
+
+function printsDifferently(post: OwnerPost): boolean {
+	const plain = (text: string) => text.replace(/@\w+/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+	return plain(post.cleanText) !== plain(post.text);
 }
 
 function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; fresh: boolean; inbox: Inbox }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined} {...selectable(post.id, inbox)}>
 			<PostBody post={post} time={ago(post.createdAt, now)} />
-			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
+			{printsDifferently(post) ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
 			<PostFoot post={post} />
 		</li>
 	);
@@ -280,7 +279,7 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 			<p className={styles.muted} aria-live="polite">
 				{sync === null
 					? "Watching for new posts."
-					: `X checked ${sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}${sync.nextRunAt === null ? ", next check due now" : `, next check ${when(sync.nextRunAt)}`}. Every minute while posts are arriving, every 5 minutes otherwise.`}
+					: `Checked ${sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}.`}
 			</p>
 			{posts.status !== "ready" ? (
 				<LoadState load={posts} retry={retry} />
@@ -384,7 +383,7 @@ function PostItem({ post, canDecide, onDecided, inbox }: { post: OwnerPost; canD
 	return (
 		<li className={styles.postRow} {...selectable(post.id, inbox)}>
 			<PostBody post={post} time={when(post.createdAt)} />
-			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
+			{printsDifferently(post) ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
 			<PostFoot post={post} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
