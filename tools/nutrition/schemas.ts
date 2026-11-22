@@ -5,7 +5,7 @@ export const isoDate = z.string().refine(isIsoDate, "Use a date like 2026-11-22"
 
 const amount = z.number().nonnegative();
 
-const foodInput = z.object({
+const foodInput = z.strictObject({
 	food: z.string().trim().min(1),
 	qty: z.number().positive(),
 	unit: z.string().trim().min(1),
@@ -24,7 +24,7 @@ const entryEdit = foodInput
 	.extend({ id: z.number().int().optional(), client_key: clientKey.optional().describe("Picks the entry by the key it was added with, instead of id") })
 	.refine((edit) => (edit.id === undefined) !== (edit.client_key === undefined), "Send exactly one of id or client_key");
 
-export const foodChanges = z.object({
+export const foodChanges = z.strictObject({
 	add: z.array(foodInput.extend({ client_key: clientKey.optional().describe("Same key on a retry makes the add a no-op") })).optional(),
 	edit: z.array(entryEdit).optional(),
 	remove: z
@@ -35,7 +35,7 @@ export const foodChanges = z.object({
 
 const score = z.number().min(0).max(10).nullable().optional();
 
-export const dayUpdate = z.object({
+export const dayUpdate = z.strictObject({
 	bodyweight_lb: z.number().positive().nullable().optional().describe("Morning weigh-in"),
 	steps: z.number().int().nonnegative().nullable().optional(),
 	bloat_score: score,
@@ -47,9 +47,9 @@ export const dayUpdate = z.object({
 	closed: z.boolean().optional().describe("true closes the day, false reopens it"),
 });
 
-const range = z.object({ min: z.number().int().nonnegative(), max: z.number().int().nonnegative() }).refine((value) => value.min <= value.max, "min must not be above max");
+const range = z.strictObject({ min: z.number().int().nonnegative(), max: z.number().int().nonnegative() }).refine((value) => value.min <= value.max, "min must not be above max");
 
-export const targetsInput = z.object({
+export const targetsInput = z.strictObject({
 	effective_from: isoDate,
 	kcal: range,
 	protein_g: range,

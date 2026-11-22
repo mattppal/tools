@@ -42,7 +42,7 @@ export const nutritionMcp = toolMcp({
 		defineMcpTool({
 			name: "get_phase_summary",
 			description: "The open phase's weekly tracker: planned and actual weight, logged kcal, measured TDEE, verdict, and suggested kcal for next week. Also returns the day's totals.",
-			input: z.object({ date }),
+			input: z.strictObject({ date }),
 			readOnly: true,
 			run: ({ date: day }, { db }) =>
 				db(async (client) => {

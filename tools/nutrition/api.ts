@@ -7,7 +7,7 @@ import { foodChanges, isoDate } from "./schemas.ts";
 import { changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, getWeights, Rejected, updateDay } from "./store.ts";
 import webhook from "./webhook.ts";
 
-const dated = z.object({ date: isoDate });
+const dated = z.strictObject({ date: isoDate });
 
 async function body<T extends z.ZodType>(request: Request, schema: T): Promise<z.infer<T>> {
 	const parsed = schema.safeParse(await request.json().catch(() => undefined));

@@ -51,6 +51,54 @@ Since the 2026-11-22 cutover the bot logs each food through `log_food` as Matt r
 
 A retry is safe with the same body. An add whose `client_key` exists is skipped, an edit sets the same values again, and a remove of an entry that is already gone is skipped. A remove of an entry that sits on another day is rejected.
 
+Every object in a tool's input is strict. An argument name the tool doesn't know, such as `bodyweight` for `bodyweight_lb` or `calories` on a food, fails the call with `isError: true` and `Unrecognized key`, instead of being dropped while the call reports success.
+
+### Requests
+
+`POST /api/tools/nutrition/mcp` with `Content-Type: application/json` (otherwise 415) and `Accept: application/json, text/event-stream` (otherwise 406). The endpoint is stateless, so `tools/call` works without `initialize`. A rejected call is still HTTP 200, with `result.isError: true` and the reason in `content[0].text`. `mcp.test.ts` sends each body below, in order, so they stay true.
+
+Log a food:
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "log_food", "arguments": { "date": "2099-01-01", "add": [{ "client_key": "bot:msg-1:0", "food": "Greek yogurt, plain nonfat", "qty": 200, "unit": "g", "kcal": 118, "protein_g": 20.6, "carbs_g": 7.2, "fat_g": 0.8, "fiber_g": 0, "source": "USDA FDC 170894 (Yogurt, Greek, plain, nonfat)" }] } } }
+```
+
+Edit it by its key, then remove it:
+
+```json
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "log_food", "arguments": { "date": "2099-01-01", "edit": [{ "client_key": "bot:msg-1:0", "qty": 250, "kcal": 147.5 }] } } }
+```
+
+```json
+{ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "log_food", "arguments": { "date": "2099-01-01", "remove": ["bot:msg-1:0"] } } }
+```
+
+Read the day, set the check-in, and close it:
+
+```json
+{ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "update_day", "arguments": { "date": "2099-01-01" } } }
+```
+
+```json
+{ "jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": { "name": "update_day", "arguments": { "date": "2099-01-01", "bodyweight_lb": 181.2, "steps": 12000, "energy": 7, "sleep": 8, "notes": "Felt good", "closed": true } } }
+```
+
+Reopen it:
+
+```json
+{ "jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": { "name": "update_day", "arguments": { "date": "2099-01-01", "closed": false } } }
+```
+
+Start a plan version, and read the tracker:
+
+```json
+{ "jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": { "name": "update_targets", "arguments": { "effective_from": "2099-01-01", "kcal": { "min": 2600, "max": 2900 }, "protein_g": { "min": 170, "max": 200 }, "fat_g": { "min": 55, "max": 70 }, "carbs_g": { "min": 330, "max": 380 }, "steps_target": 10000, "change": "Maintain" } } }
+```
+
+```json
+{ "jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": { "name": "get_phase_summary", "arguments": { "date": "2099-01-01" } } }
+```
+
 ## Webhook
 
 Closing a day in the UI POSTs to `NUTRITION_WEBHOOK_URL`. Closing it through `update_day` sends nothing, because the bot already knows.
