@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { withRequestDb } from "../../worker/db.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
-import { deliverDue } from "../../worker/webhooks.ts";
+import { deliverSoon } from "../../worker/webhooks.ts";
 import { nutritionMcp } from "./bot.ts";
 import { addDays, today } from "./dates.ts";
 import { foodChanges, isoDate } from "./schemas.ts";
@@ -39,7 +38,7 @@ export default defineToolApi(async (request, context) => {
 			case "POST /day/close": {
 				const { date } = await body(request, dated);
 				const { day, deliveryId } = await db((client) => closeDayFromUi(client, date));
-				if (deliveryId !== null) ctx.waitUntil(withRequestDb(env.DB, ctx, (fresh) => deliverDue(fresh, webhook, env, [deliveryId])));
+				if (deliveryId !== null) deliverSoon(ctx, env, webhook, [deliveryId]);
 				return Response.json(day);
 			}
 			case "POST /day/reopen": {

@@ -63,13 +63,13 @@ Change `delivery.tla` in the same PR as the code, so that `claim.cfg` and `claim
 
 | File | What the model covers |
 | --- | --- |
-| `worker/webhooks.ts` | `deliverDue`, `claimOne`, `sendWebhook` |
+| `worker/webhooks.ts` | `deliverSoon`, `deliverDue`, `claimOne`, `sendWebhook` |
 | `worker/index.ts` | `scheduled` |
 | `tools/workouts/store.ts` | `finishSession` (insert), `requeue` |
 | `tools/workouts/migrations/0003-claim-deliveries.sql`, `tools/nutrition/migrations/0002-claim-deliveries.sql` | the claim columns |
-| `tools/workouts/api.ts` | first attempt after finish and after redeliver |
+| `tools/workouts/api.ts` | `deliverSoon` after finish and after redeliver |
 | `tools/nutrition/store.ts` | `closeDayFromUi` (insert) |
-| `tools/nutrition/api.ts` | first attempt after close |
+| `tools/nutrition/api.ts` | `deliverSoon` after close |
 
 Last confirmed against commit `5a324c3`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
 

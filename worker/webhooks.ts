@@ -1,4 +1,4 @@
-import type { WithDb } from "./db.ts";
+import { type WithDb, withRequestDb } from "./db.ts";
 
 type StringSecret = { [Name in keyof Env]-?: NonNullable<Env[Name]> extends string ? Name : never }[keyof Env];
 
@@ -68,6 +68,14 @@ async function claimOne(db: WithDb, webhook: Webhook, claimId: string, only: rea
 					[only, tried, claimId, CLAIM_SECONDS],
 				)
 			).rows[0],
+	);
+}
+
+export function deliverSoon(ctx: ExecutionContext, env: Env, webhook: Webhook, deliveryIds: readonly string[]): void {
+	ctx.waitUntil(
+		withRequestDb(env.DB, ctx, (db) => deliverDue(db, webhook, env, deliveryIds)).catch((error: unknown) => {
+			console.error(`First attempt for ${webhook.table} failed; the cron retries it`, error);
+		}),
 	);
 }
 

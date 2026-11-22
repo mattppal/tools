@@ -21,7 +21,7 @@ The `postgres` skill sends application traffic to PlanetScale's PgBouncer on por
 
 ## Querying from a tool
 
-`api.ts` gets `db` in its context. The first `db(...)` call in a request opens one connection. Every later call in that request reuses it, and queries run in the order you send them. The Worker closes the connection with `ctx.waitUntil(client.end())` after the response, so finish database work before the handler returns.
+`api.ts` gets `db` in its context. The first `db(...)` call in a request opens one connection. Every later call in that request reuses it, and queries run in the order you send them. The Worker closes the connection with `ctx.waitUntil(client.end())` after the response, so finish database work before the handler returns. A `db(...)` call after that throws `RequestDbClosed`. For a webhook's first attempt, use `deliverSoon`.
 
 ```ts
 export default defineToolApi(async (request, { db }) => {

@@ -169,6 +169,12 @@ function tailwindDots(file: string, text: string): void {
 	}
 }
 
+function toolConnections(file: string, text: string): void {
+	for (const use of text.matchAll(/\bwithRequestDb\b/g)) {
+		problems.push({ file, line: lineAt(text, use.index), message: `a tool opens its own connection. Use the db() a tool gets, and deliverSoon from worker/webhooks.ts for a first delivery attempt.` });
+	}
+}
+
 const files = new Set<string>();
 for (const pattern of SCANNED) for await (const path of new Glob(pattern).scan({ cwd: ROOT, onlyFiles: true })) if (!GENERATED.has(path)) files.add(path);
 
@@ -178,6 +184,7 @@ for (const file of [...files].sort()) {
 	for (const index of comments) problems.push({ file, line: lineAt(text, index), message: `code comment. ${COMMENT_FIX}` });
 	if (file.endsWith(".css")) cssDots(file, text);
 	if (file.endsWith(".tsx")) tailwindDots(file, text);
+	if (file.startsWith("tools/") && !/\.test\.tsx?$/.test(file)) toolConnections(file, text);
 }
 
 if (problems.length > 0) {

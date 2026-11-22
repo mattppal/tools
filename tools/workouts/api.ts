@@ -1,6 +1,6 @@
-import { type Database, withRequestDb } from "../../worker/db.ts";
+import type { Database } from "../../worker/db.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
-import { deliverDue, webhookTarget } from "../../worker/webhooks.ts";
+import { deliverSoon, webhookTarget } from "../../worker/webhooks.ts";
 import { buildLog, checkLog } from "./log.ts";
 import { requireBot } from "../../worker/bot-auth.ts";
 import { buildWeek, currentWeek, findDay, nextDay, pacificToday, trainingLogFrom, weekRefs, type TrainingLog } from "./schedule.ts";
@@ -163,8 +163,7 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 				deliveryId = await db((client) => requeue(client, id));
 				if (deliveryId === null) return json({ error: "This session has no delivery" }, 409);
 			}
-			const first = deliveryId;
-			ctx.waitUntil(withRequestDb(env.DB, ctx, (fresh) => deliverDue(fresh, webhook, env, [first])).catch((error: unknown) => console.error("Coach webhook delivery failed", error)));
+			deliverSoon(ctx, env, webhook, [deliveryId]);
 			return json({ session: await db((client) => getSession(client, id)) });
 		}
 

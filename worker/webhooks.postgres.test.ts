@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "pg";
-import type { WithDb } from "./db.ts";
-import { defineWebhook, deliverDue } from "./webhooks.ts";
+import { RequestDbClosed, type WithDb, withRequestDb } from "./db.ts";
+import { defineWebhook, deliverDue, deliverSoon } from "./webhooks.ts";
 
 declare global {
 	interface Env {
@@ -37,7 +37,12 @@ describe.skipIf(url === undefined)("webhook delivery against Postgres", () => {
 		},
 	});
 	const webhook = defineWebhook({ table: TABLE, urlSecret: "TEST_WEBHOOK_URL", keySecret: "TEST_WEBHOOK_KEY", deliveryHeader: "X-Test-Delivery" });
-	const env = { TEST_WEBHOOK_URL: server.url.href, TEST_WEBHOOK_KEY: "key" } as Env;
+	const env = { TEST_WEBHOOK_URL: server.url.href, TEST_WEBHOOK_KEY: "key", DB: { connectionString: url } } as Env;
+
+	function requestContext(): { ctx: ExecutionContext; settled: () => Promise<unknown> } {
+		const pending: Promise<unknown>[] = [];
+		return { ctx: { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as unknown as ExecutionContext, settled: () => Promise.all(pending) };
+	}
 
 	async function connect(): Promise<Client> {
 		const client = new Client({ connectionString: url });
@@ -121,5 +126,29 @@ describe.skipIf(url === undefined)("webhook delivery against Postgres", () => {
 			[ID],
 		);
 		expect(rows[0]).toEqual({ delivered: true, attempts: 1, last_status: 204 });
+	});
+
+	test("deliverSoon sends after the request's own connection has closed", async () => {
+		await admin.query(`insert into ${TABLE} (delivery_id, payload) values ($1, '{}')`, [ID]);
+		responses = [{ delayMs: 0, status: 204 }];
+		const { ctx, settled } = requestContext();
+		let requestDb: WithDb | undefined;
+		await withRequestDb(env.DB, ctx, async (db) => {
+			requestDb = db;
+			await db((client) => client.query("select 1"));
+			deliverSoon(ctx, env, webhook, [ID]);
+		});
+		await settled();
+		const { rows } = await admin.query<{ delivered: boolean }>(`select delivered_at is not null as delivered from ${TABLE} where delivery_id = $1`, [ID]);
+		expect(rows[0]?.delivered).toBe(true);
+		expect(sends).toBe(1);
+		await expect(requestDb?.((client) => client.query("select 1"))).rejects.toBeInstanceOf(RequestDbClosed);
+	});
+
+	test("deliverSoon logs a failed first attempt instead of failing the request", async () => {
+		const { ctx, settled } = requestContext();
+		deliverSoon(ctx, { ...env, DB: { connectionString: "postgresql://nobody@127.0.0.1:1/none" } } as Env, webhook, [ID]);
+		await settled();
+		expect(sends).toBe(0);
 	});
 });

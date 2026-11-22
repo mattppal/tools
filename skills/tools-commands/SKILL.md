@@ -18,7 +18,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run test` | `bun test` over `worker`, `tools`, `src`, and `scripts`. Vendored skills keep their own tests, which this skips. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
-| `bun run check:style` | Fail on code comments and status dots and pills. `bun run build` runs it too. |
+| `bun run check:style` | Fail on code comments, status dots and pills, and a tool that imports `withRequestDb`. `bun run build` runs it too. |
 | `bun run verify:webhooks` | Model-check webhook delivery with TLC. Needs Java 11 or newer. `skills/tools-verify-webhooks/SKILL.md` explains the results. |
 | `bun run icons` | Regenerate the favicons and app icons in `public/` from `src/assets/logo.png`. |
 | `bun run land <pr>` | Merge a PR: fast-forward `main` to its head once it contains `main` and every check is green, then confirm GitHub shows it merged. |
