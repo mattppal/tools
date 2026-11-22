@@ -9,7 +9,7 @@ import Download04Icon from "@hugeicons/core-free-icons/Download04Icon";
 import Home01Icon from "@hugeicons/core-free-icons/Home01Icon";
 import InformationCircleIcon from "@hugeicons/core-free-icons/InformationCircleIcon";
 import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
-import LayoutLeftIcon from "@hugeicons/core-free-icons/LayoutLeftIcon";
+import LayoutTwoColumnIcon from "@hugeicons/core-free-icons/LayoutTwoColumnIcon";
 import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import Menu01Icon from "@hugeicons/core-free-icons/Menu01Icon";
 import Moon02Icon from "@hugeicons/core-free-icons/Moon02Icon";
@@ -36,7 +36,7 @@ const GLYPHS = {
 	home: Home01Icon,
 	info: InformationCircleIcon,
 	alert: Alert02Icon,
-	"secondary-sidebar": LayoutLeftIcon,
+	"secondary-sidebar": LayoutTwoColumnIcon,
 	loading: Loading03Icon,
 	menu: Menu01Icon,
 	moon: Moon02Icon,

@@ -28,13 +28,15 @@ body {
 	overscroll-behavior: none;
 }
 
-a {
-	color: var(--brand-text);
-}
+@layer base {
+	a {
+		color: var(--brand-text);
+	}
 
-img,
-svg {
-	display: block;
+	img,
+	svg {
+		display: block;
+	}
 }
 
 :root[data-theme-switching] *,
