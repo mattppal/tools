@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
-import { addTargets, changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, Rejected, updateDay } from "./store.ts";
+import { addTargets, changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, getSteps, Rejected, updateDay } from "./store.ts";
 import { foodChanges } from "./schemas.ts";
 import liaison from "../liaison/webhook.ts";
 import webhook from "./webhook.ts";
@@ -205,4 +205,18 @@ test("expenditure needs 14 full logged days and averages steps over the range", 
 	const spent = await getExpenditure(client, "2026-11-01", "2026-11-30");
 	expect(spent).toMatchObject({ tdee: null, avgSteps: Math.round((11234 + 9000) / 2), stepDays: 2 });
 	expect((await getExpenditure(client, "2027-01-01", "2027-01-31")).avgSteps).toBeNull();
+});
+
+test("steps list days with steps, calendar-window averages, and the target in effect", async () => {
+	await pg.query("insert into activity.days (day, source, steps, updated_by) values ('2026-12-10', 'withings', 0, 'test')");
+	const steps = await getSteps(client);
+	expect(steps.map((day) => [day.date, day.steps, day.target])).toEqual([
+		["2026-11-25", 11234, null],
+		["2026-11-26", 9000, null],
+	]);
+	expect(steps[1]?.rolling7d).toBe(10117);
+	await pg.query("insert into activity.days (day, source, steps, updated_by) values ('2026-12-01', 'withings', 8000, 'test')");
+	const later = (await getSteps(client)).at(-1);
+	expect(later).toMatchObject({ date: "2026-12-01", target: 10000 });
+	expect(later?.rolling7d).toBeCloseTo((11234 + 9000 + 8000) / 3);
 });

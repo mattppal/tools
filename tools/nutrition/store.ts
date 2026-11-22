@@ -4,7 +4,7 @@ import { addDays, today } from "./dates.ts";
 import { type Expenditure, type LoggedDay, type PhaseSummary, phaseSummary, rangeExpenditure, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
 import { parseSource } from "./sources.ts";
-import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type Targets, type Totals, type WeightRow } from "./types.ts";
+import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
 
 export class Rejected extends Error {}
 
@@ -352,5 +352,29 @@ export async function getWeights(client: Database): Promise<WeightRow[]> {
 		rolling14d: num(row["rolling_14d"]),
 		rolling28d: num(row["rolling_28d"]),
 		source: String(row["source"]),
+	}));
+}
+
+export async function getSteps(client: Database): Promise<StepsRow[]> {
+	const { rows } = await client.query<Row>(
+		`with s as (
+			select coalesce(a.day, d.day) as day, coalesce(a.steps, d.steps) as steps
+			from activity.daily_activity a full join nutrition.days d on d.day = a.day
+			where coalesce(a.steps, d.steps) > 0
+		)
+		select s.day::text as date, s.steps,
+			avg(s.steps) over (order by s.day range between interval '6 days' preceding and current row)::float as rolling_7d,
+			avg(s.steps) over (order by s.day range between interval '13 days' preceding and current row)::float as rolling_14d,
+			avg(s.steps) over (order by s.day range between interval '27 days' preceding and current row)::float as rolling_28d,
+			(select v.steps_target from nutrition.plan_versions v where v.effective_from <= s.day order by v.effective_from desc limit 1) as target
+		from s order by s.day`,
+	);
+	return rows.map((row) => ({
+		date: String(row["date"]),
+		steps: num(row["steps"]),
+		rolling7d: num(row["rolling_7d"]),
+		rolling14d: num(row["rolling_14d"]),
+		rolling28d: num(row["rolling_28d"]),
+		target: numOrNull(row["target"]),
 	}));
 }

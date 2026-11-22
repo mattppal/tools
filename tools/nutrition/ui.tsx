@@ -44,6 +44,7 @@ export const VIEWS: readonly ToolSection[] = [
 	{ path: "/", label: "Today" },
 	{ path: "/history", label: "History" },
 	{ path: "/weight", label: "Weight" },
+	{ path: "/steps", label: "Steps" },
 	{ path: "/phase", label: "Phase" },
 ];
 

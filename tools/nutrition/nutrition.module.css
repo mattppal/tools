@@ -385,6 +385,15 @@
 	}
 }
 
+.dayBar {
+	fill: var(--text-3);
+	opacity: 0.3;
+}
+
+.dayBar[data-hovered] {
+	opacity: 0.6;
+}
+
 .trend {
 	fill: none;
 	stroke: var(--chart-accent);
@@ -400,7 +409,7 @@
 	pointer-events: none;
 }
 
-.hoverWeight {
+.hoverValue {
 	fill: var(--text-1);
 }
 
@@ -408,7 +417,7 @@
 	fill: var(--chart-accent);
 }
 
-.axisWeight,
+.axisValue,
 .axisTrend {
 	font-size: 11px;
 	font-variant-numeric: tabular-nums;
@@ -418,7 +427,7 @@
 	stroke-linejoin: round;
 }
 
-.axisWeight {
+.axisValue {
 	fill: var(--text-1);
 }
 

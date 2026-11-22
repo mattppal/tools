@@ -55,6 +55,8 @@ export function isPartialDay(day: { closed: boolean; entries: number; kcal: numb
 	return day.closed && day.entries > 0 && day.kcalTarget !== null && day.kcal < day.kcalTarget * PARTIAL_DAY_SHARE;
 }
 
+export type StepsRow = { date: string; steps: number; rolling7d: number; rolling14d: number; rolling28d: number; target: number | null };
+
 export type WeightRow = { date: string; weight: number; rolling7d: number; rolling14d: number; rolling28d: number; source: string };
 
 export function macroProgress(totals: Totals, targets: Targets): Record<Macro, MacroProgress> {

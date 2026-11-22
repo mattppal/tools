@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { WeightRow } from "./types.ts";
-import { changeTone, inRange, nearestIndex, presetRange, sortEntries, summarize, toneStrength, withChanges } from "./weights.ts";
+import { changeTone, inRange, nearestIndex, presetRange, previousRange, type SeriesRow, sortEntries, summarize, toneStrength, withChanges } from "./weights.ts";
 
-const row = (date: string, weight: number, rolling7d: number, source = "sheet"): WeightRow => ({ date, weight, rolling7d, rolling14d: rolling7d + 0.5, rolling28d: rolling7d + 1, source });
+const row = (date: string, value: number, rolling7d: number, source = "sheet"): SeriesRow => ({ date, value, rolling7d, rolling14d: rolling7d + 0.5, rolling28d: rolling7d + 1, source });
 
 const rows = [row("2026-01-01", 182, 182.4), row("2026-01-02", 181, 182), row("2026-01-08", 181.5, 181.2, "withings"), row("2026-01-15", 180, 180.6)];
 
@@ -56,10 +55,14 @@ describe("weights", () => {
 		expect(nearestIndex(rows, day("2026-03-01"))).toBe(3);
 	});
 
+	test("the previous period is the same length and ends the day before", () => {
+		expect(previousRange({ from: "2026-03-01", to: "2026-03-30" })).toEqual({ from: "2026-01-30", to: "2026-02-28" });
+	});
+
 	test("sorts by column and breaks ties by date in the same direction", () => {
 		const entries = withChanges(rows);
 		expect(sortEntries(entries, { key: "date", descending: true }, "rolling7d")[0]?.date).toBe("2026-01-15");
-		expect(sortEntries(entries, { key: "weight", descending: true }, "rolling7d").map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-08", "2026-01-02", "2026-01-15"]);
+		expect(sortEntries(entries, { key: "value", descending: true }, "rolling7d").map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-08", "2026-01-02", "2026-01-15"]);
 		expect(sortEntries(entries, { key: "change", descending: false }, "rolling7d").map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-15", "2026-01-02", "2026-01-08"]);
 	});
 });

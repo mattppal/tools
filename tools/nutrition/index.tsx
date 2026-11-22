@@ -1,6 +1,7 @@
 import { useToolPath } from "../../src/router.tsx";
 import { History } from "./history.tsx";
 import { PhaseView } from "./phase-view.tsx";
+import { Steps } from "./steps.tsx";
 import { Today } from "./today.tsx";
 import { Weight } from "./weight.tsx";
 
@@ -10,6 +11,8 @@ export default function Nutrition() {
 			return <History />;
 		case "/weight":
 			return <Weight />;
+		case "/steps":
+			return <Steps />;
 		case "/phase":
 			return <PhaseView />;
 		default:

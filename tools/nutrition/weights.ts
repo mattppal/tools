@@ -1,35 +1,35 @@
 import { addDays, dayNumber } from "./dates.ts";
-import type { WeightRow } from "./types.ts";
 
 export type Preset = "90d" | "1y" | "all";
 export type DateRange = { from: string; to: string };
 export type Average = "rolling7d" | "rolling14d" | "rolling28d";
-export type SortKey = "date" | "weight" | "average" | "change";
+export type SortKey = "date" | "value" | "average" | "change";
 export type Sort = { key: SortKey; descending: boolean };
-export type WeightEntry = WeightRow & { change: number | null };
+export type SeriesRow = { date: string; value: number; source?: string } & Record<Average, number>;
+export type SeriesEntry<T extends SeriesRow = SeriesRow> = T & { change: number | null };
 export type WeightSummary = { start: number; end: number; change: number; average: number; weeklyRate: number; days: number };
 
 const PRESET_DAYS: Record<Preset, number | null> = { "90d": 90, "1y": 365, all: null };
 
-export function withChanges(rows: WeightRow[]): WeightEntry[] {
+export function withChanges<T extends SeriesRow>(rows: T[]): SeriesEntry<T>[] {
 	return rows.map((row, index) => {
 		const previous = rows[index - 1];
-		return { ...row, change: previous === undefined ? null : row.weight - previous.weight };
+		return { ...row, change: previous === undefined ? null : row.value - previous.value };
 	});
 }
 
-export function presetRange(preset: Preset, rows: WeightRow[], today: string): DateRange {
+export function presetRange(preset: Preset, rows: { date: string }[], today: string): DateRange {
 	const last = rows.at(-1)?.date;
 	const to = last !== undefined && last > today ? last : today;
 	const days = PRESET_DAYS[preset];
 	return { from: days === null ? (rows[0]?.date ?? to) : addDays(to, -days), to };
 }
 
-export function inRange<T extends WeightRow>(rows: T[], range: DateRange, source: string | null): T[] {
+export function inRange<T extends { date: string; source?: string }>(rows: T[], range: DateRange, source: string | null): T[] {
 	return rows.filter((row) => row.date >= range.from && row.date <= range.to && (source === null || row.source === source));
 }
 
-export function summarize(rows: WeightRow[], average: Average): WeightSummary | null {
+export function summarize(rows: SeriesRow[], average: Average): WeightSummary | null {
 	const first = rows[0];
 	const last = rows.at(-1);
 	if (first === undefined || last === undefined) return null;
@@ -39,7 +39,7 @@ export function summarize(rows: WeightRow[], average: Average): WeightSummary | 
 		start: first[average],
 		end: last[average],
 		change,
-		average: rows.reduce((sum, row) => sum + row.weight, 0) / rows.length,
+		average: rows.reduce((sum, row) => sum + row.value, 0) / rows.length,
 		weeklyRate: days === 0 ? 0 : (change / days) * 7,
 		days,
 	};
@@ -59,7 +59,7 @@ export function toneStrength(change: number, full: number): number {
 	return Math.min(Math.max(Math.abs(change) / full, 0.3), 1);
 }
 
-export function nearestIndex(rows: WeightRow[], day: number): number {
+export function nearestIndex(rows: { date: string }[], day: number): number {
 	let low = 0;
 	let high = rows.length - 1;
 	while (low < high) {
@@ -73,10 +73,10 @@ export function nearestIndex(rows: WeightRow[], day: number): number {
 	return low;
 }
 
-export function sortEntries(rows: WeightEntry[], sort: Sort, average: Average): WeightEntry[] {
-	const value = (row: WeightEntry): number | string => {
+export function sortEntries<T extends SeriesEntry>(rows: T[], sort: Sort, average: Average): T[] {
+	const value = (row: T): number | string => {
 		if (sort.key === "date") return row.date;
-		if (sort.key === "weight") return row.weight;
+		if (sort.key === "value") return row.value;
 		if (sort.key === "average") return row[average];
 		return row.change ?? Number.NEGATIVE_INFINITY;
 	};
@@ -87,4 +87,9 @@ export function sortEntries(rows: WeightEntry[], sort: Sort, average: Average): 
 		if (left === right) return a.date < b.date ? -direction : direction;
 		return left < right ? -direction : direction;
 	});
+}
+
+export function previousRange(range: DateRange): DateRange {
+	const days = dayNumber(range.to) - dayNumber(range.from) + 1;
+	return { from: addDays(range.from, -days), to: addDays(range.from, -1) };
 }
