@@ -22,6 +22,7 @@ export type FoodEntry = {
 	sourceKind: SourceKind;
 	sourceRef: string | null;
 	sourceLabel: string;
+	source: string;
 	clientKey: string;
 };
 

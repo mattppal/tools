@@ -53,6 +53,8 @@ The bot sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `nutr
 
 Since the 2026-11-22 cutover the bot logs each food through `log_food` as Matt reports it, and this database is the source of truth. Days on or after the cutover never come from `training-log`; rerun the import only with `--cutover 2026-11-22`.
 
+Every day the tools return, from `log_food`, `update_day`, and `get_phase_summary`, lists each food with its `source` in the same format the bot sends: `USDA FDC <id> (<label>)`, `Open Food Facts <barcode> (<label>)`, or the estimate note as written. It is rebuilt from `sourceKind`, `sourceRef`, and `sourceLabel`, which stay in the response, and the parenthesized label is left off when it is empty. Tracker-export days return the export's note. `GET /day` returns the same field.
+
 A retry is safe with the same body. An add whose `client_key` exists is skipped, an edit sets the same values again, and a remove of an entry that is already gone is skipped. A remove of an entry that sits on another day is rejected.
 
 Every object in a tool's input is strict. An argument name the tool doesn't know, such as `bodyweight` for `bodyweight_lb` or `calories` on a food, fails the call with `isError: true` and `Unrecognized key`, instead of being dropped while the call reports success.

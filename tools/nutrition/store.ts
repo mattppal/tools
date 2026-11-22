@@ -5,7 +5,7 @@ import { listMeasures, listWorkouts } from "../activity/health.ts";
 import { type BodyComp, estimateExpenditure, MEASURED_MIN_DAYS, type ExpenditureResult, type IntakeDay, type LoggedSession, type StepsDay, type TrackerDay, type WatchWorkout, type WeighIn } from "./expenditure.ts";
 import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
-import { parseSource } from "./sources.ts";
+import { formatSource, parseSource } from "./sources.ts";
 import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
 
 export class Rejected extends Error {}
@@ -43,6 +43,7 @@ function toEntry(row: Row): FoodEntry {
 		sourceKind: row["source_kind"] as SourceKind,
 		sourceRef: (row["source_ref"] as string | null) ?? null,
 		sourceLabel: String(row["source_label"]),
+		source: formatSource(row["source_kind"] as SourceKind, (row["source_ref"] as string | null) ?? null, String(row["source_label"])),
 		clientKey: String(row["client_key"]),
 	};
 }

@@ -26,7 +26,7 @@ const SMOKE: Caller = { kind: "bot", bot: "smoke" };
 const HEADERS = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", accept: "application/json, text/event-stream" };
 const skill = await readFile(join(import.meta.dirname, "SKILL.md"), "utf-8");
 
-type Day = { date: string; closed: boolean; entries: { clientKey: string | null; qty: number }[]; checkIn: { bodyweightLb: number | null } };
+type Day = { date: string; closed: boolean; entries: { clientKey: string | null; qty: number; source: string }[]; checkIn: { bodyweightLb: number | null } };
 type CallResult = { isError?: boolean; content: { text: string }[]; structuredContent?: Record<string, unknown> };
 
 async function post(body: unknown, headers: Record<string, string> = HEADERS, method = "POST", caller: Caller = { kind: "local" }): Promise<Response> {
@@ -85,6 +85,15 @@ test("a retried add logs once, and a retried remove returns the day", async () =
 	const again = await call("log_food", { date: "2099-02-01", remove: ["bot:retry:0"] });
 	expect(again.isError).toBeUndefined();
 	expect((again.structuredContent as Day).entries).toEqual([]);
+});
+
+test("every day read returns each food's source as the bot wrote it", async () => {
+	const source = "USDA FDC 170894 (Yogurt, Greek, plain, nonfat)";
+	const logged = await call("log_food", { date: "2099-02-04", add: [{ ...yogurt, client_key: "bot:source:0", source }, { ...yogurt, client_key: "bot:source:1", source: "label estimate" }] });
+	const phase = (await call("get_phase_summary", { date: "2099-02-04" })).structuredContent as { day: Day };
+	for (const read of [logged.structuredContent as Day, await day("2099-02-04"), phase.day]) {
+		expect(read.entries.map((entry) => entry.source)).toEqual([source, "label estimate"]);
+	}
 });
 
 test("an argument name the tool does not know fails the call instead of being dropped", async () => {

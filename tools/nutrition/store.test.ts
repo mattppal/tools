@@ -55,9 +55,9 @@ await addTargets(
 test("adds food once per client key and totals it against targets", async () => {
 	await changeFood(client, "2026-11-20", { add: [{ ...egg, client_key: "a" }] }, "bot");
 	const day = await changeFood(client, "2026-11-20", { add: [{ ...egg, client_key: "a" }, { ...egg, food: "Rice", kcal: 400, source: undefined, client_key: "b" }] }, "ui");
-	expect(day.entries.map((entry) => [entry.food, entry.sourceKind, entry.sourceRef])).toEqual([
-		["Egg whites", "usda_fdc", "172183"],
-		["Rice", "estimate", null],
+	expect(day.entries.map((entry) => [entry.food, entry.sourceKind, entry.sourceRef, entry.source])).toEqual([
+		["Egg whites", "usda_fdc", "172183", "USDA FDC 172183 (Egg, white, raw)"],
+		["Rice", "estimate", null, ""],
 	]);
 	expect(day.totals.kcal).toBe(504);
 	expect(day.progress?.kcal).toEqual({ total: 504, min: 2650, max: 2850, status: "under" });
@@ -69,7 +69,7 @@ test("edits and removes entries on the day", async () => {
 	const [first, second] = before.entries;
 	const day = await changeFood(client, "2026-11-20", { edit: [{ id: first?.id ?? 0, qty: 100, kcal: 52, source: "a guess" }], remove: [second?.id ?? 0] }, "ui");
 	expect(day.entries).toHaveLength(1);
-	expect(day.entries[0]).toMatchObject({ qty: 100, kcal: 52, sourceKind: "estimate", sourceRef: null, sourceLabel: "a guess", clientKey: "a" });
+	expect(day.entries[0]).toMatchObject({ qty: 100, kcal: 52, sourceKind: "estimate", sourceRef: null, sourceLabel: "a guess", source: "a guess", clientKey: "a" });
 	expect((await changeFood(client, "2026-11-20", { remove: [second?.id ?? 0, 999, "never-added"] }, "ui")).entries).toHaveLength(1);
 });
 
