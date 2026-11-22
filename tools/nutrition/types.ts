@@ -39,6 +39,7 @@ export type CheckIn = {
 export type DayView = {
 	date: string;
 	closed: boolean;
+	closedAt: string | null;
 	estimated: boolean;
 	phase: string | null;
 	entries: FoodEntry[];

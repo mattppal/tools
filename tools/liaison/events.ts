@@ -7,6 +7,7 @@ export type DayClosedData = DayClosedSummary & { full: FullRecord };
 
 export type SessionFinishedData = {
 	sessionId: string;
+	day: string;
 	date: string;
 	name: string;
 	kind: string;
@@ -33,6 +34,7 @@ export function sessionFinishedData(sessionId: string, log: WorkoutLog): Session
 	const completed = log.exercises.filter((exercise) => exercise.status === "completed");
 	return {
 		sessionId,
+		day: log.date.slice(0, 10),
 		date: clip(log.date),
 		name: clip(log.name),
 		kind: clip(log.kind),
@@ -40,7 +42,7 @@ export function sessionFinishedData(sessionId: string, log: WorkoutLog): Session
 		weekId: clip(log.weekId),
 		dayId: clip(log.dayId),
 		exercises: { total: log.exercises.length, completed: completed.length, skipped: log.exercises.length - completed.length },
-		sets: completed.reduce((total, exercise) => total + exercise.sets.length, 0),
+		sets: completed.reduce((total, exercise) => total + exercise.sets.filter((set) => set.type === "working").length, 0),
 		full: { method: "GET", path: `/api/tools/workouts/sessions/${sessionId}` },
 	};
 }

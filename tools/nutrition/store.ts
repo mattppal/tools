@@ -98,6 +98,7 @@ export async function getDay(client: Database, date: string): Promise<DayView> {
 	return {
 		date,
 		closed: day?.["closed_at"] != null,
+		closedAt: day?.["closed_at"] == null ? null : new Date(day["closed_at"] as string | Date).toISOString(),
 		estimated: day?.["totals_estimated"] === true,
 		phase: (phase?.["kind"] as string | undefined) ?? null,
 		entries,

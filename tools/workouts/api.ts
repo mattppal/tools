@@ -138,6 +138,9 @@ export default defineToolApi(async (request, context) => {
 				return json(found.status === "finished" ? { session: found, log: buildLog(sessionRow(found)) } : { session: found });
 			}
 			if (method === "PATCH") {
+				const open = await db((client) => getSession(client, id));
+				if (open === null) return json({ error: "Session not found" }, 404);
+				if (open.status !== "open") return json({ error: "This session is finished" }, 409);
 				const input = await body(request);
 				await db((client) => updateSessionNotes(client, id, optionalNote(input.notes, "notes")));
 				return json({ session: await db((client) => getSession(client, id)) });
@@ -169,6 +172,9 @@ export default defineToolApi(async (request, context) => {
 		const exercise = EXERCISE.exec(path);
 		if (exercise !== null && method === "PATCH") {
 			const [, id = "", position = "0"] = exercise;
+			const open = await db((client) => getSession(client, id));
+			if (open === null) return json({ error: "Session not found" }, 404);
+			if (open.status !== "open") return json({ error: "This session is finished" }, 409);
 			const input = await body(request);
 			const status = input.status === "planned" || input.status === "completed" || input.status === "skipped" ? input.status : undefined;
 			if (input.status !== undefined && status === undefined) throw new BadRequest("status must be planned, completed or skipped");

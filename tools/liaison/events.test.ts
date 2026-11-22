@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { BOTS, type BotName, outOfScope } from "../../worker/access.ts";
 import type { Database } from "../../worker/db.ts";
 import { dayClosedSummary } from "../nutrition/store.ts";
 import { MACROS, type DayView } from "../nutrition/types.ts";
@@ -28,6 +29,7 @@ function widestDay(): DayView {
 	return {
 		date: "2099-12-31",
 		closed: true,
+		closedAt: new Date(8.64e15).toISOString(),
 		estimated: true,
 		phase: NASTY_TEXTS[0] ?? "",
 		entries: Array.from({ length: 10_000 }, () => entry),
@@ -89,4 +91,11 @@ test("clipped text keeps whole characters and ends in an ellipsis", () => {
 	expect(Array.from(name)).toHaveLength(80);
 	expect(name.endsWith("😀…")).toBe(true);
 	expect(sessionFinishedData(DELIVERY_ID, widestLog("W5 Legs")).name).toBe("W5 Legs");
+});
+
+test("full is readable only by the owning bot and the smoke identity", () => {
+	const reach = (tool: string, route: string) => (Object.keys(BOTS) as BotName[]).filter((bot) => outOfScope({ kind: "bot", bot }, tool, route) === null);
+	expect(reach("nutrition", "GET /day")).toEqual(["nutrition", "smoke"]);
+	expect(reach("workouts", `GET /sessions/${DELIVERY_ID}`)).toEqual(["coach", "smoke"]);
+	expect(Object.keys(BOTS)).not.toContain("liaison");
 });

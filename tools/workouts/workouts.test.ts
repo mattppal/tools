@@ -226,6 +226,12 @@ afterAll(() => server.stop(true));
 const KEY = "grok-routine-key_123";
 const env = { COACH_WEBHOOK_URL: server.url.href, COACH_WEBHOOK_KEY: KEY, LIAISON_WEBHOOK_URL: new URL("/liaison", server.url).href, LIAISON_WEBHOOK_KEY: "liaison-key" } as Env;
 
+async function call(method: string, path: string, input?: unknown) {
+	const request = new Request(`https://tools.example/api/tools/workouts${path}`, { method, ...(input === undefined ? {} : { body: JSON.stringify(input), headers: { "content-type": "application/json" } }) });
+	const response = await api(request, { env, ctx: { waitUntil: () => {} } as unknown as ExecutionContext, path, db, caller: { kind: "local" } });
+	return { status: response.status, json: (await response.json()) as Record<string, unknown> };
+}
+
 async function logOf(id: string) {
 	const session = await getSession(client, id);
 	if (session === null) throw new Error("missing session");
@@ -294,6 +300,7 @@ describe("session lifecycle", () => {
 					deliveryId,
 					data: {
 						sessionId: id,
+						day: "2026-11-23",
 						date: "2026-11-23T00:00:00-08:00",
 						name: "W5 Legs",
 						kind: "lift",
@@ -308,8 +315,21 @@ describe("session lifecycle", () => {
 			},
 		]);
 		expect(Object.keys(liaisonReceived[0]?.body ?? {})).toEqual(["app", "event", "deliveryId", "data"]);
-		const full = await api(new Request(`https://tools.example/api/tools/workouts/sessions/${id}`), { env, ctx: {} as ExecutionContext, path: `/sessions/${id}`, db, caller: { kind: "local" } });
-		expect(((await full.json()) as { log: unknown }).log).toEqual(received[0]?.body.log);
+		const full = await call("GET", `/sessions/${id}`);
+		expect(full).toMatchObject({ status: 200, json: { session: { id, status: "finished" }, log: received[0]?.body.log } });
+		expect(await call("PATCH", `/sessions/${id}`, { notes: "later" })).toEqual({ status: 409, json: { error: "This session is finished" } });
+		expect(await call("PATCH", `/sessions/${id}/exercises/0`, { notes: "later" })).toEqual({ status: 409, json: { error: "This session is finished" } });
+		expect((await call("GET", `/sessions/${id}`)).json).toEqual(full.json);
+		expect(await call("GET", `/sessions/${crypto.randomUUID()}`)).toEqual({ status: 404, json: { error: "Session not found" } });
+	});
+
+	test("an open session's GET has no log", async () => {
+		const day = findDay(program, "w5", "day-1");
+		if (day === null) throw new Error("missing day");
+		const id = await createSession(client, program.id, day, "2026-11-23", true);
+		const open = await call("GET", `/sessions/${id}`);
+		expect(open).toMatchObject({ status: 200, json: { session: { id, status: "open" } } });
+		expect(open.json).not.toHaveProperty("log");
 	});
 
 	test("a test session reaches coach and the liaison under one delivery id, and deleting it removes both rows", async () => {

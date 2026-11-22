@@ -27,12 +27,35 @@ tools talks to Matt's bots through one bot, the tools liaison. Every outbound ev
 | `app` / `event` | Relayed to | `data` |
 | --- | --- | --- |
 | `nutrition` / `day.closed` | nutrition bot | `date, closedAt, estimated, entries, totals, targets, progress, full`. `entries` is a count. `totals` is always present. `targets` and `progress` are null when no plan covers the day. `full` is `{ method: "GET", path: "/api/tools/nutrition/day?date=<date>" }`. |
-| `workouts` / `session.finished` | coach | `sessionId, date, name, kind, blockId, weekId, dayId` (text clipped to 80 characters), `exercises: { total, completed, skipped }`, `sets`, and `full: { method: "GET", path: "/api/tools/workouts/sessions/<sessionId>" }`, whose response has the openweight `log`. A test session's name starts with `TEST`. |
+| `workouts` / `session.finished` | coach | `sessionId, day, date, name, kind, blockId, weekId, dayId, exercises, sets, full`. See below. A test session's name starts with `TEST`. |
 | `tools` / `notice` | `data.for` | See below. |
+
+`session.finished` fields:
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId` | The session's UUID. The only id to key on. |
+| `day` | The session's date, `YYYY-MM-DD`, like `day.closed`'s `date`. |
+| `date` | The log's `date`: an ISO datetime with offset, Pacific midnight, e.g. `2026-11-23T00:00:00-08:00`. |
+| `name`, `kind`, `blockId`, `weekId`, `dayId` | Copied from the log. |
+| `exercises` | `{ total, completed, skipped }`. |
+| `sets` | Working sets on completed exercises. A skipped exercise's 0-rep set isn't counted. |
+| `full` | `{ method: "GET", path: "/api/tools/workouts/sessions/<sessionId>" }`. |
+
+Text fields (`date`, `name`, `kind`, `blockId`, `weekId`, `dayId`) are clipped by characters (Unicode code points) to 80, and a clipped value ends in `…`. Never use a clipped value as an id. Take ids from `full`.
+
+## Fetching `full`
+
+- Call `https://tools.mattpalmer.io` + `full.path` with `full.method` (always `GET`), the bot's usual Access headers (`CF-Access-Client-Id`, `CF-Access-Client-Secret`) and an explicit `User-Agent`.
+- `full` is for the bot that owns the record: nutrition bot for `GET /day`, coach for `GET /sessions/<id>`. Deny-by-default scopes (`BOTS` in `worker/access.ts`) give any other bot a 403 `Forbidden: bot <name> may not call <route> on <tool>`. The liaison has no `BOTS` entry, so it gets the allowlist 403 and can't fetch `full`. The `smoke` identity (tools-agent-verify) can also read both, for deploy checks.
+- `full` returns the live record, not a snapshot of what fired.
+  - `GET /api/tools/nutrition/day?date=<date>`: always 200 with the day view, which includes `closedAt`. A day can be reopened, edited and closed again; a new close sends a new `day.closed` with a new `deliveryId` and `closedAt`. Compare the fetched `closedAt` with the event's. They match when the day is unchanged since this close. `null` means the day is open again, or was deleted (a deleted or never-used day returns `closed: false`, `closedAt: null`, `entries: []`). A later value means a newer close, which has its own event. A malformed date gets 409 `{ "error": "Use a date like 2026-11-22" }`.
+  - `GET /api/tools/workouts/sessions/<sessionId>`: a finished session returns 200 `{ session, log }`, where `log` is the openweight WorkoutLog the direct webhook sends. A finished session can't be edited (set, note and exercise changes get 409 `{ "error": "This session is finished" }`), so `log` matches what fired. An open session returns 200 `{ session }` with `session.status: "open"` and no `log`. A deleted or unknown session gets 404 `{ "error": "Session not found" }` (finished test sessions can be deleted). A path that isn't a UUID gets 404 `{ "error": "Not found" }`.
+- Whenever `data.log` is missing from a `session.finished`, the receiver GETs `full` before logging, and never logs from the summary.
 
 ## Dual path until phase 2
 
-`day.closed` and `session.finished` still go straight to nutrition bot and coach through `tools/nutrition/webhook.ts` and `tools/workouts/webhook.ts`, unchanged, because the liaison can't retry onward. Both rows share one `deliveryId`, so each bot dedupes whichever copy arrives second. **Send again** requeues both, and deleting a test session deletes both. Phase 2 (`docs/webhook-simplification.md` in the Project store) removes the direct path after 7 clean days.
+`day.closed` and `session.finished` still go straight to nutrition bot and coach through `tools/nutrition/webhook.ts` and `tools/workouts/webhook.ts`, unchanged, because the liaison can't retry onward. Both rows share one `deliveryId`, so the two copies can be matched. Receivers dedupe per channel: only the direct copy (`X-Workouts-Delivery` for coach, `X-Nutrition-Delivery` for nutrition bot) marks a `deliveryId` as processed. A relayed copy (`X-Tools-Delivery`) is informational and never marks it. tools always sends the direct copy and the liaison copy; whether the liaison relays a copy onward is the liaison's choice (today it doesn't relay `session.finished` to coach). Phase 2 changes the direct hooks and needs its own contract review. **Send again** requeues both, and deleting a test session deletes both. Phase 2 (`docs/webhook-simplification.md` in the Project store) would remove the direct path after 7 clean days.
 
 ## Notices
 

@@ -124,6 +124,8 @@ test("closing from the UI queues one delivery that sends the key as a Bearer tok
 	const { event: _event, deliveryId: _deliveryId, ...legacyData } = (received[0]?.body["data"] ?? {}) as Record<string, unknown>;
 	expect(relayed?.body).toEqual({ app: "nutrition", event: "day.closed", deliveryId: first.deliveryId, data: { ...legacyData, full: { method: "GET", path: "/api/tools/nutrition/day?date=2026-11-20" } } });
 	expect(relayed?.body["data"]).toMatchObject({ totals: { kcal: 52 }, targets: { kcal: { min: 2650, max: 2850 } } });
+	expect((await getDay(client, "2026-11-20")).closedAt).toBe((relayed?.body["data"] as { closedAt: string }).closedAt);
+	expect(await getDay(client, "2098-06-01")).toMatchObject({ date: "2098-06-01", closed: false, closedAt: null, entries: [] });
 });
 
 test("a day no plan covers still sends totals, with targets null", async () => {

@@ -31,6 +31,7 @@ const totals = { kcal: 2_412, protein_g: 188, carbs_g: 301, fat_g: 66, fiber_g: 
 const day: DayView = {
 	date: isoDay(0),
 	closed: false,
+	closedAt: null,
 	estimated: true,
 	phase: "maintain",
 	entries: [],
