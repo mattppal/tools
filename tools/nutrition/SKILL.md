@@ -23,7 +23,7 @@ All routes are under `/api/tools/nutrition` and sit behind Cloudflare Access.
 | Route | Does |
 | --- | --- |
 | `GET /day?date=` | The day with entries, totals, targets, progress, and check-in. Defaults to today in America/Los_Angeles. |
-| `POST /day/food` | `{ date, add?, edit?, remove? }`. Each add takes a `client_key`, so a retry doesn't log twice. |
+| `POST /day/food` | `{ date, add?, edit?, remove? }`. Each add takes a `client_key`, so a retry doesn't log twice. An edit names its entry by `id` or `client_key`, and `remove` takes either. Removing an entry that is already gone is skipped. Every entry in the result carries its `clientKey`. |
 | `POST /day/close` | `{ date, test? }`. Closes the day and queues the webhook. |
 | `POST /day/reopen` | Reopens the day. |
 | `GET /history` | The last 400 days with totals, kcal target, and the partial flag. |
@@ -39,12 +39,16 @@ A rejected write, such as an edit to a closed day, returns `409 { error }`.
 
 | Tool | Flow |
 | --- | --- |
-| `log_food` | Add, edit, or remove entries on one day. Returns the day. |
+| `log_food` | Add, edit, or remove entries on one day. Returns the day. Same rules as `POST /day/food`. |
 | `update_day` | Read the day, or set bodyweight, steps, scores, notes, estimated totals, or closed. |
 | `update_targets` | Start a new plan version and optionally set the tracker's current kcal target. |
 | `get_phase_summary` | The tracker week and the day's progress. Read-only. |
 
 The bot sends three headers: `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `nutrition-bot` Access service token, and `Authorization: Bearer <BOT_TOKEN_NUTRITION>`.
+
+Since the 2026-11-22 cutover the bot logs each food through `log_food` as Matt reports it, and this database is the source of truth. Days on or after the cutover never come from `training-log`; rerun the import only with `--cutover 2026-11-22`.
+
+A retry is safe with the same body. An add whose `client_key` exists is skipped, an edit sets the same values again, and a remove of an entry that is already gone is skipped. A remove of an entry that sits on another day is rejected.
 
 ## Webhook
 

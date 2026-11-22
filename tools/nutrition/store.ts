@@ -40,6 +40,7 @@ function toEntry(row: Row): FoodEntry {
 		sourceKind: row["source_kind"] as SourceKind,
 		sourceRef: (row["source_ref"] as string | null) ?? null,
 		sourceLabel: String(row["source_label"]),
+		clientKey: String(row["client_key"]),
 	};
 }
 
@@ -118,19 +119,27 @@ function entryColumns(input: Partial<FoodInput>): Row {
 	return columns;
 }
 
+const keyColumn = (target: number | string): "id" | "client_key" => (typeof target === "number" ? "id" : "client_key");
+
+const entryName = (target: number | string): string => (typeof target === "number" ? String(target) : `with client_key ${target}`);
+
 export async function changeFood(client: Database, date: string, changes: FoodChanges, actor: Actor): Promise<DayView> {
 	return transaction(client, async () => {
 		await ensureOpenDay(client, date);
-		for (const id of changes.remove ?? []) {
-			const { rowCount } = await client.query("delete from nutrition.food_entries where id = $1 and day = $2", [id, date]);
-			if (rowCount === 0) throw new Rejected(`No entry ${id} on ${date}.`);
+		for (const target of changes.remove ?? []) {
+			const key = keyColumn(target);
+			const { rowCount } = await client.query(`delete from nutrition.food_entries where ${key} = $1 and day = $2`, [target, date]);
+			if (rowCount !== 0) continue;
+			const { rows } = await client.query<Row>(`select day::text as day from nutrition.food_entries where ${key} = $1`, [target]);
+			if (rows[0] !== undefined) throw new Rejected(`Entry ${entryName(target)} is on ${String(rows[0]["day"])}, not ${date}.`);
 		}
 		for (const edit of changes.edit ?? []) {
+			const target = edit.id ?? edit.client_key ?? "";
 			const columns = Object.entries(entryColumns(edit));
 			if (columns.length === 0) continue;
 			const sets = columns.map(([column], index) => `${column} = $${index + 3}`).join(", ");
-			const { rowCount } = await client.query(`update nutrition.food_entries set ${sets} where id = $1 and day = $2`, [edit.id, date, ...columns.map(([, value]) => value)]);
-			if (rowCount === 0) throw new Rejected(`No entry ${edit.id} on ${date}.`);
+			const { rowCount } = await client.query(`update nutrition.food_entries set ${sets} where ${keyColumn(target)} = $1 and day = $2`, [target, date, ...columns.map(([, value]) => value)]);
+			if (rowCount === 0) throw new Rejected(`No entry ${entryName(target)} on ${date}.`);
 		}
 		for (const add of changes.add ?? []) {
 			const columns = { source_kind: "estimate", source_ref: null, source_label: "", ...entryColumns(add), day: date, client_key: add.client_key ?? crypto.randomUUID(), created_by: actor };

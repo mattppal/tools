@@ -17,10 +17,20 @@ const foodInput = z.object({
 	source: z.string().optional().describe('"USDA FDC <id> (label)", "Open Food Facts <barcode> (label)", or a note for an estimate'),
 });
 
+const clientKey = z.string().min(1);
+
+const entryEdit = foodInput
+	.partial()
+	.extend({ id: z.number().int().optional(), client_key: clientKey.optional().describe("Picks the entry by the key it was added with, instead of id") })
+	.refine((edit) => (edit.id === undefined) !== (edit.client_key === undefined), "Send exactly one of id or client_key");
+
 export const foodChanges = z.object({
-	add: z.array(foodInput.extend({ client_key: z.string().min(1).optional().describe("Same key on a retry makes the add a no-op") })).optional(),
-	edit: z.array(foodInput.partial().extend({ id: z.number().int() })).optional(),
-	remove: z.array(z.number().int()).optional(),
+	add: z.array(foodInput.extend({ client_key: clientKey.optional().describe("Same key on a retry makes the add a no-op") })).optional(),
+	edit: z.array(entryEdit).optional(),
+	remove: z
+		.array(z.union([z.number().int(), clientKey]))
+		.optional()
+		.describe("Entry ids, or the client_key an entry was added with. An entry that is already gone is skipped, so a retry is safe"),
 });
 
 const score = z.number().min(0).max(10).nullable().optional();

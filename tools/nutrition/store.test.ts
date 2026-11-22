@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
 import { addTargets, changeFood, closeDayFromUi, getDay, getHistory, getPhase, Rejected, updateDay } from "./store.ts";
+import { foodChanges } from "./schemas.ts";
 import webhook from "./webhook.ts";
 
 const pg = new PGlite();
@@ -57,8 +58,25 @@ test("edits and removes entries on the day", async () => {
 	const [first, second] = before.entries;
 	const day = await changeFood(client, "2026-11-20", { edit: [{ id: first?.id ?? 0, qty: 100, kcal: 52, source: "a guess" }], remove: [second?.id ?? 0] }, "ui");
 	expect(day.entries).toHaveLength(1);
-	expect(day.entries[0]).toMatchObject({ qty: 100, kcal: 52, sourceKind: "estimate", sourceRef: null, sourceLabel: "a guess" });
-	await expect(changeFood(client, "2026-11-20", { remove: [999] }, "ui")).rejects.toBeInstanceOf(Rejected);
+	expect(day.entries[0]).toMatchObject({ qty: 100, kcal: 52, sourceKind: "estimate", sourceRef: null, sourceLabel: "a guess", clientKey: "a" });
+	expect((await changeFood(client, "2026-11-20", { remove: [second?.id ?? 0, 999, "never-added"] }, "ui")).entries).toHaveLength(1);
+});
+
+test("edits and removes by client key, and refuses an entry on another day", async () => {
+	await changeFood(client, "2026-11-19", { add: [{ ...egg, client_key: "k1" }, { ...egg, client_key: "k2" }] }, "bot");
+	const edited = await changeFood(client, "2026-11-19", { edit: [{ client_key: "k1", kcal: 90 }], remove: ["k2"] }, "bot");
+	expect(edited.entries.map((entry) => [entry.clientKey, entry.kcal])).toEqual([["k1", 90]]);
+	expect((await changeFood(client, "2026-11-19", { remove: ["k2"] }, "bot")).entries).toHaveLength(1);
+	await expect(changeFood(client, "2026-11-18", { remove: ["k1"] }, "bot")).rejects.toThrow("Entry with client_key k1 is on 2026-11-19, not 2026-11-18.");
+	await expect(changeFood(client, "2026-11-19", { edit: [{ client_key: "k2", kcal: 1 }] }, "bot")).rejects.toBeInstanceOf(Rejected);
+	await pg.query("delete from nutrition.food_entries where day in ('2026-11-18', '2026-11-19')");
+	await pg.query("delete from nutrition.days where day in ('2026-11-18', '2026-11-19')");
+});
+
+test("an edit names exactly one of id or client_key", () => {
+	expect(foodChanges.safeParse({ edit: [{ kcal: 1 }] }).success).toBe(false);
+	expect(foodChanges.safeParse({ edit: [{ id: 1, client_key: "a", kcal: 1 }] }).success).toBe(false);
+	expect(foodChanges.safeParse({ edit: [{ client_key: "a", kcal: 1 }], remove: [1, "b"] }).success).toBe(true);
 });
 
 test("closing from the UI queues one delivery that sends the key as a Bearer token", async () => {

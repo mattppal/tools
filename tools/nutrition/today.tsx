@@ -239,7 +239,7 @@ export function Today() {
 		const parsed = parse(editor.draft);
 		if (typeof parsed === "string") return setEditor({ ...editor, error: parsed });
 		if (editor.id === null) {
-			const pending: FoodEntry = { id: -Date.now(), ...parsed, fiber_g: null, sourceKind: "estimate", sourceRef: null, sourceLabel: "" };
+			const pending: FoodEntry = { id: -Date.now(), ...parsed, fiber_g: null, sourceKind: "estimate", sourceRef: null, sourceLabel: "", clientKey: editor.clientKey };
 			void change(day, [...day.entries, pending], { add: [{ ...parsed, client_key: editor.clientKey }] }, editor);
 		} else {
 			const id = editor.id;
