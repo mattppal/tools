@@ -63,9 +63,9 @@ function ExerciseList({ day }: { day: ScheduleDay }) {
 		return (
 			<ol className={styles.exerciseList}>
 				{day.logged.map((exercise, index) => (
-					<li key={index} className={styles.exerciseLine}>
+					<li key={index} className={cn(styles.exerciseLine, styles.loggedLine)}>
 						<span className={styles.exerciseName}>{exercise.name}</span>
-						<span className={styles.exerciseRx}>{exercise.summary}</span>
+						<span className={styles.loggedSets}>{exercise.summary}</span>
 					</li>
 				))}
 			</ol>

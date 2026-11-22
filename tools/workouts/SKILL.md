@@ -1,6 +1,6 @@
 ---
 name: tool-workouts
-description: The Workouts tool at /workouts. Reads Matt's program from training-log, logs sessions set by set in Postgres, and sends each finished session to the coach bot by webhook. Use when changing tools/workouts/, the coach webhook, or how sessions are logged.
+description: The Workouts tool at /workouts. Mirrors Matt's training-log repo into Postgres, shows its weeks, logs sessions set by set in Postgres, and sends each finished session to the coach bot by webhook. Use when changing tools/workouts/, the coach webhook, or how sessions are logged.
 ---
 
 # Workouts
@@ -17,7 +17,18 @@ Shows today's prescribed session from training-log, logs it set by set in the gy
 
 ## Read path
 
-`github.ts` reads `mattppal/training-log` through the GitHub contents API with the `TRAINING_LOG_TOKEN` secret, a fine-grained token with read-only Contents access. Each `GET /program` lists `program/` and `sessions/`, then fetches block files from newest to oldest until one contains today (Pacific time). Nothing is cached.
+training-log is the source of truth, and the `workouts` schema holds a read model of it. Requests and screens read only the database. Nothing reads GitHub per request.
+
+`sync.ts` keeps the mirror current. `cron.ts` runs it on the Worker's one-minute trigger through `defineToolCron`, and bots can force a run with `POST /sync`.
+
+1. `GET /repos/mattppal/training-log/commits/main` with `Accept: application/vnd.github.sha` and `If-None-Match` set to the stored ETag. A 304 ends the run and doesn't count against the rate limit.
+2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json` and `sessions/*.json`.
+3. Fetch only the blobs whose SHA differs from `repo_files.sha`, at most 40 per run to stay under the Worker's subrequest limit.
+4. In one transaction, under an advisory lock, upsert those files, delete paths that left the tree, and record `head_sha`. When more than 40 blobs changed, the run saves its batch, clears the ETag, and leaves `head_sha` alone, so the next minute picks up the rest.
+
+The token is `TRAINING_LOG_TOKEN`, a fine-grained token with read-only Contents access. A failed run records `last_error` and leaves the mirror as it was. Files that aren't valid JSON are stored with `parse_error` and skipped by the reader. There is no git clone, since Workers have no filesystem.
+
+`schedule.ts` builds the screens from the mirror. Every week of every block file is listed in date order, so past weeks and weeks coach builds ahead all show. A repo session file belongs to a day by its `blockId`, `weekId`, and `dayId` fields, or else by a name like `YYYY-MM-DD-<x>-w<N>-d<N>.json` dated inside a block.
 
 `program.ts` turns a block file into days. The week comes from `calendar.weeks` and the date from `calendar.weekPattern`. Each lift resolves to one prescription:
 
@@ -27,12 +38,13 @@ Shows today's prescribed session from training-log, logs it set by set in the gy
 | `progression: "double_progression"` | `accessoryStartLoads[id]`, with the lift's `repRange`, `setsByWeek`, or `deloadSets` in the deload week |
 | anything else | the lift's own `load`, `sets`, and reps |
 
-A text load, such as `"find a weight"` or `"+42.5"`, is shown as text and never parsed. A day counts as logged in the repo when `sessions/` has a file named `YYYY-MM-DD-<x>-w<N>-d<N>.json` dated inside the block.
+A text load, such as `"find a weight"` or `"+42.5"`, is shown as text and never parsed.
 
 ## Screens
 
-- **Today** shows the first day from this week on that isn't logged in the repo or the app, with **Start session**, or **Continue logging** if one is open.
-- **Week** lists this week and next. A day's button says what's left to do: **Start session**, **Continue logging**, or **View session**. Days already in training-log have no button.
+- **Today** shows the first day from the current week on that isn't logged in the repo or the app, with **Start session**, or **Continue logging** if one is open.
+- **Week** opens on the current week, with arrows to every earlier and later week in the mirror. A day's button says what's left to do: **Start session**, **Continue logging**, or **View session**. Days already in training-log have no button and show the logged sets as the repo has them.
+- Today and Week end with a quiet line, `Synced <sha> · <time>`, plus the last sync error if there is one.
 - **History** lists sessions logged in the app, with the delivery state in plain words. Test sessions start with "Test ·".
 - **Logging** shows one exercise at a time. Each set has weight and reps fields, an **As written** button, and RIR chips from 0 to 6. Every change saves at once, and a failed save shows **Retry**. The bottom bar moves between exercises. **Review** opens the right panel, where Matt adds a session note, finishes, or discards the session.
 
@@ -44,9 +56,10 @@ All routes are under `/api/tools/workouts`.
 
 | Route | Does |
 | --- | --- |
-| `GET /program` | `{ schedule, webhookReady }`. A failed read returns 502 with `code` set to `missing_token`, `no_access`, or `github`. |
+| `GET /program?week=<blockId>/<weekId>` | `{ today, weeks, currentWeek, week, next, sync, webhookReady }` from the mirror. Without `week`, the current week. |
+| `POST /sync` | Bots only, through `requireBot`. Runs one sync now. `?force=1` skips the ETag check. Returns `{ result, sync }`, or 502 when the run fails. |
 | `GET /sessions` | The latest 100 sessions with their delivery state |
-| `POST /sessions` | `{ weekId, dayId, test? }`. Creates the session from the current program, or returns the open one for that day. |
+| `POST /sessions` | `{ blockId, weekId, dayId, test? }`. Creates the session from the mirrored program, or returns the open one for that day. |
 | `GET`, `PATCH`, `DELETE /sessions/:id` | Read, set the session note, or discard. Only open or test sessions can be deleted. |
 | `PUT`, `DELETE /sessions/:id/sets/:position/:index` | Save or clear one set. Open sessions only. |
 | `PATCH /sessions/:id/exercises/:position` | `{ status?: "planned" \| "skipped", notes? }` |
@@ -55,7 +68,7 @@ All routes are under `/api/tools/workouts`.
 
 ## Data
 
-Schema `workouts`, created by `migrations/0001-create-sessions.sql`.
+Schema `workouts`, created by `migrations/0001-create-sessions.sql` and `0002-create-repo-mirror.sql`.
 
 | Table | Holds |
 | --- | --- |
@@ -63,6 +76,8 @@ Schema `workouts`, created by `migrations/0001-create-sessions.sql`.
 | `exercises` | One row per program lift, keyed by `(session_id, position)`, with the resolved prescription in `prescribed` and `status` (`planned`, `completed`, or `skipped`) |
 | `sets` | One row per logged set, keyed by `(session_id, position, set_index)`: `weight`, `unit`, `reps`, `rir`, `as_written`, `notes` |
 | `deliveries` | The shared `worker/webhooks.ts` delivery table, plus `session_id` |
+| `repo_files` | One row per mirrored `program/` or `sessions/` JSON file: `path`, blob `sha`, `kind`, `content`, `parse_error` |
+| `repo_sync` | One row: `head_sha` and `head_etag` of the last complete sync, `synced_at`, `checked_at`, `last_error` |
 
 ## Webhook to coach
 
@@ -105,4 +120,4 @@ Cases 3, 10, 11, and 12 have no interim behavior.
 
 ## Tests
 
-`bun test ./tools/workouts` runs the resolver, set parsing, and the full session lifecycle against PGlite, including the exact `Authorization` header and a redelivery that reuses the delivery ID.
+`bun test ./tools/workouts` runs the resolver, week building, set parsing, and the full session lifecycle against PGlite, including the exact `Authorization` header and a redelivery that reuses the delivery ID. The sync tests use a fake GitHub to cover the 304 path, fetching only changed blobs, removed files, a tree larger than one batch, and a failed run.
