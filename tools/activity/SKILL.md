@@ -80,7 +80,7 @@ Size limits. A Worker has 128 MB of memory and Cloudflare caps request bodies at
 A push with `step_count`, `walking_running_distance`, `active_energy` or `basal_energy_burned` recomputes those local days from everything stored, so a day split across batched requests comes out whole:
 - Steps are summed per source per local day (the reading's own UTC offset). The day takes the single Apple source with the most steps, usually the iPhone or the Watch, never their sum, because both count the same walking. `raw.steps` keeps every source's total.
 - `distance_m` comes from that same source; `active_kcal` from the source with the most active energy, and `total_kcal` from that source's active plus basal energy.
-- The row is `activity.days` with source `apple_health`. `daily_activity` then keeps one source per day, the one with the most steps; ties go to Withings, then Apple Health, then manual. The two are never added: Withings steps in this account are HealthKit data relayed by Health Mate, whose import stopped for whole months (2022-08 onward; see `internal/withings-steps-gap.md` in the Project store) and left zero runs and partial edge days that the larger Apple count replaces. The day's other columns come from the same row.
+- The row is `activity.days` with source `apple_health`. `daily_activity` then keeps one source per day, the one with the most steps; ties go to Withings, then Apple Health, then manual. The two are never added: Withings steps in this account are HealthKit data relayed by Health Mate, whose import stopped for whole months (2022-08 onward; see `internal/withings-steps-gap.md` in the Project store) and left zero runs and partial edge days that the larger Apple count replaces. `distance_m` comes from the same row. When Withings has the day, `active_kcal`, `total_kcal`, `elevation_m` and the intensity seconds come from Withings even if Apple won the steps, because before the Watch (December 2022) Apple's active energy is only what workout apps wrote and it has no basal energy (migration 0007).
 
 ## Nights
 
@@ -120,7 +120,7 @@ Schema `activity`, from `migrations/`. Other tools read it through the functions
 | Table or view | Holds |
 | --- | --- |
 | `days` | Key `(day, source)`. `source` is `withings`, `apple_health`, or `manual`. `steps`, `active_kcal`, `total_kcal`, `distance_m`, `elevation_m`, `soft_s`, `moderate_s`, `intense_s`, `hr_avg`, `hr_min`, `hr_max`, `hr_zone_0_s` to `hr_zone_3_s`, `device`, `raw`, `updated_by`, `updated_at`. |
-| `daily_activity` | One row per day: the source with the most steps, ties going to Withings, then Apple Health, then manual. Read this, not `days`. |
+| `daily_activity` | One row per day: steps and distance from the source with the most steps, ties going to Withings, then Apple Health, then manual; kcal, elevation and intensity from Withings when it has the day. Read this, not `days`. |
 | `withings` | The connection: user id, scope, encrypted tokens, expiry, backfill cursor and offset, the `getmeas` cursor (`meas_lastupdate`, `meas_pending_lastupdate`, `meas_offset`), last syncs, last error, and the claim. |
 | `withings_streams` | Cursor state per feed (`measures`, `workouts`, `sleep`, `intraday`), with `synced_at` and `done_at`. |
 | `withings_measures` | Key `(grpid, type)`. Every real body measure, `value = value * 10^unit`. `weight_kg`, fat, muscle, bone, hydration, BP, pulse, SpO2, temperature, PWV, and so on. |

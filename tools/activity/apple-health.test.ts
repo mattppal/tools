@@ -253,6 +253,15 @@ test("daily steps take the one Apple source with the most steps each local day, 
 		{ day: "2026-11-20", source: "apple_health", steps: 5580 },
 		{ day: "2026-11-21", source: "apple_health", steps: 2100 },
 	]);
+	await pg.query("update activity.days set total_kcal = 2010, elevation_m = 12, moderate_s = 900 where source = 'withings' and day = '2026-11-20'");
+	expect(
+		await rows(
+			"select day::text as day, source, steps, active_kcal::float8 as active, total_kcal::float8 as total, distance_m::float8 as distance, elevation_m::float8 as elevation, moderate_s from activity.daily_activity order by day",
+		),
+	).toEqual([
+		{ day: "2026-11-20", source: "apple_health", steps: 5580, active: 350, total: 2010, distance: 3800, elevation: 12, moderate_s: 900 },
+		{ day: "2026-11-21", source: "apple_health", steps: 2100, active: 0, total: null, distance: null, elevation: null, moderate_s: null },
+	]);
 	await pg.query("update activity.days set steps = 7100 where source = 'withings' and day = '2026-11-20'");
 	expect(await rows("select day::text as day, source, steps from activity.daily_activity where day = '2026-11-20'")).toEqual([{ day: "2026-11-20", source: "withings", steps: 7100 }]);
 	const later = JSON.stringify({
