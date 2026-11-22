@@ -172,10 +172,10 @@ const APP_ROUTES = [
 	["liaison", "POST /notices"],
 ] as const;
 
-const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && route.startsWith("GET ")).map(([tool, route]) => `${tool} ${route}`);
+const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && route.startsWith("GET ") && route !== "GET /withings/connect").map(([tool, route]) => `${tool} ${route}`);
 
 const REACHABLE: Record<string, readonly string[]> = {
-	nutrition: [...APP_ROUTES.filter(([tool]) => tool === "nutrition").map(([tool, route]) => `${tool} ${route}`), "activity GET /days", "activity GET /weights", "activity GET /health"],
+	nutrition: [...APP_ROUTES.filter(([tool, route]) => tool === "nutrition" && (route.startsWith("GET ") || route === "POST /mcp")).map(([tool, route]) => `${tool} ${route}`), "activity GET /days", "activity GET /weights", "activity GET /health"],
 	coach: [...APP_ROUTES.filter(([tool]) => tool === "workouts").map(([tool, route]) => `${tool} ${route}`), "activity GET /workouts"],
 	coordinator: ["liaison GET /deliveries", "liaison POST /notices"],
 	smoke: [...SMOKE_READS, "nutrition POST /mcp"],
@@ -190,9 +190,11 @@ test("a bot identity reaches only its scopes, on app routes as well as bot route
 	}
 });
 
-test("smoke never writes outside the nutrition MCP", () => {
-	const writes = APP_ROUTES.filter(([tool, route]) => !route.startsWith("GET ") && outOfScope({ kind: "bot", bot: "smoke" }, tool, route) === null);
-	expect(writes).toEqual([["nutrition", "POST /mcp"]]);
+test("neither smoke nor the nutrition bot writes outside the nutrition MCP", () => {
+	for (const bot of ["smoke", "nutrition"] as const) {
+		const writes = APP_ROUTES.filter(([tool, route]) => !route.startsWith("GET ") && outOfScope({ kind: "bot", bot }, tool, route) === null);
+		expect({ bot, writes }).toEqual({ bot, writes: [["nutrition", "POST /mcp"]] });
+	}
 });
 
 test("the owner, localhost and public routes are never scope-checked", async () => {

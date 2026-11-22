@@ -41,7 +41,7 @@ All of them sit behind the Access app "tools - Cloudflare Workers".
 
 ## Verify through Access
 
-Use the service token `tools-agent-verify` (bot `smoke`), which has a Service Auth policy on that app. It may read `/api/health`, `/api/debug` and every GET on nutrition, workouts and activity, and call the nutrition MCP; every other route answers 403. Get its client ID and secret from whoever runs the task; never commit them.
+Use the service token `tools-agent-verify` (bot `smoke`), which has a Service Auth policy on that app. It may read `/api/health`, `/api/debug`, every GET on nutrition and workouts, and the activity reads (not `/withings/connect`), and call the nutrition MCP; every other route answers 403. Get its client ID and secret from whoever runs the task; never commit them.
 
 ```bash
 curl -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" https://tools.mattpalmer.io/api/health
