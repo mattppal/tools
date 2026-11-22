@@ -342,10 +342,16 @@
 	.summary {
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 	}
+
+	.summaryWide {
+		grid-column: span 2;
+	}
 }
 
 .summaryLink {
 	padding: 0;
+	text-align: start;
+	white-space: nowrap;
 	border: 0;
 	background: none;
 	font: inherit;

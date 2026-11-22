@@ -334,7 +334,7 @@ export function SeriesSummary({ items }: { items: SummaryItem[] }) {
 	return (
 		<dl className={styles.summary}>
 			{items.map((item) => (
-				<div key={item.label}>
+				<div key={item.label} className={item.onClick === undefined ? undefined : styles.summaryWide}>
 					<dt>{item.label}</dt>
 					<dd {...item.tone}>
 						{item.onClick === undefined ? (
