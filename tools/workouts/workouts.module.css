@@ -364,7 +364,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	width: 72px;
+	width: 68px;
 	flex-shrink: 0;
 }
 
@@ -385,10 +385,14 @@
 	height: var(--hit);
 	flex: 1;
 	min-width: 0;
+	gap: var(--space-1);
 	justify-content: center;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	padding-inline: var(--space-2);
+	line-height: 1.2;
 	font-variant-numeric: tabular-nums;
+	text-align: center;
+	text-wrap: balance;
+	white-space: normal;
 }
 
 .rirRow {
