@@ -1,7 +1,7 @@
 import { defineTool } from "../../src/tool.ts";
 
 export default defineTool({
-	name: "Activity",
-	description: "Daily steps, active calories, and distance, one row per day.",
-	icon: "sparkles",
+	name: "Withings",
+	description: "Daily steps from Withings, shown inside Nutrition.",
+	hidden: true,
 });

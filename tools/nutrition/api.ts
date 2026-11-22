@@ -2,9 +2,9 @@ import { z } from "zod";
 import { defineToolApi } from "../../worker/tool-api.ts";
 import { deliverSoon } from "../../worker/webhooks.ts";
 import { nutritionMcp } from "./bot.ts";
-import { today } from "./dates.ts";
+import { addDays, today } from "./dates.ts";
 import { foodChanges, isoDate } from "./schemas.ts";
-import { changeFood, closeDayFromUi, getDay, getHistory, getPhase, getWeights, Rejected, updateDay } from "./store.ts";
+import { changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, getWeights, Rejected, updateDay } from "./store.ts";
 import webhook from "./webhook.ts";
 
 const dated = z.object({ date: isoDate });
@@ -48,6 +48,12 @@ export default defineToolApi(async (request, context) => {
 				return Response.json(await db(getHistory));
 			case "GET /weights":
 				return Response.json(await db(getWeights));
+			case "GET /expenditure": {
+				const to = url.searchParams.get("to") ?? today();
+				const from = url.searchParams.get("from") ?? addDays(to, -89);
+				if (!isoDate.safeParse(from).success || !isoDate.safeParse(to).success || from > to) throw new Rejected("Use dates like 2026-11-22, from before to");
+				return Response.json(await db((client) => getExpenditure(client, from, to)));
+			}
 			case "GET /phase":
 				return Response.json(await db((client) => getPhase(client)));
 			default:

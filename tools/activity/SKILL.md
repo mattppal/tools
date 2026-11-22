@@ -1,6 +1,6 @@
 ---
 name: tool-activity
-description: "The Activity tool at /activity. Daily steps, active calories, and distance pulled from Withings into activity.days, and Withings weigh-ins into nutrition.weigh_ins, which nutrition reads for steps, weight, and TDEE. Covers the Withings OAuth connect and callback routes, token storage, the sync cron, and the backfill. Use when changing tools/activity/ or anything that reads daily activity."
+description: "Daily steps, active calories, and distance pulled from Withings into activity.days, and Withings weigh-ins into nutrition.weigh_ins, which nutrition reads for steps and weight. No page of its own; the Withings status is under Settings. Covers the Withings OAuth connect and callback routes, token storage, the sync cron, and the backfill. Use when changing tools/activity/ or anything that reads daily activity."
 ---
 
 # Activity
@@ -9,7 +9,7 @@ One row per day of steps, active kcal, total kcal, and distance. Withings is the
 
 ## UI
 
-`/activity` lists the last 90 days, newest first: date and miles on the left, steps and active kcal on the right. A muted line above the list says where the data comes from, or the last sync error. No sections and no Details panel.
+No page. `tool.ts` is hidden, so the sidebar and home skip it, and its debug rows show under Withings on `/settings`. Nutrition shows the steps on Today, Weight, and History.
 
 ## Withings connection
 
@@ -39,7 +39,7 @@ Reconnecting the same Withings user keeps the backfill progress. A different use
 
 The call is Measure v2 `getactivity` with `steps,distance,elevation,soft,moderate,intense,active,calories,totalcalories`. When Withings returns more than one row for a date, the row with the most steps wins and `raw` keeps all of them. An upsert that changes nothing writes nothing.
 
-A failed run stores `last_error`. An auth failure says to reconnect at `/api/withings/connect`. The debug rows under Activity on `/settings` show the connection, scope, last refresh, last 7-day sync, backfill progress, and any error.
+A failed run stores `last_error`. An auth failure says to reconnect at `/api/withings/connect`. The debug rows under Withings on `/settings` show the connection, scope, last refresh, last 7-day sync, backfill progress, and any error.
 
 ## Weight parity rules
 

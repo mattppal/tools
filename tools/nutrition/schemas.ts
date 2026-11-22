@@ -57,6 +57,7 @@ export const targetsInput = z.object({
 	carbs_g: range,
 	notes: z.string().optional().describe("Goal, rules, and other plan text. Defaults to the previous version's notes"),
 	change: z.string().min(1).describe("What changed and why"),
+	steps_target: z.number().int().positive().nullable().optional().describe("Daily steps target. Omit to keep the previous version's target; null removes it"),
 	current_kcal_target: z.number().int().positive().optional().describe("Sets the phase tracker's current kcal target, for example to apply the suggested kcal"),
 });
 

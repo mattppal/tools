@@ -7,7 +7,7 @@ import { addDays, dayNumber, isIsoDate, isoDate, today } from "./dates.ts";
 import styles from "./nutrition.module.css";
 import type { WeightRow } from "./types.ts";
 import { dayLabel, tenths, useJson, VIEWS, whole } from "./ui.tsx";
-import type { PhaseView } from "./store.ts";
+import type { ExpenditureView, PhaseView } from "./store.ts";
 import { type Average, changeTone, type DateRange, inRange, nearestIndex, type Tone, toneStrength, type Preset, presetRange, type Sort, type SortKey, sortEntries, summarize, type WeightEntry, withChanges } from "./weights.ts";
 
 const PRESETS: { id: Preset; label: string }[] = [
@@ -189,9 +189,11 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 	);
 }
 
-function Summary({ rows, average, phaseKind }: { rows: WeightRow[]; average: Average; phaseKind: string | null }) {
+function Summary({ rows, average, phaseKind, range }: { rows: WeightRow[]; average: Average; phaseKind: string | null; range: DateRange }) {
 	const summary = summarize(rows, average);
+	const [energy] = useJson<ExpenditureView>(`/expenditure?from=${range.from}&to=${range.to}`);
 	if (summary === null) return null;
+	const spent = energy.status === "ready" ? energy.data : null;
 	const items: { label: string; value: string; tone?: ReturnType<typeof tint> }[] = [
 		{ label: "Start", value: `${tenths(summary.start)} lb` },
 		{ label: "End", value: `${tenths(summary.end)} lb` },
@@ -202,6 +204,7 @@ function Summary({ rows, average, phaseKind }: { rows: WeightRow[]; average: Ave
 			: { label: "Weekly rate", value: `${signedHundredths(summary.weeklyRate)} lb a week`, tone: tint(summary.weeklyRate, phaseKind, FLAT_RATE, FULL_WEEKLY_RATE) },
 	];
 	return (
+		<>
 		<dl className={styles.summary}>
 			{items.map((item) => (
 				<div key={item.label}>
@@ -210,6 +213,24 @@ function Summary({ rows, average, phaseKind }: { rows: WeightRow[]; average: Ave
 				</div>
 			))}
 		</dl>
+			{spent === null ? null : (
+				<dl className={styles.summary}>
+					<div>
+						<dt>Expenditure</dt>
+						<dd>{spent.tdee === null ? "Not enough logged days" : `${whole(spent.tdee)} kcal a day`}</dd>
+						<dd className={styles.summaryNote}>
+							from {whole(spent.loggedDays)} logged {spent.loggedDays === 1 ? "day" : "days"}
+						</dd>
+					</div>
+					{spent.avgSteps === null ? null : (
+						<div>
+							<dt>Steps</dt>
+							<dd>{whole(spent.avgSteps)} a day</dd>
+						</div>
+					)}
+				</dl>
+			)}
+		</>
 	);
 }
 
@@ -365,7 +386,7 @@ export function Weight() {
 					</div>
 				) : (
 					<>
-						<Summary rows={selected} average={average} phaseKind={phaseKind} />
+						<Summary rows={selected} average={average} phaseKind={phaseKind} range={range} />
 						<Chart rows={selected} average={average} showPoints={showPoints} showTrend={showTrend} onBrush={(next) => choose({ preset: null, range: next })} />
 						<p className={styles.hint}>Drag across the chart to zoom in.</p>
 						<WeightTable rows={selected} average={average} phaseKind={phaseKind} sort={sort} onSort={sortBy} page={page} onPage={setPage} />

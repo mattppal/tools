@@ -61,7 +61,15 @@ function goTo(date: string) {
 	navigate(date === today() ? "/nutrition" : `/nutrition?date=${date}`);
 }
 
-function Bar({ label, unit, progress }: { label: string; unit: string; progress: MacroProgress }) {
+function stepsLine(day: DayView): string | null {
+	const { steps } = day.checkIn;
+	if (steps === null) return null;
+	const target = day.targets?.stepsTarget ?? null;
+	if (target === null) return `${whole(steps)} steps`;
+	return `${whole(steps)} steps · ${steps < target ? `${whole(target - steps)} to go` : "target met"}`;
+}
+
+function Bar({ label, unit, progress, footnote }: { label: string; unit: string; progress: MacroProgress; footnote?: string | null }) {
 	const { total, min, max, status } = progress;
 	const scale = Math.max(max * 1.15, total, 1);
 	const at = (value: number) => Math.min(value / scale, 1);
@@ -85,6 +93,7 @@ function Bar({ label, unit, progress }: { label: string; unit: string; progress:
 				<div className={styles.band} style={{ left: `${at(min) * 100}%`, width: `${(at(max) - at(min)) * 100}%` }} />
 				<div className={styles.fill} style={{ transform: `scaleX(${at(total)})` }} />
 			</div>
+			{footnote ? <span className={styles.barFootnote}>{footnote}</span> : null}
 		</div>
 	);
 }
@@ -104,7 +113,7 @@ function checkInLine(checkIn: CheckIn): string[] {
 }
 
 function DaySummary({ day }: { day: DayView }) {
-	const checkIn = checkInLine(day.checkIn);
+	const checkIn = checkInLine(day.progress === null ? day.checkIn : { ...day.checkIn, steps: null });
 	return (
 		<>
 			{day.progress === null ? (
@@ -112,7 +121,7 @@ function DaySummary({ day }: { day: DayView }) {
 			) : (
 				<div className={styles.bars}>
 					{BARS.map((bar) => (
-						<Bar key={bar.macro} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress} />
+						<Bar key={bar.macro} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress} footnote={bar.macro === "kcal" ? stepsLine(day) : null} />
 					))}
 				</div>
 			)}

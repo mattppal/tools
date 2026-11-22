@@ -2,7 +2,7 @@ export const MACROS = ["kcal", "protein_g", "carbs_g", "fat_g"] as const;
 export type Macro = (typeof MACROS)[number];
 
 export type Range = { min: number; max: number };
-export type Targets = Record<Macro, Range> & { effectiveFrom: string; notes: string };
+export type Targets = Record<Macro, Range> & { effectiveFrom: string; notes: string; stepsTarget: number | null };
 export type Totals = Record<Macro | "fiber_g", number>;
 type MacroStatus = "under" | "in" | "over";
 export type MacroProgress = Range & { total: number; status: MacroStatus };
@@ -49,7 +49,7 @@ export type DayView = {
 
 export const PARTIAL_DAY_SHARE = 0.5;
 
-export type HistoryDay = { date: string; closed: boolean; entries: number; kcalTarget: number | null; partial: boolean } & Record<Macro, number>;
+export type HistoryDay = { date: string; closed: boolean; entries: number; kcalTarget: number | null; partial: boolean; steps: number | null } & Record<Macro, number>;
 
 export function isPartialDay(day: { closed: boolean; entries: number; kcal: number; kcalTarget: number | null }): boolean {
 	return day.closed && day.entries > 0 && day.kcalTarget !== null && day.kcal < day.kcalTarget * PARTIAL_DAY_SHARE;

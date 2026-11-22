@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
-import { addTargets, changeFood, closeDayFromUi, getDay, getHistory, getPhase, Rejected, updateDay } from "./store.ts";
+import { addTargets, changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, Rejected, updateDay } from "./store.ts";
 import { foodChanges } from "./schemas.ts";
 import webhook from "./webhook.ts";
 
@@ -138,7 +138,15 @@ test("plan versions are never edited", async () => {
 	const input = { effective_from: "2026-11-01", kcal: { min: 1, max: 2 }, protein_g: { min: 1, max: 2 }, fat_g: { min: 1, max: 2 }, carbs_g: { min: 1, max: 2 }, change: "x" };
 	await expect(addTargets(client, input, "bot")).rejects.toBeInstanceOf(Rejected);
 	const next = await addTargets(client, { ...input, effective_from: "2026-11-24" }, "bot");
-	expect(next.notes).toBe("Plan");
+	expect(next).toMatchObject({ notes: "Plan", stepsTarget: null });
+});
+
+test("a steps target carries forward until a version changes it", async () => {
+	const input = { kcal: { min: 2650, max: 2850 }, protein_g: { min: 180, max: 220 }, fat_g: { min: 60, max: 90 }, carbs_g: { min: 250, max: 350 }, change: "Steps" };
+	expect((await addTargets(client, { ...input, effective_from: "2026-12-01", steps_target: 10000 }, "bot")).stepsTarget).toBe(10000);
+	expect((await addTargets(client, { ...input, effective_from: "2026-12-02" }, "bot")).stepsTarget).toBe(10000);
+	expect((await addTargets(client, { ...input, effective_from: "2026-12-03", steps_target: null }, "bot")).stepsTarget).toBeNull();
+	expect((await getDay(client, "2026-12-01")).targets?.stepsTarget).toBe(10000);
 });
 
 test("summarizes the open phase", async () => {
@@ -156,4 +164,16 @@ test("steps come from activity when Withings has the day", async () => {
 	await pg.query("insert into activity.days (day, source, steps, updated_by) values ('2026-11-25', 'withings', 11234, 'test'), ('2026-11-26', 'withings', 9000, 'test')");
 	expect((await getDay(client, "2026-11-25")).checkIn.steps).toBe(11234);
 	expect((await getDay(client, "2026-11-26")).checkIn).toMatchObject({ steps: 9000, notes: "" });
+});
+
+test("history shows each day's steps, nothing when there are none", async () => {
+	const history = await getHistory(client);
+	expect(history.find((day) => day.date === "2026-11-25")?.steps).toBe(11234);
+	expect(history.find((day) => day.date === "2026-11-20")?.steps).toBeNull();
+});
+
+test("expenditure needs 14 full logged days and averages steps over the range", async () => {
+	const spent = await getExpenditure(client, "2026-11-01", "2026-11-30");
+	expect(spent).toMatchObject({ tdee: null, avgSteps: Math.round((11234 + 9000) / 2), stepDays: 2 });
+	expect((await getExpenditure(client, "2027-01-01", "2027-01-31")).avgSteps).toBeNull();
 });

@@ -67,6 +67,13 @@
 	color: var(--text-3);
 }
 
+.barFootnote {
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+}
+
 .track {
 	position: relative;
 	height: 6px;
@@ -321,6 +328,12 @@
 }
 
 .summary dt {
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+}
+
+.summary .summaryNote {
 	font-size: var(--text-xs);
 	line-height: var(--leading-xs);
 	color: var(--text-3);

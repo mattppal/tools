@@ -3,7 +3,7 @@ import type { BuildInfo } from "../../scripts/build-info.ts";
 import type { DebugReport } from "../../worker/debug.ts";
 import type { DebugRow } from "../../worker/tool-debug.ts";
 import { Button } from "../kit/button.tsx";
-import { findTool } from "../registry.ts";
+import { toolName } from "../registry.ts";
 import { checkHealth, type Health } from "./health.ts";
 import { useInstall, type InstallWay } from "./install.ts";
 import styles from "./settings.module.css";
@@ -233,7 +233,7 @@ export default function Settings() {
 					</dl>
 					{tools.map((tool) => (
 						<div key={tool.slug} className={styles.section}>
-							<h3 className={styles.subheading}>{findTool(tool.slug)?.name ?? tool.slug}</h3>
+							<h3 className={styles.subheading}>{toolName(tool.slug)}</h3>
 							<dl className={styles.rows}>
 								{tool.rows.map((row, index) => (
 									<Row key={`${row.label}-${index}`} label={row.label}>

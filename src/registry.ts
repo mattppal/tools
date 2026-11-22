@@ -22,13 +22,17 @@ function load(slug: string): LazyExoticComponent<ComponentType> {
 }
 
 export const TOOLS: readonly Tool[] = Object.entries(metas)
+	.filter(([, module]) => module.default.hidden !== true)
 	.map(([file, module]) => {
 		const slug = slugOf(file);
 		return { ...module.default, slug, Component: load(slug) };
 	})
-	.filter((tool) => tool.hidden !== true)
 	.toSorted((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.name.localeCompare(b.name));
 
 export function findTool(slug: string): Tool | undefined {
 	return TOOLS.find((tool) => tool.slug === slug);
+}
+
+export function toolName(slug: string): string {
+	return metas[`../tools/${slug}/tool.ts`]?.default.name ?? slug;
 }

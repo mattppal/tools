@@ -39,6 +39,7 @@ function hiddenNote(days: HistoryDay[], filter: Filter): string {
 function dayMeta(day: HistoryDay): string {
 	const parts = [day.entries === 0 ? "Check-in only" : `${day.entries} ${day.entries === 1 ? "entry" : "entries"}`];
 	if (day.partial && day.kcalTarget !== null) parts.push(`Partial, ${whole((day.kcal / day.kcalTarget) * 100)}% of target`);
+	if (day.steps !== null && day.steps !== undefined) parts.push(`${whole(day.steps)} steps`);
 	if (!day.closed) parts.push("Open");
 	return parts.join(" · ");
 }
