@@ -5,6 +5,7 @@ import { nutritionMcp } from "./bot.ts";
 import { addDays, today } from "./dates.ts";
 import { foodChanges, isoDate } from "./schemas.ts";
 import { changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, getWeights, Rejected, updateDay } from "./store.ts";
+import liaison from "../liaison/webhook.ts";
 import webhook from "./webhook.ts";
 
 const dated = z.strictObject({ date: isoDate });
@@ -37,7 +38,10 @@ export default defineToolApi(async (request, context) => {
 			case "POST /day/close": {
 				const { date, test } = await body(request, dated.extend({ test: z.boolean().optional() }));
 				const { day, deliveryId } = await db((client) => closeDayFromUi(client, date, test === true));
-				if (deliveryId !== null) deliverSoon(ctx, env, webhook, [deliveryId]);
+				if (deliveryId !== null) {
+					deliverSoon(ctx, env, webhook, [deliveryId]);
+					deliverSoon(ctx, env, liaison, [deliveryId]);
+				}
 				return Response.json(day);
 			}
 			case "POST /day/reopen": {

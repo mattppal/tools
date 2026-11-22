@@ -1,4 +1,5 @@
 import type { Database } from "../../worker/db.ts";
+import { queueForLiaison } from "../liaison/webhook.ts";
 import { addDays, today } from "./dates.ts";
 import { type Expenditure, type LoggedDay, type PhaseSummary, phaseSummary, rangeExpenditure, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
@@ -204,9 +205,7 @@ export async function closeDayFromUi(client: Database, date: string, test = fals
 		const closedAt = rows[0]?.["closed_at"];
 		if (closedAt === undefined) return { day, deliveryId: null };
 		const deliveryId = crypto.randomUUID();
-		const payload = {
-			event: "day.closed",
-			deliveryId,
+		const data = {
 			date,
 			closedAt: new Date(closedAt as string | Date).toISOString(),
 			estimated: day.estimated,
@@ -214,9 +213,10 @@ export async function closeDayFromUi(client: Database, date: string, test = fals
 			totals: day.totals,
 			targets: day.targets === null ? null : { kcal: day.targets.kcal, protein_g: day.targets.protein_g, carbs_g: day.targets.carbs_g, fat_g: day.targets.fat_g },
 			progress: day.progress,
-			...(test ? { test: true } : {}),
 		};
+		const payload = { event: "day.closed", deliveryId, ...data, ...(test ? { test: true } : {}) };
 		await client.query("insert into nutrition.deliveries (delivery_id, day, payload) values ($1, $2, $3)", [deliveryId, date, payload]);
+		await queueForLiaison(client, { app: "nutrition", event: "day.closed", ref: date, test, data }, deliveryId);
 		return { day, deliveryId };
 	});
 }

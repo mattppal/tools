@@ -110,6 +110,8 @@ The request is a `POST` with `X-Workouts-Delivery: <deliveryId>` and this body:
 { "event": "session.finished", "deliveryId": "<uuid>", "sessionId": "<uuid>", "log": { "date": "2026-11-23T00:00:00-08:00", "name": "W5 Legs", "blockId": "build-block-c", "weekId": "w5", "dayId": "day-1", "status": "completed", "kind": "lift", "exercises": [] } }
 ```
 
+Finishing also queues the same event for the tools liaison (`tools/liaison/`), in the same transaction and under the same delivery ID, as `{ app: "workouts", event: "session.finished", deliveryId, test?, data: { sessionId, log } }`. **Send again** requeues both rows, and deleting a test session deletes both. Until phase 2 of `docs/webhook-simplification.md` in the Project store, coach gets each session twice, directly and relayed. "Sent to coach" still reads this direct delivery.
+
 `deliveryId` and `sessionId` never change across retries or **Send again**, so coach drops duplicates on them. `log` is an openweight WorkoutLog. Each exercise carries `id`, `status`, `prescribed` (`targetWeight` and `unit` or `targetLoad`, `targetReps` or `targetRepsMin` and `targetRepsMax`, `targetSets`, `targetRIR`), and its sets. Test sessions add `"test": true` to the body and the log, and prefix the name with `TEST`.
 
 The log is checked before it's queued, by `openweight/workout-log-validator.js` and the rules above. The validator is generated from `@openweight/sdk` by `bun ./tools/workouts/openweight/generate.ts`, because Workers block Ajv's runtime code generation. Rerun it after upgrading the SDK.

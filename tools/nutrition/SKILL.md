@@ -108,7 +108,8 @@ Closing a day in the UI POSTs to `NUTRITION_WEBHOOK_URL`. Closing it through `up
 - `test: true` sits in `data` only for a test close, `POST /day/close` with `{ date, test: true }`. A real close has no `test` key.
 - `closeDayFromUi` writes the delivery row in the same transaction as the close. The route then tries it once with `deliverSoon`, and the every-minute cron in `worker/webhooks.ts` retries it with backoff until a 2xx. Every retry keeps the same delivery ID.
 - `nutrition.deliveries` shows each delivery's attempts, last status, and when it landed.
-- A live test closes a far-future day such as 2099-01-01 with `test: true`, or inserts a `deliveries` row whose payload has `test: true`, and removes it as soon as the check is done, so it never shows in History. Delete its `deliveries` rows, then its `food_entries`, then the `days` row; the foreign keys need that order.
+- The same close also queues `day.closed` for the tools liaison (`tools/liaison/`), in the same transaction and under the same delivery ID, with body `{ app: "nutrition", event: "day.closed", deliveryId, test?, data: { date, closedAt, estimated, entries, totals, targets, progress } }`. `totals` is always present, and `targets` is null when no plan covers the day; the nutrition bot relies on both. Until phase 2 of `docs/webhook-simplification.md` in the Project store, the bot gets each close twice and dedupes on the delivery ID.
+- A live test closes a far-future day such as 2099-01-01 with `test: true`, or inserts a `deliveries` row whose payload has `test: true`, and removes it as soon as the check is done, so it never shows in History. Delete its `liaison.deliveries` and `deliveries` rows, then its `food_entries`, then the `days` row; the foreign keys need that order.
 
 ## Data
 

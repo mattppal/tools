@@ -14,6 +14,7 @@ export const ACCESS: AccessConfig = {
 		"tools-agent-verify": "3764ccd9a5d87214d1032418b8c228ed.access",
 		"coach-bot": "e7234384aca5ccf0fe162d8a112c76b5.access",
 		"nutrition-bot": "46f516f5dd0738abfa72def83722f0da.access",
+		"tools-coordinator": "9f5386b746c91cbc0774e9f806a081fa.access",
 	},
 	publicRoutes: ["GET /api/withings/callback", "HEAD /api/withings/callback", "POST /api/withings/callback"],
 };

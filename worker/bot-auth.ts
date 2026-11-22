@@ -2,14 +2,16 @@ declare global {
 	interface Env {
 		BOT_TOKEN_NUTRITION?: string;
 		BOT_TOKEN_COACH?: string;
+		BOT_TOKEN_COORDINATOR?: string;
 	}
 }
 
-type BotSecret = "BOT_TOKEN_NUTRITION" | "BOT_TOKEN_COACH";
+type BotSecret = "BOT_TOKEN_NUTRITION" | "BOT_TOKEN_COACH" | "BOT_TOKEN_COORDINATOR";
 
 const BOTS = {
 	nutrition: { secret: "BOT_TOKEN_NUTRITION", tools: ["nutrition"] },
 	coach: { secret: "BOT_TOKEN_COACH", tools: ["workouts"] },
+	coordinator: { secret: "BOT_TOKEN_COORDINATOR", tools: ["liaison"] },
 } as const satisfies Record<string, { secret: BotSecret; tools: readonly string[] }>;
 
 export type BotName = keyof typeof BOTS;

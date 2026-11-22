@@ -8,6 +8,7 @@ import { exerciseHistory, exerciseList, runHistory } from "./exercises.ts";
 import { historySummary, historyTimeline } from "./history.ts";
 import { readMirror, readSyncState, syncTrainingLog } from "./sync.ts";
 import { createSession, deleteOpenSession, deleteSet, finishSession, getSession, listSessions, putSet, requeue, sessionRow, updateExercise, updateSessionNotes, type SetInput } from "./store.ts";
+import liaison from "../liaison/webhook.ts";
 import webhook from "./webhook.ts";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -175,12 +176,13 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 				const log = buildLog(sessionRow(found));
 				const problems = checkLog(log);
 				if (problems.length > 0) return json({ error: "The log is not valid", problems }, 422);
-				deliveryId = await db((client) => finishSession(client, id, (delivery) => ({ event: "session.finished", deliveryId: delivery, sessionId: id, ...(found.test ? { test: true } : {}), log })));
+				deliveryId = await db((client) => finishSession(client, id, found.test, { sessionId: id, log }));
 			} else {
 				deliveryId = await db((client) => requeue(client, id));
 				if (deliveryId === null) return json({ error: "This session has no delivery" }, 409);
 			}
 			deliverSoon(ctx, env, webhook, [deliveryId]);
+			deliverSoon(ctx, env, liaison, [deliveryId]);
 			return json({ session: await db((client) => getSession(client, id)) });
 		}
 

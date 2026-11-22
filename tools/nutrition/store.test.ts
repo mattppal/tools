@@ -6,6 +6,7 @@ import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
 import { addTargets, changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, Rejected, updateDay } from "./store.ts";
 import { foodChanges } from "./schemas.ts";
+import liaison from "../liaison/webhook.ts";
 import webhook from "./webhook.ts";
 
 const pg = new PGlite();
@@ -15,6 +16,8 @@ const activityDir = join(import.meta.dirname, "..", "activity", "migrations");
 const activityMigrations = await Promise.all((await readdir(activityDir)).toSorted().map((name) => readFile(join(activityDir, name), "utf-8")));
 await pg.exec(`create schema nutrition; set search_path to nutrition; ${migrations.join(";\n")}; set search_path to public;`);
 await pg.exec(`create schema activity; set search_path to activity; ${activityMigrations.join(";\n")}; set search_path to public;`);
+const liaisonMigration = await readFile(join(import.meta.dirname, "..", "liaison", "migrations", "0001-create-deliveries.sql"), "utf-8");
+await pg.exec(`create schema liaison; set search_path to liaison; ${liaisonMigration} set search_path to public;`);
 const client: Database = {
 	query: async (text: string, values?: unknown[]) => {
 		const result = await pg.query(text, values);
@@ -24,17 +27,19 @@ const client: Database = {
 const db: WithDb = (work) => work(client);
 
 const received: { authorization: string | null; delivery: string | null; body: Record<string, unknown> }[] = [];
+const liaisonReceived: { authorization: string | null; delivery: string | null; body: Record<string, unknown> }[] = [];
 const server = Bun.serve({
 	port: 0,
 	async fetch(request) {
-		received.push({ authorization: request.headers.get("authorization"), delivery: request.headers.get("x-nutrition-delivery"), body: await request.json() });
+		if (new URL(request.url).pathname === "/liaison") liaisonReceived.push({ authorization: request.headers.get("authorization"), delivery: request.headers.get("x-tools-delivery"), body: await request.json() });
+		else received.push({ authorization: request.headers.get("authorization"), delivery: request.headers.get("x-nutrition-delivery"), body: await request.json() });
 		return new Response(null, { status: 204 });
 	},
 });
 afterAll(() => server.stop(true));
 
 const KEY = "only-the-key 123";
-const env = { NUTRITION_WEBHOOK_URL: server.url.href, NUTRITION_WEBHOOK_KEY: KEY } as Env;
+const env = { NUTRITION_WEBHOOK_URL: server.url.href, NUTRITION_WEBHOOK_KEY: KEY, LIAISON_WEBHOOK_URL: new URL("/liaison", server.url).href, LIAISON_WEBHOOK_KEY: "liaison-key" } as Env;
 
 const egg = { food: "Egg whites", qty: 200, unit: "g", kcal: 104, protein_g: 21.8, carbs_g: 1.5, fat_g: 0.4, source: "USDA FDC 172183 (Egg, white, raw)" };
 
@@ -107,6 +112,26 @@ test("closing from the UI queues one delivery that sends the key as a Bearer tok
 	expect(Object.keys(received[0]?.body as object)).toEqual(["app", "event", "data"]);
 	expect(received[0]?.body).not.toHaveProperty("data.test");
 	await expect(changeFood(client, "2026-11-20", { add: [{ ...egg, client_key: "c" }] }, "ui")).rejects.toThrow("is closed");
+
+	expect(await deliverDue(db, liaison, env, [first.deliveryId ?? ""])).toBe(1);
+	const relayed = liaisonReceived[0];
+	expect(relayed?.authorization).toBe("Bearer liaison-key");
+	expect(relayed?.delivery).toBe(first.deliveryId);
+	expect(Object.keys(relayed?.body ?? {}).toSorted()).toEqual(["app", "data", "deliveryId", "event"]);
+	const { event: _event, deliveryId: _deliveryId, ...legacyData } = (received[0]?.body["data"] ?? {}) as Record<string, unknown>;
+	expect(relayed?.body).toEqual({ app: "nutrition", event: "day.closed", deliveryId: first.deliveryId, data: legacyData });
+	expect(relayed?.body["data"]).toMatchObject({ totals: { kcal: 52 }, targets: { kcal: { min: 2650, max: 2850 } } });
+});
+
+test("a day no plan covers still sends totals, with targets null", async () => {
+	const closed = await closeDayFromUi(client, "2026-10-01");
+	liaisonReceived.length = 0;
+	expect(await deliverDue(db, liaison, env, [closed.deliveryId ?? ""])).toBe(1);
+	const data = liaisonReceived[0]?.body["data"] as Record<string, unknown>;
+	expect(data).toHaveProperty("totals");
+	expect(data["targets"]).toBeNull();
+	expect(data["progress"]).toBeNull();
+	await pg.exec("delete from liaison.deliveries where ref = '2026-10-01'; delete from nutrition.deliveries where day = '2026-10-01'; delete from nutrition.days where day = '2026-10-01'");
 });
 
 test("a test close sends test: true inside data", async () => {
@@ -114,7 +139,11 @@ test("a test close sends test: true inside data", async () => {
 	received.length = 0;
 	expect(await deliverDue(db, webhook, env, [closed.deliveryId ?? ""])).toBe(1);
 	expect(received[0]?.body).toMatchObject({ app: "nutrition", event: "day.closed", data: { date: "2099-01-01", test: true } });
-	await pg.exec("delete from nutrition.deliveries where day = '2099-01-01'; delete from nutrition.days where day = '2099-01-01'");
+	liaisonReceived.length = 0;
+	expect(await deliverDue(db, liaison, env, [closed.deliveryId ?? ""])).toBe(1);
+	expect(liaisonReceived[0]?.body).toMatchObject({ app: "nutrition", event: "day.closed", deliveryId: closed.deliveryId, test: true, data: { date: "2099-01-01" } });
+	expect(liaisonReceived[0]?.body).not.toHaveProperty("data.test");
+	await pg.exec("delete from liaison.deliveries where ref = '2099-01-01'; delete from nutrition.deliveries where day = '2099-01-01'; delete from nutrition.days where day = '2099-01-01'");
 });
 
 test("closing through the bot queues no delivery", async () => {
