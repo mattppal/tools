@@ -12,9 +12,17 @@ create table hooks.deliveries (
 	next_attempt_at timestamptz not null default now(),
 	delivered_at timestamptz,
 	last_status integer,
-	last_error text
+	last_error text,
+	claimed_until timestamptz,
+	claim_id uuid
 );`);
-const db: WithDb = (work) => work({ query: (text: string, values?: unknown[]) => pg.query(text, values) } as never);
+const db: WithDb = (work) =>
+	work({
+		query: async (text: string, values?: unknown[]) => {
+			const result = await pg.query(text, values);
+			return { ...result, rowCount: result.affectedRows ?? result.rows.length };
+		},
+	} as never);
 
 const received: { authorization: string | null; delivery: string | null; body: unknown }[] = [];
 let respondWith = 200;

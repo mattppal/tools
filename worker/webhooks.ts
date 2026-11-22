@@ -8,7 +8,7 @@ type ClaimedDelivery = { delivery_id: string; payload: unknown; attempts: number
 type Attempt = { status: number | null; error: string | null };
 
 const BACKOFF_MINUTES = [1, 2, 4, 8, 16, 32, 60] as const;
-const CLAIM_MINUTES = 5;
+const CLAIM_SECONDS = 60;
 const BATCH_SIZE = 20;
 const SEND_TIMEOUT_MS = 10_000;
 const ERROR_DETAIL_CHARS = 200;
@@ -40,43 +40,56 @@ export async function sendWebhook(target: WebhookTarget, deliveryId: string, pay
 	}
 }
 
-export async function deliverDue(db: WithDb, webhook: Webhook, env: Env, only: readonly string[] = []): Promise<number> {
-	const target = webhook.target(env);
-	if (target === null) return 0;
-	const claimed = await db(
+async function claimOne(db: WithDb, webhook: Webhook, claimId: string, only: readonly string[], tried: readonly string[]): Promise<ClaimedDelivery | undefined> {
+	return db(
 		async (client) =>
 			(
 				await client.query<ClaimedDelivery>(
-					`update ${webhook.table} set next_attempt_at = now() + make_interval(mins => $3)
-					where delivery_id in (
+					`update ${webhook.table} set claimed_until = now() + make_interval(secs => $4), claim_id = $3
+					where delivery_id = (
 						select delivery_id from ${webhook.table}
-						where delivered_at is null and (cardinality($1::uuid[]) = 0 and next_attempt_at <= now() or delivery_id = any($1::uuid[]))
+						where delivered_at is null
+							and (claimed_until is null or claimed_until < now())
+							and delivery_id <> all($2::uuid[])
+							and (cardinality($1::uuid[]) = 0 and next_attempt_at <= now() or delivery_id = any($1::uuid[]))
 						order by next_attempt_at
-						limit $2
+						limit 1
 						for update skip locked
 					)
 					returning delivery_id, payload, attempts`,
-					[only, BATCH_SIZE, CLAIM_MINUTES],
+					[only, tried, claimId, CLAIM_SECONDS],
 				)
-			).rows,
+			).rows[0],
 	);
+}
+
+export async function deliverDue(db: WithDb, webhook: Webhook, env: Env, only: readonly string[] = []): Promise<number> {
+	const target = webhook.target(env);
+	if (target === null) return 0;
+	const tried: string[] = [];
 	let delivered = 0;
-	for (const delivery of claimed) {
+	while (tried.length < BATCH_SIZE) {
+		const claimId = crypto.randomUUID();
+		const delivery = await claimOne(db, webhook, claimId, only, tried);
+		if (delivery === undefined) break;
+		tried.push(delivery.delivery_id);
 		const attempt = await sendWebhook(target, delivery.delivery_id, delivery.payload);
 		const ok = attempt.error === null;
-		if (ok) delivered++;
-		await db((client) =>
+		const recorded = await db((client) =>
 			client.query(
 				`update ${webhook.table} set
 					attempts = attempts + 1,
-					last_status = $2,
-					last_error = $3,
-					delivered_at = case when $4 then now() end,
-					next_attempt_at = case when $4 then next_attempt_at else now() + make_interval(mins => $5) end
-				where delivery_id = $1`,
-				[delivery.delivery_id, attempt.status, attempt.error, ok, retryDelayMinutes(delivery.attempts + 1)],
+					last_status = $3,
+					last_error = $4,
+					delivered_at = case when $5 then now() end,
+					next_attempt_at = case when $5 then next_attempt_at else now() + make_interval(mins => $6) end,
+					claimed_until = null,
+					claim_id = null
+				where delivery_id = $1 and claim_id = $2`,
+				[delivery.delivery_id, claimId, attempt.status, attempt.error, ok, retryDelayMinutes(delivery.attempts + 1)],
 			),
 		);
+		if (ok && recorded.rowCount === 1) delivered++;
 	}
 	return delivered;
 }

@@ -1,12 +1,16 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, expect, test } from "bun:test";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
 import { addTargets, changeFood, closeDayFromUi, getDay, getHistory, getPhase, Rejected, updateDay } from "./store.ts";
 import webhook from "./webhook.ts";
 
 const pg = new PGlite();
-await pg.exec(`create schema nutrition; set search_path to nutrition; ${await Bun.file(new URL("./migrations/0001-create-schema.sql", import.meta.url)).text()}; set search_path to public;`);
+const migrationsDir = join(import.meta.dirname, "migrations");
+const migrations = await Promise.all((await readdir(migrationsDir)).toSorted().map((name) => readFile(join(migrationsDir, name), "utf-8")));
+await pg.exec(`create schema nutrition; set search_path to nutrition; ${migrations.join(";\n")}; set search_path to public;`);
 const client: Database = {
 	query: async (text: string, values?: unknown[]) => {
 		const result = await pg.query(text, values);

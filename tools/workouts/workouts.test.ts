@@ -1,6 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
@@ -132,8 +132,9 @@ test("dates are midnight Pacific with the right offset", () => {
 });
 
 const pg = new PGlite();
-const migration = (await Promise.all(["0001-create-sessions.sql", "0002-create-repo-mirror.sql"].map((file) => readFile(join(import.meta.dirname, "migrations", file), "utf-8")))).join(";\n");
-await pg.exec(`create schema workouts; set search_path to workouts; ${migration}; set search_path to public;`);
+const migrationsDir = join(import.meta.dirname, "migrations");
+const migrations = await Promise.all((await readdir(migrationsDir)).toSorted().map((name) => readFile(join(migrationsDir, name), "utf-8")));
+await pg.exec(`create schema workouts; set search_path to workouts; ${migrations.join(";\n")}; set search_path to public;`);
 const client = { query: (text: string, values?: unknown[]) => pg.query(text, values).then((result) => ({ ...result, rowCount: result.affectedRows ?? result.rows.length })) } as unknown as Database;
 const db: WithDb = (work) => work(client);
 
