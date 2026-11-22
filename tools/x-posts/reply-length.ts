@@ -31,3 +31,7 @@ export function replyLength(text: string): number {
 	const urls = normalized.match(URL) ?? [];
 	return weigh(normalized.replace(URL, "")) + urls.length * URL_WEIGHT;
 }
+
+export function isSendKey(event: { key: string; metaKey: boolean; ctrlKey: boolean }, mac: boolean): boolean {
+	return event.key === "Enter" && (mac ? event.metaKey : event.ctrlKey);
+}

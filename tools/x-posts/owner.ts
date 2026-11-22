@@ -28,7 +28,7 @@ export type OwnerPost = {
 	jobId: string | null;
 	sources: string[];
 	reply: Reply | null;
-	reposted: boolean;
+	avatarUrl: string | null;
 	metrics: { likes: number | null; reposts: number | null; replies: number | null; quotes: number | null; impressions: number | null };
 	metricsAt: string;
 	ingestedAt: string;
@@ -56,7 +56,7 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			reply_text: string | null;
 			reply_username: string | null;
 			replied_at: Date | string | null;
-			reposted: boolean;
+			avatar_url: string | null;
 			likes: number | null;
 			reposts: number | null;
 			replies: number | null;
@@ -65,7 +65,7 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			metrics_at: Date | string;
 			ingested_at: Date | string;
 		}>(
-			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, sources, reply_id, reply_text, reply_username, replied_at, exists (select 1 from x_posts.reposts where post_id = posts.id) as reposted, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at
+			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, sources, reply_id, reply_text, reply_username, replied_at, avatar_url, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at
 			from x_posts.posts
 			left join lateral (
 				select reply_id::text as reply_id, text as reply_text, username as reply_username, created_at as replied_at
@@ -99,7 +99,7 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 				row.reply_id === null || row.reply_username === null || row.replied_at === null
 					? null
 					: { id: row.reply_id, url: postUrl(row.reply_username, row.reply_id), text: row.reply_text ?? "", at: iso(row.replied_at) },
-			reposted: row.reposted,
+			avatarUrl: row.avatar_url,
 			metrics: { likes: row.likes, reposts: row.reposts, replies: row.replies, quotes: row.quotes, impressions: row.impressions },
 			metricsAt: iso(row.metrics_at),
 			ingestedAt: iso(row.ingested_at),

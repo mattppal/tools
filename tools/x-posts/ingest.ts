@@ -109,6 +109,7 @@ export type PostRow = {
 	handle: string;
 	name: string;
 	cleanName: string;
+	avatarUrl: string | null;
 	text: string;
 	cleanText: string;
 	createdAt: string;
@@ -137,6 +138,7 @@ export function toPostRows(page: Pick<XPage, "posts" | "users">, now: Date, bloc
 			handle,
 			name,
 			cleanName: screened.cleanName,
+			avatarUrl: typeof user?.profile_image_url === "string" && user.profile_image_url.startsWith("https://pbs.twimg.com/") ? user.profile_image_url : null,
 			text,
 			cleanText: screened.cleanText,
 			createdAt: new Date(Number.isFinite(created) ? created : now.getTime()).toISOString(),
@@ -165,10 +167,10 @@ async function insertPosts(client: Database, rows: PostRow[], now: Date): Promis
 	let inserted = 0;
 	for (const row of rows.toSorted((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))) {
 		const result = await client.query(
-			`insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, lang, conversation_id, is_reply, is_quote, likes, reposts, replies, quotes, bookmarks, impressions, metrics_at, flags, screen_version, status, reason, decided_by, decided_at)
-			values ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::text[], $21, $22, $23, $24, $25)
+			`insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, lang, conversation_id, is_reply, is_quote, likes, reposts, replies, quotes, bookmarks, impressions, metrics_at, flags, screen_version, status, reason, decided_by, decided_at, avatar_url)
+			values ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::text[], $21, $22, $23, $24, $25, $26)
 			on conflict (id) do nothing`,
-			[row.id, row.authorId, row.handle, row.name, row.cleanName, row.text, row.cleanText, row.createdAt, row.lang, row.conversationId, row.isReply, row.isQuote, row.metrics.likes, row.metrics.reposts, row.metrics.replies, row.metrics.quotes, row.metrics.bookmarks, row.metrics.impressions, now, row.flags, SCREEN_VERSION, ...screenDecision(row.flags, row.notes, now)],
+			[row.id, row.authorId, row.handle, row.name, row.cleanName, row.text, row.cleanText, row.createdAt, row.lang, row.conversationId, row.isReply, row.isQuote, row.metrics.likes, row.metrics.reposts, row.metrics.replies, row.metrics.quotes, row.metrics.bookmarks, row.metrics.impressions, now, row.flags, SCREEN_VERSION, ...screenDecision(row.flags, row.notes, now), row.avatarUrl],
 		);
 		inserted += result.rowCount ?? 0;
 	}

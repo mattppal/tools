@@ -1,25 +1,28 @@
-import { type ReactNode, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import type { OwnerPost } from "./owner.ts";
 import type { Reply } from "./reply.ts";
-import { REPLY_MAX, replyLength } from "./reply-length.ts";
+import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import styles from "./x-posts.module.css";
 
 export const CONNECT_URL = "/api/tools/x-posts/x/connect";
 
 type Send = (body: { id: string; text: string }) => Promise<Reply>;
-type Repost = (body: { id: string; on: boolean }) => Promise<{ reposted: boolean }>;
 
 function intentUrl(postId: string, text: string): string {
 	return `https://x.com/intent/post?${new URLSearchParams({ in_reply_to: postId, text })}`;
 }
 
-export function ReplyBox({ post, send }: { post: OwnerPost; send: Send }) {
-	const [draft, setDraft] = useState("");
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+export function ReplyBox({ post, send, draft, onDraft, onSent, focus }: { post: OwnerPost; send: Send; draft: string; onDraft: (text: string) => void; onSent: (reply: Reply) => void; focus: number }) {
 	const [sending, setSending] = useState<string | null>(null);
-	const [sent, setSent] = useState<Reply | null>(null);
 	const [error, setError] = useState<{ message: string; connect: boolean; text: string } | null>(null);
-	const reply = sent ?? post.reply;
+	const input = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		if (focus > 0) input.current?.focus();
+	}, [focus]);
+	const reply = post.reply;
 	if (reply !== null)
 		return (
 			<div className={styles.reply}>
@@ -41,13 +44,15 @@ export function ReplyBox({ post, send }: { post: OwnerPost; send: Send }) {
 		);
 	const length = replyLength(draft);
 	const over = length > REPLY_MAX;
+	const ready = !over && draft.trim() !== "";
 	async function submit() {
 		const text = draft.trim();
 		setSending(text);
 		setError(null);
 		try {
-			setSent(await send({ id: post.id, text }));
-			setDraft("");
+			const sent = await send({ id: post.id, text });
+			onDraft("");
+			onSent(sent);
 		} catch (failure) {
 			const connect = failure instanceof ReplyFailure && failure.connect;
 			setError({ message: failure instanceof Error ? failure.message : String(failure), connect, text });
@@ -57,26 +62,30 @@ export function ReplyBox({ post, send }: { post: OwnerPost; send: Send }) {
 	return (
 		<div className={styles.replyBox}>
 			<textarea
+				ref={input}
 				className={styles.replyInput}
-				rows={1}
+				rows={3}
 				value={draft}
 				placeholder="Reply"
 				aria-label={`Reply to @${post.handle}`}
 				onChange={(event) => {
-					setDraft(event.target.value);
+					onDraft(event.target.value);
 					setError(null);
 				}}
+				onKeyDown={(event) => {
+					if (!isSendKey(event, MAC)) return;
+					event.preventDefault();
+					if (ready) void submit();
+				}}
 			/>
-			{draft.trim() === "" && error === null ? null : (
-				<div className={styles.replyBar}>
-					<span className={styles.count} data-over={over || undefined}>
-						{length}/{REPLY_MAX}
-					</span>
-					<Button size="sm" variant="primary" disabled={over || draft.trim() === ""} onClick={() => void submit()}>
-						Reply
-					</Button>
-				</div>
-			)}
+			<div className={styles.replyBar}>
+				<span className={styles.count} data-over={over || undefined}>
+					{length}/{REPLY_MAX}
+				</span>
+				<Button size="sm" variant="primary" disabled={!ready} title={MAC ? "⌘ Enter" : "Ctrl Enter"} onClick={() => void submit()}>
+					Reply
+				</Button>
+			</div>
 			{error === null ? null : (
 				<p className={styles.error}>
 					{error.message}{" "}
@@ -90,53 +99,6 @@ export function ReplyBox({ post, send }: { post: OwnerPost; send: Send }) {
 				</p>
 			)}
 		</div>
-	);
-}
-
-export function Engage({ post, connected, repost, meta, children }: { post: OwnerPost; connected: boolean; repost: Repost; meta: string; children: ReactNode }) {
-	const [reposted, setReposted] = useState(post.reposted);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<{ message: string; connect: boolean } | null>(null);
-	const [synced, setSynced] = useState(post.reposted);
-	if (!busy && synced !== post.reposted) {
-		setSynced(post.reposted);
-		setReposted(post.reposted);
-	}
-	async function toggle() {
-		const on = !reposted;
-		setReposted(on);
-		setBusy(true);
-		setError(null);
-		try {
-			await repost({ id: post.id, on });
-		} catch (failure) {
-			setReposted(!on);
-			setError({ message: failure instanceof Error ? failure.message : String(failure), connect: failure instanceof ReplyFailure && failure.connect });
-		}
-		setBusy(false);
-	}
-	return (
-		<>
-			<div className={styles.postFoot}>
-				<div className={styles.engage}>
-					{connected ? (
-						<Button size="sm" variant="quiet" aria-pressed={reposted} disabled={busy} onClick={() => void toggle()}>
-							{reposted ? "Reposted" : "Repost"}
-						</Button>
-					) : null}
-					<a className={styles.engageLink} href={`https://x.com/intent/like?${new URLSearchParams({ tweet_id: post.id })}`} target="_blank" rel="noreferrer">
-						Like on X
-					</a>
-					{children}
-				</div>
-				{meta === "" ? null : <p className={styles.meta}>{meta}</p>}
-			</div>
-			{error === null ? null : (
-				<p className={styles.error}>
-					{error.message} {error.connect ? <a href={CONNECT_URL}>Connect X</a> : null}
-				</p>
-			)}
-		</>
 	);
 }
 

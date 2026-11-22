@@ -1,11 +1,11 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
 import type { Reply } from "./reply.ts";
-import { ConnectX, Engage, ReplyBox, ReplyFailure } from "./reply-box.tsx";
+import { ConnectX, ReplyBox, ReplyFailure } from "./reply-box.tsx";
 import styles from "./x-posts.module.css";
 
 const API = "/api/tools/x-posts";
@@ -60,28 +60,82 @@ async function sendReply(body: { id: string; text: string }): Promise<Reply> {
 	return json;
 }
 
-async function sendRepost(body: { id: string; on: boolean }): Promise<{ reposted: boolean }> {
-	let response: Response;
-	try {
-		response = await fetch(`${API}/repost`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-	} catch (error) {
-		throw new ReplyFailure(describe(error), false);
-	}
-	const json = (await response.json().catch(() => null)) as { reposted?: boolean; error?: string; connect?: boolean } | null;
-	if (!response.ok || typeof json?.reposted !== "boolean") throw new ReplyFailure(json?.error ?? `Request failed with ${response.status}`, json?.connect === true);
-	return { reposted: json.reposted };
-}
-
 function isConnected(status: Load<Status>): boolean {
 	return status.status === "ready" && status.data.x !== null;
 }
 
-function replyFor(post: OwnerPost, status: Load<Status>): ReactNode {
-	return isConnected(status) || post.reply !== null ? <ReplyBox post={post} send={sendReply} /> : null;
+type Inbox = {
+	posts: OwnerPost[];
+	selected: OwnerPost | null;
+	select: (id: string) => void;
+	pane: ReactNode;
+};
+
+function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inbox {
+	const [chosen, setChosen] = useState<string | null>(null);
+	const [focus, setFocus] = useState(0);
+	const [sent, setSent] = useState<ReadonlyMap<string, Reply>>(new Map());
+	const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(new Map());
+	const posts = (load.status === "ready" ? load.data.posts : []).map((post) => (post.reply === null && sent.has(post.id) ? { ...post, reply: sent.get(post.id) ?? null } : post));
+	const selected = posts.find((post) => post.id === chosen) ?? posts.find((post) => post.reply === null) ?? posts[0] ?? null;
+	const connected = isConnected(status);
+	const pane = (
+		<aside className={styles.replyPane} aria-label="Reply">
+			{status.status === "ready" && !connected ? <ConnectX /> : null}
+			{selected === null ? (
+				<p className={styles.muted}>Pick a post to reply.</p>
+			) : (
+				<>
+					<p className={styles.liveHead}>
+						<Avatar post={selected} />
+						<span className={styles.liveName}>{selected.name || selected.handle}</span>
+						<span>@{selected.handle}</span>
+					</p>
+					<p className={styles.paneText}>{selected.text}</p>
+					{connected || selected.reply !== null ? (
+						<ReplyBox
+							key={selected.id}
+							post={selected}
+							send={sendReply}
+							draft={drafts.get(selected.id) ?? ""}
+							onDraft={(text) => setDrafts((all) => new Map(all).set(selected.id, text))}
+							onSent={(reply) => setSent((all) => new Map(all).set(selected.id, reply))}
+							focus={focus}
+						/>
+					) : null}
+				</>
+			)}
+		</aside>
+	);
+	return {
+		posts,
+		selected,
+		pane,
+		select: (id) => {
+			setChosen(id);
+			setFocus((count) => count + 1);
+		},
+	};
 }
 
-function connectPrompt(status: Load<Status>): ReactNode {
-	return status.status === "ready" && status.data.x === null ? <ConnectX /> : null;
+function selectable(id: string, inbox: Inbox) {
+	return {
+		tabIndex: 0,
+		"aria-current": inbox.selected?.id === id || undefined,
+		onClick: (event: MouseEvent<HTMLElement>) => {
+			if ((event.target as HTMLElement).closest("a, button")) return;
+			inbox.select(id);
+		},
+		onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+			if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+			event.preventDefault();
+			inbox.select(id);
+		},
+	};
+}
+
+function Avatar({ post }: { post: OwnerPost }) {
+	return post.avatarUrl === null ? <span className={styles.avatar} aria-hidden="true" /> : <img className={styles.avatar} src={post.avatarUrl} alt="" width={20} height={20} loading="lazy" referrerPolicy="no-referrer" />;
 }
 
 function useLoad<T>(path: string): [Load<T>, () => void] {
@@ -167,6 +221,7 @@ function PostBody({ post, time }: { post: OwnerPost; time: string }) {
 	return (
 		<>
 			<p className={styles.liveHead}>
+				<Avatar post={post} />
 				<span className={styles.liveName}>{post.name || post.handle}</span>
 				<span>@{post.handle}</span>
 				<PostLink post={post}>{time}</PostLink>
@@ -176,22 +231,22 @@ function PostBody({ post, time }: { post: OwnerPost; time: string }) {
 	);
 }
 
-function PostFoot({ post, connected }: { post: OwnerPost; connected: boolean }) {
-	const meta = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+function PostFoot({ post }: { post: OwnerPost }) {
+	const meta = [post.reply === null ? null : "replied", post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return (
-		<Engage post={post} connected={connected} repost={sendRepost} meta={meta.join(" · ")}>
+		<div className={styles.postFoot}>
+			<p className={styles.meta}>{meta.join(" · ")}</p>
 			<CopyLink url={post.url} />
-		</Engage>
+		</div>
 	);
 }
 
-function LivePost({ post, now, fresh, connected, children }: { post: OwnerPost; now: number; fresh: boolean; connected: boolean; children?: ReactNode }) {
+function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; fresh: boolean; inbox: Inbox }) {
 	return (
-		<li className={styles.liveRow} data-fresh={fresh || undefined}>
+		<li className={styles.liveRow} data-fresh={fresh || undefined} {...selectable(post.id, inbox)}>
 			<PostBody post={post} time={ago(post.createdAt, now)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
-			<PostFoot post={post} connected={connected} />
-			{children}
+			<PostFoot post={post} />
 		</li>
 	);
 }
@@ -219,6 +274,7 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 		seen.current = new Set(ids);
 	}, [posts]);
 	const sync = status.status === "ready" ? status.data.sync : null;
+	const inbox = useInbox(posts, status);
 	return (
 		<>
 			<p className={styles.muted} aria-live="polite">
@@ -226,19 +282,19 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 					? "Watching for new posts."
 					: `X checked ${sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}${sync.nextRunAt === null ? ", next check due now" : `, next check ${when(sync.nextRunAt)}`}. Every minute while posts are arriving, every 5 minutes otherwise.`}
 			</p>
-			{connectPrompt(status)}
 			{posts.status !== "ready" ? (
 				<LoadState load={posts} retry={retry} />
 			) : posts.data.posts.length === 0 ? (
 				<p className={styles.muted}>No posts yet.</p>
 			) : (
-				<ul className={styles.list}>
-					{posts.data.posts.map((post) => (
-						<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)} connected={isConnected(status)}>
-							{replyFor(post, status)}
-						</LivePost>
-					))}
-				</ul>
+				<div className={styles.inbox}>
+					<ul className={styles.list}>
+						{inbox.posts.map((post) => (
+							<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)} inbox={inbox} />
+						))}
+					</ul>
+					{inbox.pane}
+				</div>
 			)}
 		</>
 	);
@@ -311,7 +367,7 @@ function Details({ status }: { status: Load<Status> }) {
 	);
 }
 
-function PostItem({ post, canDecide, onDecided, connected, children }: { post: OwnerPost; canDecide: boolean; onDecided: () => void; connected: boolean; children?: ReactNode }) {
+function PostItem({ post, canDecide, onDecided, inbox }: { post: OwnerPost; canDecide: boolean; onDecided: () => void; inbox: Inbox }) {
 	const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	async function decide(kind: "approve" | "reject") {
@@ -326,10 +382,10 @@ function PostItem({ post, canDecide, onDecided, connected, children }: { post: O
 		}
 	}
 	return (
-		<li className={styles.postRow}>
+		<li className={styles.postRow} {...selectable(post.id, inbox)}>
 			<PostBody post={post} time={when(post.createdAt)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
-			<PostFoot post={post} connected={connected} />
+			<PostFoot post={post} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
 					<Button size="sm" loading={busy === "approve"} disabled={busy !== null} onClick={() => void decide("approve")}>
@@ -341,7 +397,6 @@ function PostItem({ post, canDecide, onDecided, connected, children }: { post: O
 				</div>
 			) : null}
 			{error === null ? null : <p className={styles.error}>{error}</p>}
-			{children}
 		</li>
 	);
 }
@@ -350,6 +405,7 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 	const canDecide = status.status === "ready" && status.data.queueOpen;
 	const [filter, setFilter] = useState<string | null>("pending");
 	const [posts, retry] = useLoad<{ posts: OwnerPost[]; nextBefore: string | null }>(`/posts${filter === null ? "" : `?status=${filter}`}`);
+	const inbox = useInbox(posts, status);
 	return (
 		<>
 			<div className={styles.filters} role="group" aria-label="Status">
@@ -359,28 +415,28 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 					</Button>
 				))}
 			</div>
-			{connectPrompt(status)}
 			{posts.status !== "ready" ? (
 				<LoadState load={posts} retry={retry} />
 			) : posts.data.posts.length === 0 ? (
 				<p className={styles.muted}>No posts here.</p>
 			) : (
-				<ul className={styles.list}>
-					{posts.data.posts.map((post) => (
-						<PostItem
-							key={post.id}
-							post={post}
-							canDecide={canDecide}
-							connected={isConnected(status)}
-							onDecided={() => {
-								retry();
-								refreshStatus();
-							}}
-						>
-							{replyFor(post, status)}
-						</PostItem>
-					))}
-				</ul>
+				<div className={styles.inbox}>
+					<ul className={styles.list}>
+						{inbox.posts.map((post) => (
+							<PostItem
+								key={post.id}
+								post={post}
+								canDecide={canDecide}
+								inbox={inbox}
+								onDecided={() => {
+									retry();
+									refreshStatus();
+								}}
+							/>
+						))}
+					</ul>
+					{inbox.pane}
+				</div>
 			)}
 		</>
 	);
@@ -495,7 +551,9 @@ export default function XPosts() {
 		) : undefined;
 	return (
 		<ToolLayout title="X posts" actions={actions} sections={SECTIONS} panel={{ label: "Details", content: <Details status={status} /> }}>
-			<div className={styles.page}>{page}</div>
+			<div className={styles.page} data-wide={path === "/" || path === "/posts" || undefined}>
+				{page}
+			</div>
 		</ToolLayout>
 	);
 }

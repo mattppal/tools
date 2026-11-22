@@ -26,7 +26,6 @@ export const { seal, unseal, signState, verifyState } = secrets("tools-x-posts",
 
 const PostId = z.string().regex(/^[1-9]\d{0,18}$/, "id must be a post id");
 export const replyRequest = z.strictObject({ id: PostId, text: z.string().max(4000) });
-export const repostRequest = z.strictObject({ id: PostId, on: z.boolean() });
 
 export type Credentials = { clientId: string; clientSecret: string };
 export type Tokens = { accessToken: string; refreshToken: string; expiresAt: Date; scope: string };
@@ -107,20 +106,20 @@ export async function readAccount(client: Database): Promise<XAccount | null> {
 	return row === undefined ? null : { username: row.username, connectedAt: iso(row.connected_at), lastError: row.last_error };
 }
 
-async function accessToken(client: Database, fetcher: Fetch, creds: Credentials, now: Date): Promise<{ token: string; username: string; userId: string }> {
+async function accessToken(client: Database, fetcher: Fetch, creds: Credentials, now: Date): Promise<{ token: string; username: string }> {
 	await client.query("begin");
 	let failure: Error | null = null;
 	try {
 		const row = (
-			await client.query<{ user_id: string; username: string; access_token: string; refresh_token: string; expires_at: Date | string; last_error: string | null }>(
-				"select user_id, username, access_token, refresh_token, expires_at, last_error from x_posts.account for update",
+			await client.query<{ username: string; access_token: string; refresh_token: string; expires_at: Date | string; last_error: string | null }>(
+				"select username, access_token, refresh_token, expires_at, last_error from x_posts.account for update",
 			)
 		).rows[0];
 		if (row === undefined) throw new Disconnected("Connect X first.");
 		if (row.last_error !== null) throw new Disconnected(RECONNECT);
 		if (new Date(row.expires_at).getTime() - now.getTime() > REFRESH_EARLY_MS) {
 			await client.query("commit");
-			return { token: await unseal(creds.clientSecret, row.access_token), username: row.username, userId: row.user_id };
+			return { token: await unseal(creds.clientSecret, row.access_token), username: row.username };
 		}
 		try {
 			const fresh = await token(fetcher, creds, { grant_type: "refresh_token", refresh_token: await unseal(creds.clientSecret, row.refresh_token) }, now);
@@ -132,7 +131,7 @@ async function accessToken(client: Database, fetcher: Fetch, creds: Credentials,
 				now,
 			]);
 			await client.query("commit");
-			return { token: fresh.accessToken, username: row.username, userId: row.user_id };
+			return { token: fresh.accessToken, username: row.username };
 		} catch (error) {
 			if (!(error instanceof Disconnected)) throw error;
 			failure = error;
@@ -185,20 +184,4 @@ export async function sendReply(client: Database, { fetcher, creds, now }: { fet
 	const replyId = await signedOut(client, () => createReply(fetcher, bearer, id, body));
 	await client.query("insert into x_posts.replies (reply_id, post_id, text, username, created_at) values ($1::bigint, $2::bigint, $3, $4, $5) on conflict (reply_id) do nothing", [replyId, id, body, username, now]);
 	return { id: replyId, url: postUrl(username, replyId), text: body, at: iso(now) };
-}
-
-export async function setRepost(client: Database, { fetcher, creds, now }: { fetcher: Fetch; creds: Credentials; now: Date }, { id, on }: { id: string; on: boolean }): Promise<{ id: string; reposted: boolean }> {
-	const found = (await client.query("select 1 from x_posts.posts where id = $1::bigint", [id])).rows.length > 0;
-	if (!found) throw new NotFound(`No post ${id}`);
-	const { token: bearer, username, userId } = await accessToken(client, fetcher, creds, now);
-	await signedOut(client, async () => {
-		const headers = { authorization: `Bearer ${bearer}`, "content-type": "application/json", "user-agent": USER_AGENT };
-		const response = on
-			? await reach(fetcher, `${X_API}/users/${userId}/retweets`, { method: "POST", headers, body: JSON.stringify({ tweet_id: id }) })
-			: await reach(fetcher, `${X_API}/users/${userId}/retweets/${id}`, { method: "DELETE", headers });
-		if (!response.ok) throw await refusal(response, on ? "repost it" : "undo the repost");
-	});
-	if (on) await client.query("insert into x_posts.reposts (post_id, username, created_at) values ($1::bigint, $2, $3) on conflict (post_id) do nothing", [id, username, now]);
-	else await client.query("delete from x_posts.reposts where post_id = $1::bigint", [id]);
-	return { id, reposted: on };
 }

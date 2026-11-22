@@ -183,7 +183,7 @@
 .liveHead {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: baseline;
+	align-items: center;
 	gap: var(--space-2);
 	margin: 0;
 	font-size: var(--text-xs);
@@ -310,27 +310,66 @@
 	}
 }
 
-.engage {
+.page[data-wide] {
+	max-width: 1120px;
+}
+
+.inbox {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+	align-items: start;
+	gap: var(--space-5);
+}
+
+.inbox .postRow,
+.inbox .liveRow {
+	cursor: default;
+}
+
+.inbox [aria-current] {
+	background: var(--hover-bg);
+}
+
+.replyPane {
+	position: sticky;
+	top: var(--space-3);
 	display: flex;
-	align-items: center;
-	gap: var(--space-1);
-	margin-left: calc(-1 * var(--space-2));
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--sunken-bg);
 }
 
-.engageLink {
-	display: inline-flex;
-	align-items: center;
-	height: var(--control-md);
-	padding: 0 var(--space-2);
-	border-radius: var(--radius-control);
-	color: var(--text-3);
-	font-size: var(--text-xs);
-	text-decoration: none;
+.paneText {
+	display: -webkit-box;
+	margin: 0;
+	overflow: hidden;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--text-2);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
 }
 
-@media (hover: hover) and (pointer: fine) {
-	.engageLink:hover {
-		background: var(--hover-bg);
-		color: var(--text-1);
+.avatar {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--hover-bg);
+	object-fit: cover;
+}
+
+@media (max-width: 900px) {
+	.inbox {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.replyPane {
+		position: static;
+		order: -1;
 	}
 }

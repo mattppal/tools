@@ -10,7 +10,7 @@ import { checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
 import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE_CLOSED, requeueJob, sweep } from "./queue.ts";
 
 const openApi = xPostsApi({ queueOpen: true });
-import { REPLY_MAX, replyLength } from "./reply-length.ts";
+import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
 
@@ -38,7 +38,7 @@ const MATT: Caller = { kind: "owner", email: "mattppalmer@gmail.com" };
 const NOW = new Date("2026-11-22T20:00:00Z");
 
 beforeEach(async () => {
-	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.reposts, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
+	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
 		update x_posts.sync_state set since_id = null, pending_since_id = null, next_token = null, next_run_at = '-infinity', last_run_at = null, last_success_at = null, last_error = null, failures = 0, month = '', month_reads = 0, capped_month = null, stale_noticed_for = null;`);
 });
 
@@ -362,6 +362,18 @@ test("shadow counts report matched, auto-rejected per flag, the addressed rate, 
 	expect(shadow).toEqual({ since: "2026-11-22T20:00:00Z", matched: 4, autoRejected: 2, rejectedByFlag: { injection: 1, phone: 1 }, addressed: 1, addressedRate: 0.25, passedScreen: 2, wouldPrint: 2 });
 });
 
+test("ingest keeps the author's X profile picture from the search response and nothing else", async () => {
+	const pictured = xPost({ handle: "pictured" });
+	const elsewhere = xPost({ handle: "elsewhere" });
+	const bare = xPost({ handle: "bare" });
+	const x = fakeX({ "since:": { posts: [{ ...pictured, user: { ...pictured.user, profile_image_url: "https://pbs.twimg.com/profile_images/1/a_normal.jpg" } }, { ...elsewhere, user: { ...elsewhere.user, profile_image_url: "https://evil.example/a.jpg" } }, bare] } });
+	await runIngest(db, { fetch: x.fetcher, token: "t", now: NOW });
+	expect(x.calls[0]?.searchParams.get("user.fields")).toBe("username,name,profile_image_url");
+	expect(x.calls[0]?.searchParams.get("expansions")).toBe("author_id");
+	const listed = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: { handle: string; avatarUrl: string | null }[] };
+	expect(Object.fromEntries(listed.posts.map((post) => [post.handle, post.avatarUrl]))).toEqual({ pictured: "https://pbs.twimg.com/profile_images/1/a_normal.jpg", elsewhere: null, bare: null });
+});
+
 test("ingest checks every minute while posts arrive and every 5 minutes otherwise, and Check now respects the cooldown and rate limits", async () => {
 	const nextRun = async () => (await pg.query<{ at: Date }>("select next_run_at as at from x_posts.sync_state")).rows[0]?.at.getTime();
 	await runIngest(db, { fetch: fakeX({}).fetcher, token: "t", now: NOW });
@@ -547,22 +559,8 @@ test("reply length counts like X", () => {
 	expect(replyLength("x".repeat(280))).toBe(REPLY_MAX);
 });
 
-test("Repost reposts as Matt, undo removes it, and the post shows the state", async () => {
-	const [id] = await seed([{}]);
-	await connectAs();
-	const on = fakeOAuthX([() => Response.json({ data: { retweeted: true } })]);
-	expect(await (await sendAs("/repost", on.fetcher, { method: "POST", body: { id, on: true } })).json()).toEqual({ id, reposted: true });
-	expect(on.calls[0]).toMatchObject({ url: "https://api.x.com/2/users/1518984544421965824/retweets", method: "POST", authorization: "Bearer access-1" });
-	expect(JSON.parse(on.calls[0]?.body ?? "")).toEqual({ tweet_id: id });
-	const listed = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: { reposted: boolean }[] };
-	expect(listed.posts[0]?.reposted).toBe(true);
-	const off = fakeOAuthX([() => Response.json({ data: { retweeted: false } })]);
-	expect((await sendAs("/repost", off.fetcher, { method: "POST", body: { id, on: false } })).status).toBe(200);
-	expect(off.calls[0]).toMatchObject({ url: `https://api.x.com/2/users/1518984544421965824/retweets/${id}`, method: "DELETE" });
-	expect((await pg.query("select count(*)::int as n from x_posts.reposts")).rows[0]).toEqual({ n: 0 });
-	const refused = fakeOAuthX([() => Response.json({ detail: "You are not allowed to repost this post." }, { status: 403 })]);
-	const response = await sendAs("/repost", refused.fetcher, { method: "POST", body: { id, on: true } });
-	expect(response.status).toBe(502);
-	expect((await pg.query("select count(*)::int as n from x_posts.reposts")).rows[0]).toEqual({ n: 0 });
-	expect((await sendAs("/repost", fakeOAuthX([]).fetcher, { method: "POST", caller: REVIEW, body: { id, on: true } })).status).toBe(403);
+test("Cmd+Enter sends on a Mac and Ctrl+Enter elsewhere; plain Enter makes a new line", () => {
+	const key = (metaKey: boolean, ctrlKey: boolean, k = "Enter") => ({ key: k, metaKey, ctrlKey });
+	expect([isSendKey(key(true, false), true), isSendKey(key(false, true), true), isSendKey(key(false, false), true)]).toEqual([true, false, false]);
+	expect([isSendKey(key(false, true), false), isSendKey(key(true, false), false), isSendKey(key(false, true, "a"), false)]).toEqual([true, false, false]);
 });

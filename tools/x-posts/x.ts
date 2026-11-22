@@ -27,7 +27,7 @@ export type XPost = {
 	note_tweet?: { text?: string };
 };
 
-export type XUser = { id: string; username?: string; name?: string };
+export type XUser = { id: string; username?: string; name?: string; profile_image_url?: string };
 
 export type XPage = { posts: XPost[]; users: Map<string, XUser>; newestId: string | null; nextToken: string | null; rate: Rate };
 
@@ -85,7 +85,7 @@ async function get(fetcher: Fetch, token: string, url: string, sent: { nextToken
 }
 
 export async function searchRecent(fetcher: Fetch, token: string, { sinceId, nextToken }: { sinceId: string | null; nextToken: string | null }): Promise<XPage> {
-	const params = new URLSearchParams({ query: QUERY, max_results: "100", "tweet.fields": TWEET_FIELDS, expansions: "author_id", "user.fields": "username,name" });
+	const params = new URLSearchParams({ query: QUERY, max_results: "100", "tweet.fields": TWEET_FIELDS, expansions: "author_id", "user.fields": "username,name,profile_image_url" });
 	if (sinceId !== null) params.set("since_id", sinceId);
 	if (nextToken !== null) params.set("next_token", nextToken);
 	const { json, rate } = await get(fetcher, token, `${X_API}/tweets/search/recent?${params}`, { nextToken: nextToken !== null, sinceId: sinceId !== null });
