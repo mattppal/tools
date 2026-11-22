@@ -3,6 +3,7 @@ import { defineToolApi } from "../../worker/tool-api.ts";
 import { listAppleWorkouts, parsePayload, saveAppleHealth } from "./apple-health.ts";
 import { addDays, isIsoDate, today } from "./dates.ts";
 import { dailyHealth, intradayDay, listMeasures, listSleep, listWorkouts, resetStreams } from "./health.ts";
+import { listNights } from "./nights.ts";
 import { signState, verifyState } from "./secrets.ts";
 import { listDays, readConnection, saveConnection } from "./store.ts";
 import { weightReport } from "./weights.ts";
@@ -109,6 +110,12 @@ export function activityApi(fetcher: Fetch = fetch) {
 			if (!result.ok) return Response.json({ error: result.error }, { status: 422, headers: NO_STORE });
 			const push = { automation: request.headers.get("automation-name") ?? "Health Auto Export", sessionId: request.headers.get("session-id") };
 			return Response.json(await db((client) => saveAppleHealth(client, result.parsed, push)), { headers: NO_STORE });
+		}
+		if (path === "/nights" && request.method === "GET") {
+			const to = url.searchParams.get("to") ?? today();
+			const from = url.searchParams.get("from") ?? addDays(to, -29);
+			if (!isIsoDate(from) || !isIsoDate(to) || from > to) return Response.json({ error: "Use dates like 2026-11-22, from on or before to" }, { status: 400 });
+			return Response.json({ nights: await db((client) => listNights(client, from, to)) }, { headers: NO_STORE });
 		}
 		if (path === "/apple-health/workouts" && request.method === "GET") {
 			const to = url.searchParams.get("to") ?? today();

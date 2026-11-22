@@ -13,6 +13,7 @@ import InformationCircleIcon from "@hugeicons/core-free-icons/InformationCircleI
 import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
 import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import Menu01Icon from "@hugeicons/core-free-icons/Menu01Icon";
+import Moon02Icon from "@hugeicons/core-free-icons/Moon02Icon";
 import MoreHorizontalIcon from "@hugeicons/core-free-icons/MoreHorizontalIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
@@ -38,6 +39,7 @@ const GLYPHS = {
 	alert: Alert02Icon,
 	loading: Loading03Icon,
 	menu: Menu01Icon,
+	moon: Moon02Icon,
 	more: MoreHorizontalIcon,
 	note: Note01Icon,
 	search: Search01Icon,

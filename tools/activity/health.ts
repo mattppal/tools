@@ -249,7 +249,7 @@ const data = (item: Series): Series => (typeof item["data"] === "object" && item
 const isoOrNull = (value: unknown): string | null => (value instanceof Date ? value.toISOString() : str(value));
 const numOrNull = (value: unknown): number | null => (value === null || value === undefined ? null : Number(value));
 
-function offsetMs(ms: number, timeZone: string): number {
+export function offsetMs(ms: number, timeZone: string): number {
 	const parts = Object.fromEntries(
 		new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
 			.formatToParts(new Date(ms))
