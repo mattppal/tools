@@ -1,12 +1,20 @@
 .app {
 	height: 100dvh;
 	font-family: var(--font-ui);
-	--list-width: 264px;
+	--list-width: calc(264px + env(safe-area-inset-left));
 	--focus-fill: var(--chrome-focus);
+	--edge-top: env(safe-area-inset-top);
+	--edge-right: env(safe-area-inset-right);
+	--edge-bottom: env(safe-area-inset-bottom);
+	--edge-left: env(safe-area-inset-left);
 }
 
 .side {
-	padding-block-end: var(--sidebar-inset);
+	padding-block: var(--edge-top) calc(var(--sidebar-inset) + var(--edge-bottom));
+}
+
+.side > * {
+	padding-inline-start: var(--edge-left);
 }
 
 .panel {
@@ -28,6 +36,10 @@
 
 [data-sidebar-state="closed"] .panel {
 	border-radius: 0;
+}
+
+[data-sidebar-state="open"] .panel {
+	--edge-left: 0px;
 }
 
 .loading {
@@ -90,8 +102,6 @@
 	border: 0;
 	background: var(--chrome-bg);
 	color: var(--chrome-text);
-	padding-top: env(safe-area-inset-top);
-	padding-bottom: env(safe-area-inset-bottom);
 }
 
 .navSheetBody {

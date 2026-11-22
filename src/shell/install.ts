@@ -1,23 +1,41 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
-declare global {
-	interface Window {
-		toolsInstall?: InstallPrompt | null;
-	}
-}
-
-const CHANGED = "tools-install";
-
-export const INSTALL_SCRIPT = `addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.toolsInstall=e;dispatchEvent(new Event("${CHANGED}"))});addEventListener("appinstalled",function(){window.toolsInstall=null;dispatchEvent(new Event("${CHANGED}"))});`;
-
-export type InstallWay = "prompt" | "mac-safari" | null;
+export type InstallWay = "prompt" | "ios" | "mac-safari" | null;
 
 const STANDALONE = "(display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: fullscreen)";
 
+const listeners = new Set<() => void>();
+let deferred: InstallPrompt | null = null;
+
+function notify(): void {
+	for (const listener of listeners) listener();
+}
+
+function isInstallPrompt(event: Event): event is InstallPrompt {
+	return "prompt" in event && "userChoice" in event;
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+	if (!isInstallPrompt(event)) return;
+	event.preventDefault();
+	deferred = event;
+	notify();
+});
+
+window.addEventListener("appinstalled", () => {
+	deferred = null;
+	notify();
+});
+
 function installed(): boolean {
-	return window.matchMedia(STANDALONE).matches;
+	return window.matchMedia(STANDALONE).matches || ("standalone" in navigator && navigator.standalone === true);
+}
+
+function appleTouch(): boolean {
+	const agent = navigator.userAgent;
+	return /iPhone|iPad|iPod/.test(agent) || (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1);
 }
 
 function macSafari(): boolean {
@@ -27,30 +45,31 @@ function macSafari(): boolean {
 
 function currentWay(): InstallWay {
 	if (installed()) return null;
-	if (window.toolsInstall) return "prompt";
+	if (deferred !== null) return "prompt";
+	if (appleTouch()) return "ios";
 	if (macSafari()) return "mac-safari";
 	return null;
 }
 
 function subscribe(onChange: () => void): () => void {
 	const display = window.matchMedia(STANDALONE);
-	window.addEventListener(CHANGED, onChange);
+	listeners.add(onChange);
 	display.addEventListener("change", onChange);
 	return () => {
-		window.removeEventListener(CHANGED, onChange);
+		listeners.delete(onChange);
 		display.removeEventListener("change", onChange);
 	};
 }
 
+async function install(): Promise<void> {
+	const prompt = deferred;
+	if (prompt === null) return;
+	deferred = null;
+	await prompt.prompt();
+	await prompt.userChoice;
+	notify();
+}
+
 export function useInstall(): { way: InstallWay; install: () => Promise<void> } {
-	const way = useSyncExternalStore(subscribe, currentWay, () => null);
-	const install = useCallback(async () => {
-		const prompt = window.toolsInstall;
-		if (!prompt) return;
-		window.toolsInstall = null;
-		await prompt.prompt();
-		await prompt.userChoice;
-		window.dispatchEvent(new Event(CHANGED));
-	}, []);
-	return { way, install };
+	return { way: useSyncExternalStore(subscribe, currentWay, () => null), install };
 }

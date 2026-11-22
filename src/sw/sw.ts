@@ -20,9 +20,34 @@ const scope = candidate;
 const ASSETS_CACHE = "tools-assets";
 const STATIC_CACHE = `tools-static-${TOOLS_BUILD}`;
 const ASSET_LIMIT = 300;
-const STATIC = [/^\/(?:icon-[\w-]+|apple-touch-icon)\.png$/, /^\/favicon\.svg$/];
+const STATIC = /^\/(?:icon-[\w-]+|apple-touch-icon|favicon-\d+)\.png$/;
 
-const OFFLINE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline · Tools</title><style>body{margin:0;display:grid;place-items:center;min-height:100dvh;font-family:system-ui,sans-serif;background:light-dark(#f4f3f1,#1a1917);color:light-dark(#171613,#efebe5);color-scheme:light dark}main{text-align:center;padding:24px}button{font:inherit;padding:8px 14px;border:0;border-radius:8px;background:light-dark(#dcdad8,#34322f);color:inherit}</style></head><body><main><h1>You're offline</h1><p>Tools needs a connection. Try again when you're back online.</p><button onclick="location.reload()">Retry</button></main></body></html>`;
+const OFFLINE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f3f1">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1917">
+<title>Offline · Tools</title>
+<style>
+body{margin:0;display:grid;place-items:center;min-height:100dvh;padding:24px;box-sizing:border-box;font:390 15px/22px Inter,system-ui,-apple-system,sans-serif;background:light-dark(#f4f3f1,#1a1917);color:light-dark(#171613,#efebe5);color-scheme:light dark;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+main{max-width:320px;text-align:center}
+h1{margin:0 0 6px;font-size:22px;line-height:28px;font-weight:540;letter-spacing:-0.01em}
+p{margin:0 0 20px;color:light-dark(#4a4946,#aba49a)}
+button{min-height:44px;padding:0 18px;border:0;border-radius:10px;background:light-dark(#e8e6e4,#2e2d2a);color:inherit;font:inherit;font-weight:500;cursor:pointer;transition:transform 160ms cubic-bezier(0.23,1,0.32,1)}
+button:active{transform:scale(0.97)}
+</style>
+</head>
+<body>
+<main>
+<h1>You’re offline</h1>
+<p>Tools reconnects on its own when your connection comes back.</p>
+<button type="button" onclick="location.reload()">Try again</button>
+</main>
+<script>addEventListener("online",function(){location.reload()})</script>
+</body>
+</html>`;
 
 function cacheable(response: Response): boolean {
 	return response.ok && response.type === "basic" && !response.redirected;
@@ -83,5 +108,5 @@ scope.addEventListener("fetch", (event) => {
 	if (url.origin !== scope.location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/cdn-cgi/")) return;
 	if (request.mode === "navigate") return event.respondWith(navigate(request));
 	if (url.pathname.startsWith("/assets/")) return event.respondWith(cacheFirst(request, event));
-	if (STATIC.some((pattern) => pattern.test(url.pathname))) return event.respondWith(staleWhileRevalidate(request, event));
+	if (STATIC.test(url.pathname)) return event.respondWith(staleWhileRevalidate(request, event));
 });

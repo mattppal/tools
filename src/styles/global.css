@@ -29,6 +29,12 @@ body {
 	overscroll-behavior: none;
 }
 
+@media (max-width: 767px) {
+	body {
+		background: var(--panel-bg);
+	}
+}
+
 @layer base {
 	a {
 		color: var(--brand-text);

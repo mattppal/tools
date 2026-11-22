@@ -44,7 +44,15 @@ Every page renders `ToolLayout` from `src/shell/tool-layout.tsx`:
 
 - Breakpoints come from `useLayout()` in `src/kit/layout.ts`: `compact` under 768px, `medium` to 1023px, `expanded` from 1024px. Use the hook, not new media queries in TS.
 - On `compact`, all three sidebars become drawers opened from the header. Keep the main content usable at 360px wide.
-- Touch targets are at least `var(--hit)` (44px) where possible. Respect `env(safe-area-inset-*)` for anything pinned to an edge.
+- Touch targets are at least `var(--hit)` (44px) where possible.
+
+## Safe areas
+
+- Backgrounds run to the screen edge and content is inset. Inside the shell, pad anything pinned to an edge with `--edge-top`, `--edge-right`, `--edge-bottom`, and `--edge-left`, for example `padding-bottom: calc(var(--space-4) + var(--edge-bottom))`. They hold `env(safe-area-inset-*)` and drop to `0px` where the sidebar already covers that edge.
+- No control or title text goes in an inset. In landscape the Dynamic Island or notch sits in the left or right inset, and the home indicator sits in the bottom one.
+- The kit `Sheet` already pads its top, bottom, and the side it slides in from. Don't add your own.
+- Layouts must work at a top inset of `0`. iOS 27 home-screen apps start below an opaque status bar and report `0`; older installs report the full status-bar height.
+- Don't add `apple-mobile-web-app-status-bar-style`. `black-translucent` is deprecated and blurs the top of iOS 26.1+ apps. Without it, iOS tints the status bar from a sticky header's background or from `body`, so give sticky headers a solid surface color.
 
 ## PWA
 

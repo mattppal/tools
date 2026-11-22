@@ -24,15 +24,15 @@ const backdropClass = cn(
 
 const popupClass = cn(
 	floatSurface,
-	"pointer-events-auto relative flex h-full min-h-0 w-[min(var(--dialog-narrow-width),calc(100vw-var(--space-7)))] flex-col font-sans outline-none will-change-transform [--focus-fill:var(--float-focus)]",
+	"pointer-events-auto relative flex h-full min-h-0 w-[min(var(--dialog-narrow-width),calc(100vw-var(--space-7)))] flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] font-sans outline-none will-change-transform [--focus-fill:var(--float-focus)]",
 	"[transform:translateX(var(--drawer-swipe-movement-x,0px))] transition-transform duration-(--duration-sheet) ease-(--ease-drawer)",
 	"data-swiping:duration-0 data-swiping:select-none data-ending-style:duration-[calc(var(--drawer-swipe-strength,1)*var(--duration-sheet-exit))]",
 	"motion-reduce:transition-opacity motion-reduce:data-starting-style:opacity-0 motion-reduce:data-starting-style:[transform:none] motion-reduce:data-ending-style:opacity-0 motion-reduce:data-ending-style:[transform:none]",
 );
 
 const sidePopupClass: Record<SheetSide, string> = {
-	right: "rounded-s-xl data-starting-style:[transform:translateX(100%)] data-ending-style:[transform:translateX(100%)]",
-	left: "rounded-e-xl data-starting-style:[transform:translateX(-100%)] data-ending-style:[transform:translateX(-100%)]",
+	right: "rounded-s-xl pe-[env(safe-area-inset-right)] data-starting-style:[transform:translateX(100%)] data-ending-style:[transform:translateX(100%)]",
+	left: "rounded-e-xl ps-[env(safe-area-inset-left)] data-starting-style:[transform:translateX(-100%)] data-ending-style:[transform:translateX(-100%)]",
 };
 
 const sideViewportClass: Record<SheetSide, string> = {

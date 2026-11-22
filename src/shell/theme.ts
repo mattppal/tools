@@ -1,14 +1,15 @@
 const THEME_KEY = "tools-theme";
 
-export const THEME_COLORS = { light: "#f2f1f0", dark: "#0e0d0c" } as const;
+const THEME_COLORS = {
+	light: { compact: "#f4f3f1", wide: "#e8e6e4" },
+	dark: { compact: "#1a1917", wide: "#0e0d0c" },
+} as const;
+
+const COMPACT_MEDIA = "(max-width: 767px)";
 
 const PINNED_COLOR = "data-pinned";
 
 const SWITCHING = "data-theme-switching";
-
-const SYSTEM_SWITCH = `matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){var r=document.documentElement;r.setAttribute("${SWITCHING}","");document.body.getBoundingClientRect();r.removeAttribute("${SWITCHING}")})`;
-
-export const THEME_SCRIPT = `try{var t=localStorage.getItem("${THEME_KEY}");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;var m=document.createElement("meta");m.name="theme-color";m.setAttribute("${PINNED_COLOR}","");m.content=t==="dark"?"${THEME_COLORS.dark}":"${THEME_COLORS.light}";document.head.prepend(m)}${SYSTEM_SWITCH}}catch(e){}`;
 
 export const THEMES = ["system", "light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
@@ -18,17 +19,21 @@ export function storedTheme(): Theme {
 	return stored === "light" || stored === "dark" ? stored : "system";
 }
 
-function pinThemeColor(theme: Theme): void {
-	const pinned = document.head.querySelector(`meta[name="theme-color"][${PINNED_COLOR}]`);
-	if (theme === "system") {
-		pinned?.remove();
-		return;
-	}
-	const meta = pinned instanceof HTMLMetaElement ? pinned : document.createElement("meta");
+function themeColorMeta(content: string, media?: string): HTMLMetaElement {
+	const meta = document.createElement("meta");
 	meta.name = "theme-color";
 	meta.setAttribute(PINNED_COLOR, "");
-	meta.content = THEME_COLORS[theme];
-	document.head.insertBefore(meta, document.head.firstChild);
+	if (media !== undefined) meta.media = media;
+	meta.content = content;
+	return meta;
+}
+
+function pinThemeColor(theme: Theme): void {
+	for (const pinned of document.head.querySelectorAll(`meta[name="theme-color"][${PINNED_COLOR}]`)) pinned.remove();
+	if (theme === "system") return;
+	const colors = THEME_COLORS[theme];
+	const wide = document.head.insertBefore(themeColorMeta(colors.wide), document.head.firstChild);
+	document.head.insertBefore(themeColorMeta(colors.compact, COMPACT_MEDIA), wide);
 }
 
 function applyTheme(root: HTMLElement, theme: Theme): void {

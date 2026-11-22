@@ -5,17 +5,20 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<title>Tools</title>
 		<meta name="description" content="Matt Palmer's tools." />
+		<meta name="color-scheme" content="light dark" />
+		<meta name="theme-color" media="(prefers-color-scheme: light) and (max-width: 767px)" content="#f4f3f1" />
+		<meta name="theme-color" media="(prefers-color-scheme: dark) and (max-width: 767px)" content="#1a1917" />
 		<meta name="theme-color" media="(prefers-color-scheme: light)" content="#e8e6e4" />
 		<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0d0c" />
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
-		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 		<meta name="apple-mobile-web-app-title" content="Tools" />
 		<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
-		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+		<link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
 		<script>
-			try{var t=localStorage.getItem("tools-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}
+			try{var t=localStorage.getItem("tools-theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;var c=t==="dark"?["#1a1917","#0e0d0c"]:["#f4f3f1","#e8e6e4"];var w=document.createElement("meta");w.name="theme-color";w.setAttribute("data-pinned","");w.content=c[1];var p=document.createElement("meta");p.name="theme-color";p.setAttribute("data-pinned","");p.media="(max-width: 767px)";p.content=c[0];document.head.prepend(p,w)}}catch(e){}
 		</script>
 	</head>
 	<body>

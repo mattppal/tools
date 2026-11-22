@@ -13,13 +13,21 @@
 	min-height: 0;
 }
 
+.secondary[data-state="open"] + .column {
+	--edge-left: 0px;
+}
+
+.column:has(+ .panel) {
+	--edge-right: 0px;
+}
+
 .header {
 	display: flex;
 	flex: none;
 	align-items: center;
 	gap: var(--space-1);
-	min-height: var(--topbar-height);
-	padding: 0 var(--panel-inset);
+	min-height: calc(var(--topbar-height) + var(--edge-top));
+	padding: var(--edge-top) calc(var(--panel-inset) + var(--edge-right)) 0 calc(var(--panel-inset) + var(--edge-left));
 }
 
 .title {
@@ -43,14 +51,15 @@
 .body {
 	flex: 1;
 	min-height: 0;
-	padding: 0 var(--space-5) var(--space-6);
+	margin-inline: var(--edge-left) var(--edge-right);
+	padding: 0 var(--space-5) calc(var(--space-6) + var(--edge-bottom));
 	overflow: auto;
 	overscroll-behavior: contain;
 }
 
 .secondary {
 	flex: none;
-	width: var(--secondary-width, 256px);
+	width: calc(var(--secondary-width, 256px) + var(--edge-left));
 	min-height: 0;
 	overflow: hidden;
 	background: var(--sunken-bg);
@@ -64,9 +73,9 @@
 .secondaryInner {
 	display: flex;
 	flex-direction: column;
-	width: var(--secondary-width, 256px);
+	width: calc(var(--secondary-width, 256px) + var(--edge-left));
 	height: 100%;
-	padding-block-start: var(--space-2);
+	padding: calc(var(--space-2) + var(--edge-top)) 0 var(--edge-bottom) var(--edge-left);
 }
 
 .panel {
@@ -75,7 +84,7 @@
 	flex-direction: column;
 	width: 320px;
 	min-height: 0;
-	margin: var(--space-3) var(--space-3) var(--space-3) 0;
+	margin: calc(var(--space-3) + var(--edge-top)) calc(var(--space-3) + var(--edge-right)) calc(var(--space-3) + var(--edge-bottom)) 0;
 	border-radius: var(--radius-lg);
 	background: var(--sunken-bg);
 	overflow: hidden;
@@ -113,8 +122,6 @@
 .panelSheet {
 	width: min(360px, calc(100vw - var(--space-7)));
 	border: 0;
-	padding-top: env(safe-area-inset-top);
-	padding-bottom: env(safe-area-inset-bottom);
 }
 
 .sheetBody {
@@ -134,12 +141,12 @@
 	.header {
 		position: sticky;
 		top: 0;
-		padding-top: env(safe-area-inset-top);
-		padding-inline: var(--space-2);
+		padding-inline: calc(var(--space-2) + var(--edge-left)) calc(var(--space-2) + var(--edge-right));
+		background: var(--panel-bg);
 	}
 
 	.body {
-		padding: 0 var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+		padding: 0 var(--space-4) calc(var(--space-6) + var(--edge-bottom));
 	}
 }
 
