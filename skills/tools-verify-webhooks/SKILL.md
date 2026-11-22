@@ -71,7 +71,7 @@ Change `delivery.tla` in the same PR as the code, so that `claim.cfg` and `claim
 | `tools/nutrition/store.ts` | `closeDayFromUi` (insert) |
 | `tools/nutrition/api.ts` | first attempt after close |
 
-Last confirmed against commit `540877b`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
+Last confirmed against commit `5a324c3`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
 
 ## Not covered
 
