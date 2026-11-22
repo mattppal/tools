@@ -19,7 +19,7 @@ No page. `tool.ts` is hidden, so the sidebar and home skip it, and its debug row
 | `GET /api/withings/callback` | Bypasses Access through its own Access app, "tools - Withings callback", scoped to this one path. Checks that the state is signed, unexpired and equal to the `withings_state` cookie, so a state only works in the browser that started the connect, then clears the cookie, exchanges the code, saves the tokens, and redirects to `/settings`. Without `code` or `error`, a GET, HEAD, or POST answers 200 so Withings' portal check passes. |
 | `GET /api/tools/activity/days?from=&to=` | Days from `daily_activity`, default the last 90, plus the connection state. |
 | `GET /api/tools/activity/health?from=&to=` | One row per day from `daily_health`. Default the last 30 days. |
-| `GET /api/tools/activity/workouts?from=&to=` | Withings workouts with HR zones and the training-log link, if any. |
+| `GET /api/tools/activity/workouts?from=&to=` | Withings workouts with HR zones and the training-log link, if any. `activity` is the category name from `WORKOUT_CATEGORIES`, which copies the category table in Withings' OpenAPI spec (`developer.withings.com/openapi.yaml`, `getworkouts`), lowercased. An unknown category reads `category <n>`. |
 | `GET /api/tools/activity/sleep?from=&to=` | Withings sleep summaries with the device model and device hash. |
 | `GET /api/tools/activity/measures?from=&to=&types=` | Body measures, decoded, with names from `MEASURE_TYPES`. `types` is a comma list of Withings type numbers. |
 | `GET /api/tools/activity/intraday?day=` | One day of 5-minute buckets. |
