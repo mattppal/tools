@@ -788,10 +788,6 @@ th[aria-sort] .sortButton {
 	text-align: right;
 }
 
-.table th {
-	border-bottom: var(--border-width) solid var(--border-color);
-}
-
 .table tbody tr:first-child td {
 	padding-top: var(--space-3);
 }
