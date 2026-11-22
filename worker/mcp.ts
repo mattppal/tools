@@ -55,6 +55,47 @@ export function toolMcp({ name, tools }: { name: string; tools: readonly McpTool
 		}
 		const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
 		await server.connect(transport);
-		return transport.handleRequest(request);
+		const sent: unknown = await request
+			.clone()
+			.json()
+			.catch(() => null);
+		const response = await transport.handleRequest(request);
+		const answered: unknown = response.headers.get("content-type")?.includes("application/json") ? await response.clone().json() : null;
+		for (const line of callLog(name, bot, sent, answered)) console.log(JSON.stringify(line));
+		return response;
 	};
+}
+
+type Message = { id?: unknown; method?: unknown; params?: { name?: unknown; arguments?: unknown }; result?: { isError?: unknown; content?: { text?: unknown }[] }; error?: { message?: unknown } };
+
+export type CallLogLine = { mcp: string; bot: BotName; tool: string; args: string[]; outcome: "ok" | "rejected" | "invalid" | "protocol error" | "no response"; reason?: string };
+
+export function argumentNames(value: unknown, prefix = ""): string[] {
+	if (Array.isArray(value)) return [...new Set(value.flatMap((item) => argumentNames(item, `${prefix}[]`)))];
+	if (value === null || typeof value !== "object") return prefix === "" ? [] : [prefix];
+	const names = Object.entries(value).flatMap(([key, child]) => {
+		const path = prefix === "" ? key : `${prefix}.${key}`;
+		const nested = argumentNames(child, path);
+		return nested.length === 0 ? [path] : nested;
+	});
+	return [...new Set(names)];
+}
+
+function messages(body: unknown): Message[] {
+	return (Array.isArray(body) ? body : [body]).filter((item): item is Message => item !== null && typeof item === "object");
+}
+
+export function callLog(mcp: string, bot: BotName, sent: unknown, answered: unknown): CallLogLine[] {
+	const replies = new Map(messages(answered).map((reply) => [JSON.stringify(reply.id ?? null), reply]));
+	return messages(sent)
+		.filter((message) => message.method === "tools/call")
+		.map((message) => {
+			const reply = replies.get(JSON.stringify(message.id ?? null));
+			const line: CallLogLine = { mcp, bot, tool: String(message.params?.name ?? ""), args: argumentNames(message.params?.arguments).toSorted(), outcome: "ok" };
+			if (reply === undefined) return { ...line, outcome: "no response" };
+			if (reply.error !== undefined) return { ...line, outcome: "protocol error", reason: String(reply.error.message ?? "") };
+			if (reply.result?.isError !== true) return line;
+			const text = String(reply.result.content?.[0]?.text ?? "");
+			return text.startsWith("MCP error -32602") ? { ...line, outcome: "invalid", reason: text } : { ...line, outcome: "rejected" };
+		});
 }

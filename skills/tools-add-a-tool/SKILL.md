@@ -81,7 +81,11 @@ const mcp = toolMcp({
 export default defineToolApi((request, context) => (context.path === "/mcp" ? mcp(request, context) : Response.json({ error: "Not found" }, { status: 404 })));
 ```
 
-The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to send the bot an error it can act on. Any other error is logged, and the bot sees `Internal error`. `skills/tools-deploy/SKILL.md` covers creating the Access token and policy.
+The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to send the bot an error it can act on. Any other error is logged, and the bot sees `Internal error`.
+
+Every `tools/call` logs one JSON line to Workers Logs: `{ mcp, bot, tool, args, outcome, reason? }`. `args` holds the argument names as paths, such as `add[].kcal`, and never their values. `outcome` is `ok`, `rejected` (a `McpToolError`), `invalid` (the input schema refused it, with the validation message as `reason`), `protocol error`, or `no response`. To see what a bot really sent, query Workers Observability for `$metadata.message` containing `"mcp":"<slug>"`. Request bodies aren't kept anywhere else.
+
+`skills/tools-deploy/SKILL.md` covers creating the Access token and policy.
 
 ## Webhooks to bots
 
