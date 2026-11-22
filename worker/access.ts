@@ -15,6 +15,7 @@ export const ACCESS: AccessConfig = {
 		"coach-bot": "e7234384aca5ccf0fe162d8a112c76b5.access",
 		"nutrition-bot": "46f516f5dd0738abfa72def83722f0da.access",
 		"tools-coordinator": "9f5386b746c91cbc0774e9f806a081fa.access",
+		"apple-health-export": "9ae32c65cfb73a1cf83b0196b682ba65.access",
 	},
 	publicRoutes: ["GET /api/withings/callback", "HEAD /api/withings/callback", "POST /api/withings/callback"],
 };

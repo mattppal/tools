@@ -3,15 +3,17 @@ declare global {
 		BOT_TOKEN_NUTRITION?: string;
 		BOT_TOKEN_COACH?: string;
 		BOT_TOKEN_COORDINATOR?: string;
+		BOT_TOKEN_APPLE_HEALTH?: string;
 	}
 }
 
-type BotSecret = "BOT_TOKEN_NUTRITION" | "BOT_TOKEN_COACH" | "BOT_TOKEN_COORDINATOR";
+type BotSecret = "BOT_TOKEN_NUTRITION" | "BOT_TOKEN_COACH" | "BOT_TOKEN_COORDINATOR" | "BOT_TOKEN_APPLE_HEALTH";
 
 const BOTS = {
 	nutrition: { secret: "BOT_TOKEN_NUTRITION", tools: ["nutrition"] },
 	coach: { secret: "BOT_TOKEN_COACH", tools: ["workouts"] },
 	coordinator: { secret: "BOT_TOKEN_COORDINATOR", tools: ["liaison"] },
+	"apple-health": { secret: "BOT_TOKEN_APPLE_HEALTH", tools: ["activity"] },
 } as const satisfies Record<string, { secret: BotSecret; tools: readonly string[] }>;
 
 export type BotName = keyof typeof BOTS;

@@ -1,4 +1,6 @@
+import { requireBot } from "../../worker/bot-auth.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
+import { listAppleWorkouts, parsePayload, saveAppleHealth } from "./apple-health.ts";
 import { addDays, isIsoDate, today } from "./dates.ts";
 import { dailyHealth, intradayDay, listMeasures, listSleep, listWorkouts, resetStreams } from "./health.ts";
 import { signState, verifyState } from "./secrets.ts";
@@ -98,6 +100,21 @@ export function activityApi(fetcher: Fetch = fetch) {
 				if (path === "/sleep") return Response.json({ sleep: await listSleep(client, from, to) }, { headers: NO_STORE });
 				return Response.json({ measures: await listMeasures(client, from, to, types) }, { headers: NO_STORE });
 			});
+		}
+		if (path === "/apple-health" && request.method === "POST") {
+			const bot = await requireBot(request, env, "activity");
+			if (bot instanceof Response) return bot;
+			const body = await request.json().catch(() => null);
+			const result = parsePayload(body);
+			if (!result.ok) return Response.json({ error: result.error }, { status: 422, headers: NO_STORE });
+			const push = { automation: request.headers.get("automation-name") ?? "Health Auto Export", sessionId: request.headers.get("session-id") };
+			return Response.json(await db((client) => saveAppleHealth(client, result.parsed, push)), { headers: NO_STORE });
+		}
+		if (path === "/apple-health/workouts" && request.method === "GET") {
+			const to = url.searchParams.get("to") ?? today();
+			const from = url.searchParams.get("from") ?? addDays(to, -29);
+			if (!isIsoDate(from) || !isIsoDate(to) || from > to) return Response.json({ error: "Use dates like 2026-11-22, from on or before to" }, { status: 400 });
+			return Response.json({ workouts: await db((client) => listAppleWorkouts(client, from, to)) }, { headers: NO_STORE });
 		}
 		if (path === "/intraday" && request.method === "GET") {
 			const day = url.searchParams.get("day") ?? today();

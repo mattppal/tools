@@ -1,4 +1,6 @@
+import type { WithDb } from "../../worker/db.ts";
 import { type DebugRow, defineToolDebug } from "../../worker/tool-debug.ts";
+import { listPushes } from "./apple-health.ts";
 import { readStream } from "./health.ts";
 import { readConnection } from "./store.ts";
 import { credentials } from "./withings.ts";
@@ -7,7 +9,7 @@ function utc(iso: string): string {
 	return `${iso.slice(0, 16).replace("T", " ")} UTC`;
 }
 
-export default defineToolDebug(async ({ env, db }) => {
+async function withingsRows(env: Env, db: WithDb): Promise<DebugRow[]> {
 	if (credentials(env) === null) return [{ label: "Withings", value: "WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set" }];
 	const connection = await db((client) => readConnection(client));
 	if (connection === null) return [{ label: "Withings", value: "Not connected. Open /api/withings/connect to connect." }];
@@ -45,4 +47,15 @@ export default defineToolDebug(async ({ env, db }) => {
 	}
 	if (connection.lastError !== null) rows.push({ label: "Sync error", value: `${connection.lastError}${connection.lastErrorAt === null ? "" : ` (${utc(connection.lastErrorAt)})`}` });
 	return rows;
-});
+}
+
+async function appleHealthRows(db: WithDb): Promise<DebugRow[]> {
+	const pushes = await db((client) => listPushes(client));
+	if (pushes.length === 0) return [{ label: "Apple Health", value: "No pushes yet. Set up Health Auto Export from tools/activity/SKILL.md." }];
+	return pushes.map(({ automation, receivedAt, counts: { received, changed, skipped } }) => ({
+		label: `Apple Health: ${automation}`,
+		value: `Last push ${utc(receivedAt)}. ${received.sleep} sleep segments, ${received.samples} samples, ${received.workouts} workouts; ${changed.sleep + changed.samples + changed.workouts} new or changed. Skipped ${skipped.withings} from Withings, ${skipped.invalid} unreadable.`,
+	}));
+}
+
+export default defineToolDebug(async ({ env, db }) => [...(await withingsRows(env, db)), ...(await appleHealthRows(db))]);

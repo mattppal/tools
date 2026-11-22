@@ -1,0 +1,112 @@
+{
+	"data": {
+		"workouts": [
+			{
+				"id": "6E2B7C1A-4F0D-4B57-9C3E-2A8F51D0B7E4",
+				"name": "Outdoor Run",
+				"start": "2026-11-21 07:30:00 -0800",
+				"end": "2026-11-21 08:05:10 -0800",
+				"duration": 2110,
+				"source": {
+					"name": "Matt’s Apple Watch",
+					"identifier": "com.apple.health.81F3D2B4-6A1C-4E0B-9F27-5D1A3C8E4B90"
+				},
+				"location": "Outdoor",
+				"isIndoor": false,
+				"activeEnergyBurned": {
+					"qty": 402.6,
+					"units": "kcal"
+				},
+				"totalEnergy": {
+					"qty": 471.3,
+					"units": "kcal"
+				},
+				"intensity": {
+					"qty": 9.8,
+					"units": "kcal/hr·kg"
+				},
+				"distance": {
+					"qty": 3.62,
+					"units": "mi"
+				},
+				"elevationUp": {
+					"qty": 98,
+					"units": "ft"
+				},
+				"elevationDown": {
+					"qty": 95,
+					"units": "ft"
+				},
+				"heartRate": {
+					"min": {
+						"qty": 96,
+						"units": "count/min"
+					},
+					"avg": {
+						"qty": 148,
+						"units": "count/min"
+					},
+					"max": {
+						"qty": 171,
+						"units": "count/min"
+					}
+				},
+				"avgHeartRate": {
+					"qty": 148,
+					"units": "count/min"
+				},
+				"maxHeartRate": {
+					"qty": 171,
+					"units": "count/min"
+				},
+				"heartRateData": [
+					{
+						"date": "2026-11-21 07:30:00 -0800",
+						"Min": 96,
+						"Avg": 104,
+						"Max": 112,
+						"units": "count/min",
+						"source": "Matt’s Apple Watch"
+					},
+					{
+						"date": "2026-11-21 07:31:00 -0800",
+						"Min": 112,
+						"Avg": 121,
+						"Max": 130,
+						"units": "count/min",
+						"source": "Matt’s Apple Watch"
+					}
+				],
+				"route": [
+					{
+						"latitude": 37.7749,
+						"longitude": -122.4194,
+						"altitude": 15.2,
+						"course": 45.0,
+						"courseAccuracy": 5.0,
+						"horizontalAccuracy": 4.0,
+						"verticalAccuracy": 3.0,
+						"timestamp": "2026-11-21 07:30:01 -0800",
+						"speed": 2.9,
+						"speedAccuracy": 0.4
+					}
+				]
+			},
+			{
+				"id": "0C5D9E21-7B3A-4D88-A1F6-93E2B4C7D510",
+				"name": "Traditional Strength Training",
+				"start": "2026-11-21 17:00:00 -0800",
+				"end": "2026-11-21 17:52:00 -0800",
+				"duration": 3120,
+				"source": {
+					"name": "Health Mate",
+					"identifier": "com.withings.wiScaleNG"
+				},
+				"activeEnergyBurned": {
+					"qty": 210,
+					"units": "kcal"
+				}
+			}
+		]
+	}
+}
