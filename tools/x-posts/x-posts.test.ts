@@ -38,7 +38,7 @@ const MATT: Caller = { kind: "owner", email: "mattppalmer@gmail.com" };
 const NOW = new Date("2026-11-22T20:00:00Z");
 
 beforeEach(async () => {
-	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
+	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.reposts, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
 		update x_posts.sync_state set since_id = null, pending_since_id = null, next_token = null, next_run_at = '-infinity', last_run_at = null, last_success_at = null, last_error = null, failures = 0, month = '', month_reads = 0, capped_month = null, stale_noticed_for = null;`);
 });
 
@@ -464,7 +464,7 @@ test("Connect X sends Matt to X with PKCE and the posting scopes, and bots can't
 	expect(response.status).toBe(302);
 	const location = new URL(response.headers.get("location") ?? "");
 	expect(location.origin + location.pathname).toBe("https://x.com/i/oauth2/authorize");
-	expect(Object.fromEntries(location.searchParams)).toMatchObject({ client_id: "client", scope: "tweet.read tweet.write users.read offline.access", code_challenge_method: "S256", redirect_uri: "https://tools.mattpalmer.io/api/tools/x-posts/x/callback" });
+	expect(Object.fromEntries(location.searchParams)).toMatchObject({ client_id: "client", scope: "tweet.read tweet.write users.read like.write offline.access", code_challenge_method: "S256", redirect_uri: "https://tools.mattpalmer.io/api/tools/x-posts/x/callback" });
 	expect(response.headers.get("set-cookie")).toContain("HttpOnly");
 	expect((await sendAs("/x/connect", fakeOAuthX([]).fetcher, { caller: REVIEW })).status).toBe(403);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", caller: BRIDGE, body: { id: "1", text: "hi" } })).status).toBe(403);
@@ -545,4 +545,24 @@ test("reply length counts like X", () => {
 	expect(replyLength("👍🏽")).toBe(2);
 	expect(replyLength("日本")).toBe(4);
 	expect(replyLength("x".repeat(280))).toBe(REPLY_MAX);
+});
+
+test("Repost reposts as Matt, undo removes it, and the post shows the state", async () => {
+	const [id] = await seed([{}]);
+	await connectAs();
+	const on = fakeOAuthX([() => Response.json({ data: { retweeted: true } })]);
+	expect(await (await sendAs("/repost", on.fetcher, { method: "POST", body: { id, on: true } })).json()).toEqual({ id, reposted: true });
+	expect(on.calls[0]).toMatchObject({ url: "https://api.x.com/2/users/1518984544421965824/retweets", method: "POST", authorization: "Bearer access-1" });
+	expect(JSON.parse(on.calls[0]?.body ?? "")).toEqual({ tweet_id: id });
+	const listed = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: { reposted: boolean }[] };
+	expect(listed.posts[0]?.reposted).toBe(true);
+	const off = fakeOAuthX([() => Response.json({ data: { retweeted: false } })]);
+	expect((await sendAs("/repost", off.fetcher, { method: "POST", body: { id, on: false } })).status).toBe(200);
+	expect(off.calls[0]).toMatchObject({ url: `https://api.x.com/2/users/1518984544421965824/retweets/${id}`, method: "DELETE" });
+	expect((await pg.query("select count(*)::int as n from x_posts.reposts")).rows[0]).toEqual({ n: 0 });
+	const refused = fakeOAuthX([() => Response.json({ detail: "You are not allowed to repost this post." }, { status: 403 })]);
+	const response = await sendAs("/repost", refused.fetcher, { method: "POST", body: { id, on: true } });
+	expect(response.status).toBe(502);
+	expect((await pg.query("select count(*)::int as n from x_posts.reposts")).rows[0]).toEqual({ n: 0 });
+	expect((await sendAs("/repost", fakeOAuthX([]).fetcher, { method: "POST", caller: REVIEW, body: { id, on: true } })).status).toBe(403);
 });

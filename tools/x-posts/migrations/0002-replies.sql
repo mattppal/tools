@@ -22,3 +22,9 @@ create table replies (
 create index replies_post_id on replies (post_id, created_at desc);
 
 alter table posts add column sources text[] not null default '{summons}';
+
+create table reposts (
+	post_id bigint primary key references posts (id) on delete cascade,
+	username text not null,
+	created_at timestamptz not null
+);

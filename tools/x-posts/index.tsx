@@ -6,7 +6,7 @@ import { PostCard } from "./card.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
 import type { Reply } from "./reply.ts";
-import { ConnectX, ReplyBox, ReplyFailure } from "./reply-box.tsx";
+import { ConnectX, Engage, ReplyBox, ReplyFailure } from "./reply-box.tsx";
 import styles from "./x-posts.module.css";
 
 const API = "/api/tools/x-posts";
@@ -61,9 +61,26 @@ async function sendReply(body: { id: string; text: string }): Promise<Reply> {
 	return json;
 }
 
+async function sendRepost(body: { id: string; on: boolean }): Promise<{ reposted: boolean }> {
+	let response: Response;
+	try {
+		response = await fetch(`${API}/repost`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+	} catch (error) {
+		throw new ReplyFailure(describe(error), false);
+	}
+	const json = (await response.json().catch(() => null)) as { reposted?: boolean; error?: string; connect?: boolean } | null;
+	if (!response.ok || typeof json?.reposted !== "boolean") throw new ReplyFailure(json?.error ?? `Request failed with ${response.status}`, json?.connect === true);
+	return { reposted: json.reposted };
+}
+
 function replyFor(post: OwnerPost, status: Load<Status>): ReactNode {
 	const connected = status.status === "ready" && status.data.x !== null;
-	return connected || post.reply !== null ? <ReplyBox post={post} send={sendReply} /> : null;
+	return (
+		<>
+			<Engage post={post} connected={connected} repost={sendRepost} />
+			{connected || post.reply !== null ? <ReplyBox post={post} send={sendReply} /> : null}
+		</>
+	);
 }
 
 function connectPrompt(status: Load<Status>): ReactNode {

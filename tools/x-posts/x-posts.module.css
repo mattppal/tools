@@ -322,3 +322,28 @@
 		font-size: 16px;
 	}
 }
+
+.engage {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	margin-left: calc(-1 * var(--space-2));
+}
+
+.engageLink {
+	display: inline-flex;
+	align-items: center;
+	height: var(--control-md);
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-control);
+	color: var(--text-3);
+	font-size: var(--text-xs);
+	text-decoration: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.engageLink:hover {
+		background: var(--hover-bg);
+		color: var(--text-1);
+	}
+}

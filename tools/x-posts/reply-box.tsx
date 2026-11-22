@@ -8,6 +8,7 @@ import styles from "./x-posts.module.css";
 export const CONNECT_URL = "/api/tools/x-posts/x/connect";
 
 type Send = (body: { id: string; text: string }) => Promise<Reply>;
+type Repost = (body: { id: string; on: boolean }) => Promise<{ reposted: boolean }>;
 
 function intentUrl(postId: string, text: string): string {
 	return `https://x.com/intent/post?${new URLSearchParams({ in_reply_to: postId, text })}`;
@@ -89,6 +90,49 @@ export function ReplyBox({ post, send }: { post: OwnerPost; send: Send }) {
 				</p>
 			)}
 		</div>
+	);
+}
+
+export function Engage({ post, connected, repost }: { post: OwnerPost; connected: boolean; repost: Repost }) {
+	const [reposted, setReposted] = useState(post.reposted);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<{ message: string; connect: boolean } | null>(null);
+	const [synced, setSynced] = useState(post.reposted);
+	if (!busy && synced !== post.reposted) {
+		setSynced(post.reposted);
+		setReposted(post.reposted);
+	}
+	async function toggle() {
+		const on = !reposted;
+		setReposted(on);
+		setBusy(true);
+		setError(null);
+		try {
+			await repost({ id: post.id, on });
+		} catch (failure) {
+			setReposted(!on);
+			setError({ message: failure instanceof Error ? failure.message : String(failure), connect: failure instanceof ReplyFailure && failure.connect });
+		}
+		setBusy(false);
+	}
+	return (
+		<>
+			<div className={styles.engage}>
+				{connected ? (
+					<Button size="sm" variant="quiet" aria-pressed={reposted} disabled={busy} onClick={() => void toggle()}>
+						{reposted ? "Reposted" : "Repost"}
+					</Button>
+				) : null}
+				<a className={styles.engageLink} href={`https://x.com/intent/like?${new URLSearchParams({ tweet_id: post.id })}`} target="_blank" rel="noreferrer">
+					Like on X
+				</a>
+			</div>
+			{error === null ? null : (
+				<p className={styles.error}>
+					{error.message} {error.connect ? <a href={CONNECT_URL}>Connect X</a> : null}
+				</p>
+			)}
+		</>
 	);
 }
 
