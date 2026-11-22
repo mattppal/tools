@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import type { OwnerPost } from "./owner.ts";
 import type { Reply } from "./reply.ts";
@@ -93,7 +93,7 @@ export function ReplyBox({ post, send }: { post: OwnerPost; send: Send }) {
 	);
 }
 
-export function Engage({ post, connected, repost }: { post: OwnerPost; connected: boolean; repost: Repost }) {
+export function Engage({ post, connected, repost, meta, children }: { post: OwnerPost; connected: boolean; repost: Repost; meta: string; children: ReactNode }) {
 	const [reposted, setReposted] = useState(post.reposted);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<{ message: string; connect: boolean } | null>(null);
@@ -117,15 +117,19 @@ export function Engage({ post, connected, repost }: { post: OwnerPost; connected
 	}
 	return (
 		<>
-			<div className={styles.engage}>
-				{connected ? (
-					<Button size="sm" variant="quiet" aria-pressed={reposted} disabled={busy} onClick={() => void toggle()}>
-						{reposted ? "Reposted" : "Repost"}
-					</Button>
-				) : null}
-				<a className={styles.engageLink} href={`https://x.com/intent/like?${new URLSearchParams({ tweet_id: post.id })}`} target="_blank" rel="noreferrer">
-					Like on X
-				</a>
+			<div className={styles.postFoot}>
+				<div className={styles.engage}>
+					{connected ? (
+						<Button size="sm" variant="quiet" aria-pressed={reposted} disabled={busy} onClick={() => void toggle()}>
+							{reposted ? "Reposted" : "Repost"}
+						</Button>
+					) : null}
+					<a className={styles.engageLink} href={`https://x.com/intent/like?${new URLSearchParams({ tweet_id: post.id })}`} target="_blank" rel="noreferrer">
+						Like on X
+					</a>
+					{children}
+				</div>
+				{meta === "" ? null : <p className={styles.meta}>{meta}</p>}
 			</div>
 			{error === null ? null : (
 				<p className={styles.error}>

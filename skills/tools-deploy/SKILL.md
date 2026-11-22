@@ -23,7 +23,7 @@ There is one exception, for bots. An agent may create a bot's Access service tok
 
 Built files in `dist/client` are served as they are. Every other request reaches `worker/index.ts`: `/api/*` goes to the API, a missing `/assets/*` file gets a 404, and any other path gets `index.html` for the client router. Don't add `not_found_handling` to `wrangler.jsonc`. It would answer missing assets with `index.html`, which `public/_headers` marks immutable under `/assets/*`.
 
-Every page is served through the Worker (`/` and `/index.html` are in `run_worker_first`), which puts a fresh nonce on each `<script>` and sends `script-src 'self' 'nonce-…' 'wasm-unsafe-eval'` with `cache-control: no-store`. `'wasm-unsafe-eval'` lets a page compile WebAssembly (the X posts cards) and still blocks `eval`. Load scripts from built files or as `<script>` tags in `index.html`; inline event handlers (`onclick=`) and injected `<script>` elements without the nonce are blocked. Cloudflare copies the nonce onto the scripts it injects, so Rocket Loader stays off for tools.mattpalmer.io (a zone configuration rule); turning it back on breaks the page.
+Every page is served through the Worker (`/` and `/index.html` are in `run_worker_first`), which puts a fresh nonce on each `<script>` and sends `script-src 'self' 'nonce-…'` with `cache-control: no-store`. Load scripts from built files or as `<script>` tags in `index.html`; inline event handlers (`onclick=`) and injected `<script>` elements without the nonce are blocked. Cloudflare copies the nonce onto the scripts it injects, so Rocket Loader stays off for tools.mattpalmer.io (a zone configuration rule); turning it back on breaks the page.
 
 ## Where it runs
 

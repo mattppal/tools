@@ -110,7 +110,7 @@ const PUNCTUATION: Record<string, string> = {
 
 export type Screened = { cleanText: string; cleanName: string; flags: Flag[]; notes: string[] };
 
-export function decodeEntities(text: string): string {
+function decodeEntities(text: string): string {
 	return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, entity: string) => {
 		if (entity.startsWith("#x") || entity.startsWith("#X")) return safeCodePoint(Number.parseInt(entity.slice(2), 16)) ?? whole;
 		if (entity.startsWith("#")) return safeCodePoint(Number.parseInt(entity.slice(1), 10)) ?? whole;

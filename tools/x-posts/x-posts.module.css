@@ -219,19 +219,6 @@
 	text-decoration: underline;
 }
 
-.card {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-}
-
-.card img {
-	display: block;
-	width: 100%;
-	height: auto;
-	border-radius: var(--radius-md);
-}
-
 .postFoot {
 	display: flex;
 	align-items: center;

@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
-import { PostCard } from "./card.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
 import type { Reply } from "./reply.ts";
@@ -73,14 +72,12 @@ async function sendRepost(body: { id: string; on: boolean }): Promise<{ reposted
 	return { reposted: json.reposted };
 }
 
+function isConnected(status: Load<Status>): boolean {
+	return status.status === "ready" && status.data.x !== null;
+}
+
 function replyFor(post: OwnerPost, status: Load<Status>): ReactNode {
-	const connected = status.status === "ready" && status.data.x !== null;
-	return (
-		<>
-			<Engage post={post} connected={connected} repost={sendRepost} />
-			{connected || post.reply !== null ? <ReplyBox post={post} send={sendReply} /> : null}
-		</>
-	);
+	return isConnected(status) || post.reply !== null ? <ReplyBox post={post} send={sendReply} /> : null;
 }
 
 function connectPrompt(status: Load<Status>): ReactNode {
@@ -118,10 +115,6 @@ function ago(iso: string, now: number): string {
 	if (minutes < 60) return `${minutes}m ago`;
 	const hours = Math.round(minutes / 60);
 	return hours < 24 ? `${hours}h ago` : when(iso);
-}
-
-function count(value: number | null, one: string, many: string): string | null {
-	return value === null ? null : `${value.toLocaleString("en-US")} ${value === 1 ? one : many}`;
 }
 
 function useVisibleInterval(callback: () => void, ms: number): void {
@@ -170,45 +163,34 @@ function PostLink({ post, children }: { post: OwnerPost; children: string }) {
 	);
 }
 
-function PostBody({ post, now, time }: { post: OwnerPost; now: number; time: string }) {
-	const metrics = [count(post.metrics.likes, "like", "likes"), count(post.metrics.reposts, "repost", "reposts"), count(post.metrics.replies, "reply", "replies"), count(post.metrics.impressions, "view", "views")].filter(
-		(part): part is string => part !== null,
-	);
+function PostBody({ post, time }: { post: OwnerPost; time: string }) {
 	return (
-		<PostCard
-			post={post}
-			now={now}
-			fallback={
-				<>
-					<p className={styles.liveHead}>
-						<span className={styles.liveName}>{post.name || post.handle}</span>
-						<span>@{post.handle}</span>
-						<PostLink post={post}>{time}</PostLink>
-					</p>
-					<p className={styles.text}>{post.text}</p>
-					{metrics.length === 0 ? null : <p className={styles.meta}>{metrics.join(" · ")}</p>}
-				</>
-			}
-		/>
+		<>
+			<p className={styles.liveHead}>
+				<span className={styles.liveName}>{post.name || post.handle}</span>
+				<span>@{post.handle}</span>
+				<PostLink post={post}>{time}</PostLink>
+			</p>
+			<p className={styles.text}>{post.text}</p>
+		</>
 	);
 }
 
-function PostFoot({ post }: { post: OwnerPost }) {
-	const meta = [post.metrics.quotes ? count(post.metrics.quotes, "quote", "quotes") : null, post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+function PostFoot({ post, connected }: { post: OwnerPost; connected: boolean }) {
+	const meta = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return (
-		<div className={styles.postFoot}>
-			<p className={styles.meta}>{meta.join(" · ")}</p>
+		<Engage post={post} connected={connected} repost={sendRepost} meta={meta.join(" · ")}>
 			<CopyLink url={post.url} />
-		</div>
+		</Engage>
 	);
 }
 
-function LivePost({ post, now, fresh, children }: { post: OwnerPost; now: number; fresh: boolean; children?: ReactNode }) {
+function LivePost({ post, now, fresh, connected, children }: { post: OwnerPost; now: number; fresh: boolean; connected: boolean; children?: ReactNode }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined}>
-			<PostBody post={post} now={now} time={ago(post.createdAt, now)} />
+			<PostBody post={post} time={ago(post.createdAt, now)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
-			<PostFoot post={post} />
+			<PostFoot post={post} connected={connected} />
 			{children}
 		</li>
 	);
@@ -252,7 +234,7 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 			) : (
 				<ul className={styles.list}>
 					{posts.data.posts.map((post) => (
-						<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)}>
+						<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)} connected={isConnected(status)}>
 							{replyFor(post, status)}
 						</LivePost>
 					))}
@@ -329,7 +311,7 @@ function Details({ status }: { status: Load<Status> }) {
 	);
 }
 
-function PostItem({ post, now, canDecide, onDecided, children }: { post: OwnerPost; now: number; canDecide: boolean; onDecided: () => void; children?: ReactNode }) {
+function PostItem({ post, canDecide, onDecided, connected, children }: { post: OwnerPost; canDecide: boolean; onDecided: () => void; connected: boolean; children?: ReactNode }) {
 	const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	async function decide(kind: "approve" | "reject") {
@@ -345,9 +327,9 @@ function PostItem({ post, now, canDecide, onDecided, children }: { post: OwnerPo
 	}
 	return (
 		<li className={styles.postRow}>
-			<PostBody post={post} now={now} time={when(post.createdAt)} />
+			<PostBody post={post} time={when(post.createdAt)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
-			<PostFoot post={post} />
+			<PostFoot post={post} connected={connected} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
 					<Button size="sm" loading={busy === "approve"} disabled={busy !== null} onClick={() => void decide("approve")}>
@@ -368,7 +350,6 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 	const canDecide = status.status === "ready" && status.data.queueOpen;
 	const [filter, setFilter] = useState<string | null>("pending");
 	const [posts, retry] = useLoad<{ posts: OwnerPost[]; nextBefore: string | null }>(`/posts${filter === null ? "" : `?status=${filter}`}`);
-	const [now] = useState(Date.now);
 	return (
 		<>
 			<div className={styles.filters} role="group" aria-label="Status">
@@ -389,8 +370,8 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 						<PostItem
 							key={post.id}
 							post={post}
-							now={now}
 							canDecide={canDecide}
+							connected={isConnected(status)}
 							onDecided={() => {
 								retry();
 								refreshStatus();

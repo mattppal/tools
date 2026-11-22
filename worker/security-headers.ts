@@ -10,7 +10,7 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 };
 
 export function pageCsp(nonce: string): string {
-	return `script-src 'self' 'nonce-${nonce}' 'wasm-unsafe-eval'; ${BASE_CSP}`;
+	return `script-src 'self' 'nonce-${nonce}'; ${BASE_CSP}`;
 }
 
 function newNonce(): string {
