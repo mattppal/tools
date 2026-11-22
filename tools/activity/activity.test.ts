@@ -338,11 +338,11 @@ test("workouts, sleep, body measures, and daily HR land in their tables, and a r
 
 	const [workout] = await listWorkouts(client, "2026-11-18", "2026-11-18");
 	expect(workout).toMatchObject({ id: 9001, activity: "run", durationS: 2700, distanceM: 7012.4, calories: 412.5, hr: { avg: 141, min: 98, max: 171, zonesS: [60, 900, 1500, 240] }, model: "1059", session: null });
-	expect((await listSleep(client, "2026-11-18", "2026-11-18"))[0]).toMatchObject({ model: "16", model_id: 93, device_hash: "dev-hash", total_sleep_s: 25200, deep_s: 5200, hr_min: 47, sleep_score: 82 });
-	expect((await listMeasures(client, "2026-11-18", "2026-11-18")).map((row) => [row["name"], row["value"]])).toEqual([
-		["systolic_mmhg", 128],
-		["spo2_pct", 96.12],
-		["muscle_mass_kg", 34.2],
+	expect((await listSleep(client, "2026-11-18", "2026-11-18"))[0]).toMatchObject({ id: "5001", model: "16", model_id: 93, device_hash: "dev-hash", total_sleep_s: 25200, deep_s: 5200, hr_min: 47, sleep_score: 82 });
+	expect((await listMeasures(client, "2026-11-18", "2026-11-18")).map((row) => [row["grpid"], row["name"], row["value"]])).toEqual([
+		["77", "systolic_mmhg", 128],
+		["77", "spo2_pct", 96.12],
+		["77", "muscle_mass_kg", 34.2],
 	]);
 	expect((await dailyHealth(client, "2026-11-18", "2026-11-18"))[0]).toMatchObject({ steps: 11000, dayHrAvg: 72, dayHrMin: 49, restingHr: 47, sleeps: 1, sleepS: 25200, sleepScore: 82, workouts: 1, workoutKcal: 412.5, workoutS: 2700 });
 	expect((await pg.query<{ state: { lastupdate: number } }>("select state from activity.withings_streams where name = 'measures'")).rows[0]?.state.lastupdate).toBe(1_800_000_500);

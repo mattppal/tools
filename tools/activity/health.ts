@@ -669,8 +669,8 @@ export async function listWorkouts(client: Database, from: string, to: string): 
 
 export async function listSleep(client: Database, from: string, to: string): Promise<Row[]> {
 	const { rows } = await client.query<Row>(
-		`select id, local_date::text as date, started_at, ended_at, timezone, model, model_id, device_hash, total_sleep_s, in_bed_s, light_s, deep_s, rem_s, awake_s,
-			wakeup_count, sleep_latency_s, sleep_efficiency, hr_avg, hr_min, hr_max, rr_avg, rr_min, rr_max, breathing_disturbances, snoring_s, sleep_score
+		`select id::text as id, local_date::text as date, started_at, ended_at, timezone, model, model_id, device_hash, total_sleep_s, in_bed_s, light_s, deep_s, rem_s, awake_s,
+			wakeup_count, sleep_latency_s, sleep_efficiency::float8 as sleep_efficiency, hr_avg, hr_min, hr_max, rr_avg, rr_min, rr_max, breathing_disturbances, snoring_s, sleep_score
 		from activity.withings_sleep where local_date between $1 and $2 order by started_at`,
 		[from, to],
 	);
@@ -679,7 +679,7 @@ export async function listSleep(client: Database, from: string, to: string): Pro
 
 export async function listMeasures(client: Database, from: string, to: string, types: readonly number[] = []): Promise<Row[]> {
 	const { rows } = await client.query<Row>(
-		`select grpid, type, measured_at, value::float8 as value, attrib, model from activity.withings_measures
+		`select grpid::text as grpid, type, measured_at, value::float8 as value, attrib, model from activity.withings_measures
 		where (measured_at at time zone '${TIME_ZONE}')::date between $1 and $2 and (cardinality($3::int[]) = 0 or type = any($3::int[]))
 		order by measured_at, type`,
 		[from, to, types],
