@@ -1,6 +1,7 @@
 import type { Database } from "../../worker/db.ts";
 import { queueForLiaison } from "../liaison/webhook.ts";
 import { addDays, today } from "./dates.ts";
+import { listAppleWorkouts } from "../activity/apple-health.ts";
 import { listMeasures, listWorkouts } from "../activity/health.ts";
 import { type BodyComp, estimateExpenditure, MEASURED_MIN_DAYS, type ExpenditureResult, type IntakeDay, type LoggedSession, type StepsDay, type TrackerDay, type WatchWorkout, type WeighIn } from "./expenditure.ts";
 import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
@@ -365,8 +366,83 @@ function bodyComposition(measures: Awaited<ReturnType<typeof listMeasures>>): { 
 	return { heightM, bodyComp };
 }
 
+const APPLE_CATEGORIES: Record<string, number> = {
+	"outdoor walk": 1,
+	walk: 1,
+	"indoor walk": 306,
+	"outdoor run": 2,
+	run: 2,
+	"indoor run": 307,
+	hiking: 3,
+	"outdoor cycling": 6,
+	"indoor cycling": 308,
+	swimming: 7,
+	"pool swim": 7,
+	"open water swim": 7,
+	elliptical: 18,
+	rowing: 187,
+	"traditional strength training": 16,
+	"functional strength training": 16,
+	yoga: 28,
+	pilates: 19,
+	"cross country skiing": 34,
+	"downhill skiing": 34,
+	snowboarding: 35,
+	"stair stepper": 491,
+	"stair climbing": 491,
+};
+const OTHER_CATEGORY = 36;
+
+async function appleIntake(client: Database, to: string, logged: ReadonlySet<string>): Promise<IntakeDay[]> {
+	const { rows } = await client.query<Row>(
+		`select (measured_at at time zone 'UTC' + make_interval(mins => utc_offset_min))::date::text as date, source,
+			sum(qty * case units when 'kJ' then 0.239006 else 1 end)::float8 as kcal
+		from activity.apple_health_samples where metric = 'dietary_energy' and measured_at < $1::date + 2
+		group by 1, 2 order by 1, 3 desc`,
+		[to],
+	);
+	const byDay = new Map<string, IntakeDay>();
+	for (const row of rows) {
+		const date = String(row["date"]);
+		if (date > to || logged.has(date) || byDay.has(date)) continue;
+		byDay.set(date, { date, kcal: num(row["kcal"]), source: String(row["source"]) });
+	}
+	return [...byDay.values()];
+}
+
+async function watchWorkouts(client: Database, start: string, to: string, hasApple: boolean): Promise<WatchWorkout[]> {
+	const apple = hasApple ? await listAppleWorkouts(client, start, to) : [];
+	const twinKcal = new Map(apple.flatMap((workout) => (workout.withingsId === null || workout.activeKcal === null ? [] : [[workout.withingsId, workout.activeKcal] as const])));
+	const withings = (await listWorkouts(client, start, to)).map((workout) => ({
+		date: workout.date,
+		category: workout.category,
+		activity: workout.activity,
+		durationS: workout.durationS,
+		activeKcal: workout.activeKcal ?? twinKcal.get(String(workout.id)) ?? null,
+		steps: workout.steps,
+		distanceM: workout.distanceM,
+		hrAvg: workout.hr.avg,
+	}));
+	const appleOnly = apple
+		.filter((workout) => workout.withingsId === null)
+		.map((workout) => ({
+			date: workout.date,
+			category: APPLE_CATEGORIES[workout.name.toLowerCase()] ?? OTHER_CATEGORY,
+			activity: workout.name.toLowerCase(),
+			durationS: workout.durationS,
+			activeKcal: workout.activeKcal,
+			steps: null,
+			distanceM: workout.distanceM,
+			hrAvg: workout.hr.avg,
+		}));
+	return [...withings, ...appleOnly];
+}
+
 export async function getExpenditure(client: Database, from: string, to: string): Promise<ExpenditureView> {
-	const intake: IntakeDay[] = await fullDays(client, "1900-01-01", to);
+	const present = (await client.query<Row>("select to_regclass('nutrition.profile') is not null as profile, to_regclass('activity.apple_health_samples') is not null as apple")).rows[0];
+	const logged: IntakeDay[] = await fullDays(client, "1900-01-01", to);
+	const external = present?.["apple"] === true ? await appleIntake(client, to, new Set(logged.map((day) => day.date))) : [];
+	const intake = [...logged, ...external].toSorted((a, b) => a.date.localeCompare(b.date));
 	const tracker: TrackerDay[] = (
 		await client.query<Row>(
 			"select day::text as date, (imported->>'expenditure_kcal')::float8 as kcal from nutrition.days where day <= $1 and jsonb_typeof(imported->'expenditure_kcal') = 'number' order by day",
@@ -375,29 +451,21 @@ export async function getExpenditure(client: Database, from: string, to: string)
 	).rows.map((row) => ({ date: String(row["date"]), kcal: num(row["kcal"]) }));
 	const earliest = [from, intake[0]?.date, tracker[0]?.date].filter((date) => date !== undefined).toSorted()[0] as string;
 	const start = addDays(earliest, -LOOKBACK_DAYS);
-	const hasProfile = (await client.query<Row>("select to_regclass('nutrition.profile') is not null as present")).rows[0]?.["present"] === true;
-	const profile = hasProfile ? (await client.query<Row>("select birth_date::text as birth_date from nutrition.profile")).rows[0] : undefined;
+	const profile = present?.["profile"] === true ? (await client.query<Row>("select birth_date::text as birth_date from nutrition.profile")).rows[0] : undefined;
 	const weighIns: WeighIn[] = (
 		await client.query<Row>("select measured_on::text as date, weight_lb from nutrition.daily_weights where measured_on between $1 and $2 order by measured_on", [start, to])
 	).rows.map((row) => ({ date: String(row["date"]), lb: num(row["weight_lb"]) }));
 	const steps: StepsDay[] = (
 		await client.query<Row>(
-			`select coalesce(a.day, d.day)::text as date, coalesce(a.steps, d.steps) as steps
+			`select coalesce(a.day, d.day)::text as date, coalesce(a.steps, d.steps) as steps,
+				(select x.active_kcal::float8 from activity.days x where x.day = coalesce(a.day, d.day) and x.source = 'apple_health') as active_kcal
 			from activity.daily_activity a full join nutrition.days d on d.day = a.day
 			where coalesce(a.day, d.day) between $1 and $2 order by 1`,
 			[start, to],
 		)
-	).rows.map((row) => ({ date: String(row["date"]), steps: numOrNull(row["steps"]) }));
+	).rows.map((row) => ({ date: String(row["date"]), steps: numOrNull(row["steps"]), activeKcal: numOrNull(row["active_kcal"]) }));
 	const { heightM, bodyComp } = bodyComposition(await listMeasures(client, "1900-01-01", to, [MEASURE_HEIGHT, MEASURE_FFM, MEASURE_FAT]));
-	const workouts: WatchWorkout[] = (await listWorkouts(client, start, to)).map((workout) => ({
-		date: workout.date,
-		category: workout.category,
-		activity: workout.activity,
-		durationS: workout.durationS,
-		activeKcal: workout.activeKcal,
-		steps: workout.steps,
-		hrAvg: workout.hr.avg,
-	}));
+	const workouts = await watchWorkouts(client, start, to, present?.["apple"] === true);
 	const sessions = await loggedSessions(client, start, to);
 	const result = estimateExpenditure({ profile: { birthDate: (profile?.["birth_date"] as string | null) ?? null, heightM }, weighIns, intake, tracker, steps, bodyComp, workouts, sessions }, from, to);
 	const { rows } = await client.query<Row>(

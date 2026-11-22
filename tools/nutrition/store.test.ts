@@ -239,6 +239,29 @@ test("expenditure estimates each day from weight, profile, watch workouts, and l
 	await pg.query("alter table nutrition.profile_pending rename to profile");
 });
 
+test("expenditure adds Apple workouts without a Withings twin, fills a twin's missing kcal, and reads Apple intake", async () => {
+	await pg.query(
+		"insert into activity.withings_workouts (id, category, local_date, started_at, ended_at, duration_s, data) values (9003, 6, '2026-12-13', '2026-12-13T15:00:00Z', '2026-12-13T16:00:00Z', 3600, '{}')",
+	);
+	await pg.query(
+		`insert into activity.apple_health_workouts (id, name, source, local_date, started_at, ended_at, duration_s, active_kcal, distance_m, data) values
+		('a-run', 'Outdoor Run', 'Watch', '2026-12-10', '2026-12-10T15:01:00Z', '2026-12-10T15:40:00Z', 2340, 480, 5000, '{}'),
+		('a-bike', 'Outdoor Cycling', 'Watch', '2026-12-13', '2026-12-13T15:02:00Z', '2026-12-13T16:00:00Z', 3480, 400, 20000, '{}'),
+		('a-row', 'Rowing', 'ErgData', '2026-12-14', '2026-12-14T15:00:00Z', '2026-12-14T15:20:00Z', 1200, 200, 4000, '{}')`,
+	);
+	await pg.query(
+		"insert into activity.apple_health_samples (metric, source, measured_at, utc_offset_min, units, qty) values ('dietary_energy', 'Cronometer', '2026-12-15T13:00:00Z', -480, 'kcal', 1500), ('dietary_energy', 'Cronometer', '2026-12-15T20:00:00Z', -480, 'kcal', 1000)",
+	);
+	const spent = await getExpenditure(client, "2026-12-10", "2026-12-15");
+	const kg = 180 / 2.20462;
+	const on = (date: string) => spent.days.find((day) => day.date === date);
+	expect(on("2026-12-10")?.sessions).toEqual([{ name: "run", kcal: Math.round(500 - 5000 * 0.000576 * kg), source: "watch" }]);
+	expect(on("2026-12-13")?.sessions).toEqual([{ name: "bicycling", kcal: 400, source: "watch" }]);
+	expect(on("2026-12-14")?.sessions).toEqual([{ name: "rowing", kcal: 200, source: "watch" }]);
+	expect(on("2026-12-15")?.intake).toBe(2500);
+	expect(spent.loggedDays).toBe(1);
+});
+
 test("steps list days with steps, calendar-window averages, and the target in effect", async () => {
 	await pg.query("insert into activity.days (day, source, steps, updated_by) values ('2026-12-10', 'withings', 0, 'test')");
 	const steps = await getSteps(client);

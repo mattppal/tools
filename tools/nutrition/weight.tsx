@@ -54,8 +54,24 @@ function shortSpan(from: string, to: string): string {
 	return `${start}\u2013${dayLabel(to, { month: "short", day: "numeric" })}`;
 }
 
+const MAX_LISTED_SPANS = 2;
+
+function datedSpan(from: string, to: string): string {
+	if (from.slice(0, 4) === to.slice(0, 4)) return `${shortSpan(from, to)}, ${from.slice(0, 4)}`;
+	const dated = { month: "short", day: "numeric", year: "numeric" } as const;
+	return `${dayLabel(from, dated)}\u2013${dayLabel(to, dated)}`;
+}
+function windowSource(window: ExpenditureView["scale"]["windows"][number]): string {
+	if (window.kind === "tracker") return "Tracker export";
+	return window.source === "logged" ? "Logged intake" : `${window.source} intake`;
+}
 function calibrationSpans(spent: ExpenditureView): string {
-	return [...new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to)))].join(", ");
+	const spans = [...new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to)))];
+	if (spans.length <= MAX_LISTED_SPANS) return spans.join(", ");
+	const years = spent.scale.windows.map((window) => window.from.slice(0, 4)).toSorted();
+	const first = years[0];
+	const last = years.at(-1);
+	return `${whole(spent.scale.windows.length)} windows, ${first === last ? first : `${first}\u2013${last}`}`;
 }
 
 function margin(spent: ExpenditureView): string | undefined {
@@ -63,6 +79,9 @@ function margin(spent: ExpenditureView): string | undefined {
 }
 
 function calibrationSentence(spent: ExpenditureView): string {
+	if (new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to))).size > MAX_LISTED_SPANS) {
+		return `Scaled by ${spent.scale.value} \u00b1 ${spent.scale.sd} to match ${whole(spent.scale.windows.length)} windows of intake against weight change and tracker exports. Windows further from this range count less.`;
+	}
 	const spans = new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to)));
 	const clauses = spent.scale.windows.map((window) => {
 		const source = window.kind === "logged" ? "logged intake and weight change gave" : "the tracker's export gave";
@@ -75,7 +94,8 @@ function calibrationSentence(spent: ExpenditureView): string {
 }
 
 function dayDetail(day: ExpenditureView["days"][number]): string {
-	const parts = [day.stepCount === null ? null : `${whole(day.stepCount)} steps`, ...day.sessions.map((item) => `${capitalized(item.name)} ${whole(item.kcal)}`)];
+	const steps = day.stepsFrom === "active energy" ? "Active energy" : day.stepCount === null ? null : `${whole(day.stepCount)} steps`;
+	const parts = [steps, ...day.sessions.map((item) => `${capitalized(item.name)} ${whole(item.kcal)}`)];
 	if (day.intake !== null) parts.push(`ate ${whole(day.intake)}`);
 	return parts.filter((part) => part !== null).join(" \u00b7 ");
 }
@@ -112,6 +132,26 @@ function ExpenditurePanel({ spent }: { spent: ExpenditureView }) {
 					</div>
 				))}
 			</dl>
+			{spent.scale.windows.length > MAX_LISTED_SPANS ? (
+				<section className={styles.spentDays} aria-label="Calibration windows">
+					<h2 className={styles.spentHeading}>Calibration</h2>
+					<ol>
+						{spent.scale.windows.toReversed().map((window) => (
+							<li key={`${window.kind}-${window.from}`}>
+								<div className={styles.spentDayTop}>
+									<span>{datedSpan(window.from, window.to)}</span>
+									<span className={styles.spentDayTotal}>
+										{`${whole(window.tdee)} \u00b1 ${whole(window.plusMinus)}`}
+									</span>
+								</div>
+								<p className={styles.spentNote}>
+									{`${windowSource(window)} \u00b7 ${whole(window.days)} days \u00b7 scale ${window.scale} \u00b7 ${Math.round(window.weight * 100)}% of the fit`}
+								</p>
+							</li>
+						))}
+					</ol>
+				</section>
+			) : null}
 			<section className={styles.spentDays} aria-label="Each day">
 				<h2 className={styles.spentHeading}>Each day</h2>
 				<ol>

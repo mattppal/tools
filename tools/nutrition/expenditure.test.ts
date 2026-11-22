@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { addDays } from "./dates.ts";
-import { type BodyComp, type ExpenditureInputs, estimateExpenditure, type IntakeDay, type LoggedSession, type WatchWorkout, type WeighIn } from "./expenditure.ts";
+import { type BodyComp, type ExpenditureInputs, estimateExpenditure, type IntakeDay, type LoggedSession, usableIntake, type WatchWorkout, type WeighIn } from "./expenditure.ts";
 
 const PROFILE = { birthDate: "1990-03-14", heightM: 1.75 };
 
@@ -12,8 +12,8 @@ function weighIns(from: string, count: number, lb = 180, perDay = 0): WeighIn[] 
 	return series(from, count, (index) => lb + perDay * index).map(({ date, value }) => ({ date, lb: value }));
 }
 
-function intake(from: string, count: number, kcal: number): IntakeDay[] {
-	return series(from, count, () => kcal).map(({ date, value }) => ({ date, kcal: value }));
+function intake(from: string, count: number, kcal: number, source?: string): IntakeDay[] {
+	return series(from, count, () => kcal).map(({ date, value }) => (source === undefined ? { date, kcal: value } : { date, kcal: value, source }));
 }
 
 function inputs(overrides: Partial<ExpenditureInputs> = {}): ExpenditureInputs {
@@ -66,7 +66,7 @@ test("a tracker run pulls the scale toward the tracker's number", () => {
 	const tracker = series("2026-10-06", 8, () => 3300).map(({ date, value }) => ({ date, kcal: value }));
 	const seeded = estimateExpenditure(inputs({ tracker }), "2026-10-06", "2026-10-13");
 	expect(seeded.basis).toBe("calibrated");
-	expect(seeded.scale.windows).toEqual([{ kind: "tracker", from: "2026-10-06", to: "2026-10-13", days: 8, tdee: 3300, plusMinus: 100 }]);
+	expect(seeded.scale.windows).toEqual([expect.objectContaining({ kind: "tracker", source: "tracker", from: "2026-10-06", to: "2026-10-13", days: 8, tdee: 3300, plusMinus: 100, weight: expect.any(Number) })]);
 	expect(seeded.scale.value).toBeGreaterThan(1);
 	expect(seeded.tdee as number).toBeGreaterThan(plain.tdee as number);
 	expect(seeded.plusMinus as number).toBeLessThan(plain.plusMinus as number);
@@ -80,6 +80,31 @@ test("logged windows calibrate from intake and the weight slope, and short ones 
 	expect(window?.tdee).toBe(2550);
 	expect(result.basis).toBe("calibrated");
 	expect(estimateExpenditure(inputs({ intake: intake("2026-10-01", 6, 2200) }), "2026-10-01", "2026-10-14").basis).toBe("estimated");
+});
+
+test("external intake drops days under half that source's median and calibrates as its own windows", () => {
+	const cronometer = [...intake("2026-09-01", 13, 2400, "Cronometer"), { date: "2026-09-14", kcal: 900, source: "Cronometer" }];
+	expect(usableIntake(cronometer)).toHaveLength(13);
+	expect(usableIntake([{ date: "2026-09-14", kcal: 900 }, ...intake("2026-09-01", 13, 2400)])).toHaveLength(14);
+	const result = estimateExpenditure(inputs({ intake: [...cronometer, ...intake("2026-10-01", 14, 2400)] }), "2026-10-01", "2026-10-14");
+	expect(result.scale.windows.map((window) => [window.source, window.days])).toEqual([
+		["Cronometer", 13],
+		["logged", 14],
+	]);
+});
+
+test("a block with a gap keeps its longest well-covered stretch", () => {
+	const gappy = [...intake("2026-09-01", 18, 2400), ...intake("2026-09-26", 3, 2400)];
+	const result = estimateExpenditure(inputs({ intake: gappy }), "2026-09-01", "2026-09-30");
+	expect(result.scale.windows.map((window) => [window.from, window.to])).toEqual([["2026-09-01", "2026-09-18"]]);
+});
+
+test("windows far from the range count less than the same window nearby", () => {
+	const old = estimateExpenditure(inputs({ weighIns: weighIns("2024-09-01", 800), steps: [], intake: intake("2024-10-01", 28, 2400) }), "2026-10-01", "2026-10-14");
+	const near = estimateExpenditure(inputs({ weighIns: weighIns("2024-09-01", 800), steps: [], intake: intake("2026-09-01", 28, 2400) }), "2026-10-01", "2026-10-14");
+	expect(old.scale.windows[0]?.scale).toBeCloseTo(near.scale.windows[0]?.scale as number, 1);
+	expect(old.scale.windows[0]?.weight as number).toBeLessThan(near.scale.windows[0]?.weight as number);
+	expect(old.scale.sd).toBeGreaterThan(near.scale.sd);
 });
 
 test("measured TDEE needs 14 logged days with weigh-ins at both ends", () => {
@@ -108,8 +133,21 @@ test("unworn and missing step days use the trailing median and widen the margin"
 	const result = estimateExpenditure(inputs({ steps }), "2026-10-01", "2026-10-14");
 	expect(day(result, "2026-10-10")).toMatchObject({ stepCount: null, stepsEstimated: true, steps: day(worn, "2026-10-10").steps });
 	expect(day(result, "2026-10-11").stepsEstimated).toBe(true);
-	expect(day(result, "2026-10-12")).toMatchObject({ stepCount: 10000, stepsEstimated: false });
+	expect(day(result, "2026-10-12")).toMatchObject({ stepCount: 10000, stepsEstimated: false, stepsFrom: "count" });
 	expect(result.plusMinus as number).toBeGreaterThanOrEqual(worn.plusMinus as number);
+});
+
+test("days without a step count use the watch's active energy, net of workouts", () => {
+	const steps = [...inputs().steps.filter((item) => item.date !== "2026-10-20" && item.date !== "2026-10-21"), { date: "2026-10-20", steps: null, activeKcal: 700 }, { date: "2026-10-21", steps: null, activeKcal: 90 }];
+	const workouts = [watch({ category: 6, activity: "bike", activeKcal: 300 })];
+	const result = estimateExpenditure(inputs({ steps, workouts }), "2026-10-20", "2026-10-21");
+	expect(day(result, "2026-10-20")).toMatchObject({ stepCount: null, stepsEstimated: false, stepsFrom: "active energy", steps: 400, training: 300 });
+	expect(day(result, "2026-10-21")).toMatchObject({ stepsEstimated: true, stepsFrom: "median" });
+});
+
+test("a run without a step count subtracts steps estimated from its distance", () => {
+	const run = day(estimateExpenditure(inputs({ workouts: [watch({ category: 2, activity: "run", activeKcal: 500, distanceM: 5400 })] }), "2026-10-20", "2026-10-20"), "2026-10-20");
+	expect(run.training).toBe(Math.round(500 - (5400 / 1.08) * 0.000576 * (180 / 2.20462)));
 });
 
 test("walks add nothing on top of steps and runs add only their excess", () => {

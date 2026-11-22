@@ -2,11 +2,11 @@ import { addDays, dayNumber, isoDate } from "./dates.ts";
 
 export type Profile = { birthDate: string | null; heightM: number | null };
 export type WeighIn = { date: string; lb: number };
-export type IntakeDay = { date: string; kcal: number };
+export type IntakeDay = { date: string; kcal: number; source?: string };
 export type TrackerDay = { date: string; kcal: number };
-export type StepsDay = { date: string; steps: number | null };
+export type StepsDay = { date: string; steps: number | null; activeKcal?: number | null };
 export type BodyComp = { date: string; ffmKg: number; fatPct: number };
-export type WatchWorkout = { date: string; category: number; activity: string; durationS: number; activeKcal: number | null; steps: number | null; hrAvg: number | null };
+export type WatchWorkout = { date: string; category: number; activity: string; durationS: number; activeKcal: number | null; steps: number | null; distanceM?: number | null; hrAvg: number | null };
 export type LoggedSession = { date: string; kind: "lift" | "conditioning"; name: string; modality: string | null; workingSets: number; km: number | null; durationS: number | null };
 
 export type ExpenditureInputs = {
@@ -23,6 +23,7 @@ export type ExpenditureInputs = {
 export type TrainingSource = "watch" | "heart rate" | "estimate";
 export type TrainingItem = { name: string; kcal: number; source: TrainingSource };
 export type BmrMethod = "katch-mcardle" | "mifflin";
+export type StepsSource = "count" | "active energy" | "median";
 
 export type DayEstimate = {
 	date: string;
@@ -33,6 +34,7 @@ export type DayEstimate = {
 	steps: number;
 	stepCount: number | null;
 	stepsEstimated: boolean;
+	stepsFrom: StepsSource;
 	training: number;
 	sessions: TrainingItem[];
 	tef: number;
@@ -40,7 +42,7 @@ export type DayEstimate = {
 	trendLb: number;
 };
 
-export type CalibrationWindow = { kind: "logged" | "tracker"; from: string; to: string; days: number; tdee: number; plusMinus: number };
+export type CalibrationWindow = { kind: "logged" | "tracker"; source: string; from: string; to: string; days: number; tdee: number; plusMinus: number; scale: number; weight: number };
 export type Measured = { tdee: number; plusMinus: number; loggedDays: number; from: string; to: string };
 export type Components = { bmr: number; living: number; steps: number; training: number; tef: number };
 
@@ -62,6 +64,11 @@ const STEP_KCAL_PER_KG = 0.000576;
 const LIFT_KCAL_PER_KG_SET = 0.12;
 const RUN_EXCESS_KCAL_PER_KG_KM = 0.4;
 const RUN_STRIDE_M = 1.08;
+const HIKE_STRIDE_M = 0.75;
+const MIN_ACTIVE_KCAL = 150;
+const DRIFT_PER_YEAR = 0.03;
+const PARTIAL_OF_MEDIAN = 0.5;
+const LOGGED_SOURCE = "logged";
 const ASSUMED_RUN_KMH = 10;
 const BIKE_NET_MET = 5;
 const OTHER_NET_MET = 4;
@@ -93,6 +100,7 @@ const MIN_COVERAGE = 0.8;
 
 const WALKS = new Set([1, 306]);
 const STEP_WORKOUTS = new Set([2, 3, 307]);
+const HIKES = new Set([3]);
 const CARDIO = new Set([2, 3, 6, 7, 18, 187, 307, 308]);
 
 const sum = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
@@ -196,25 +204,32 @@ function buildModel(inputs: ExpenditureInputs): Model {
 		return { bmr: 10 * kg + 6.25 * heightCm - 5 * ageOn(inputs.profile.birthDate, date) + 5, method: "mifflin" };
 	};
 
-	const stepsOn = (date: string): { count: number; estimated: boolean } => {
+	const active = new Map(inputs.steps.flatMap((day) => (day.activeKcal === null || day.activeKcal === undefined || day.activeKcal < MIN_ACTIVE_KCAL ? [] : [[day.date, day.activeKcal] as const])));
+
+	const stepsOn = (date: string): { count: number; from: StepsSource; activeKcal: number | null } => {
 		const count = worn.get(date);
-		if (count !== undefined) return { count, estimated: false };
+		if (count !== undefined) return { count, from: "count", activeKcal: null };
+		const activeKcal = active.get(date);
+		if (activeKcal !== undefined) return { count: 0, from: "active energy", activeKcal };
 		const prior = between(stepRows, addDays(date, -STEP_MEDIAN_DAYS), addDays(date, -1));
-		return { count: prior.length === 0 ? fallbackSteps : median(prior.map((day) => day.steps as number)), estimated: true };
+		return { count: prior.length === 0 ? fallbackSteps : median(prior.map((day) => day.steps as number)), from: "median", activeKcal: null };
 	};
 
 	const trainingOn = (date: string, kg: number, bmr: number): TrainingItem[] => {
 		const age = ageOn(inputs.profile.birthDate, date);
 		const watch = workouts.get(date) ?? [];
 		const logged = sessions.get(date) ?? [];
-		const stepCost = (steps: number | null) => (steps ?? 0) * STEP_KCAL_PER_KG * kg;
+		const stepCost = (workout: WatchWorkout) => {
+			const steps = workout.steps ?? (STEP_WORKOUTS.has(workout.category) && workout.distanceM ? workout.distanceM / (HIKES.has(workout.category) ? HIKE_STRIDE_M : RUN_STRIDE_M) : 0);
+			return steps * STEP_KCAL_PER_KG * kg;
+		};
 		const stepWatch: TrainingItem[] = [];
 		const nonStepWatch: TrainingItem[] = [];
 		for (const workout of watch) {
 			if (WALKS.has(workout.category)) continue;
 			const measured = workout.activeKcal ?? (workout.hrAvg === null ? null : keytelNetKcal(workout.hrAvg, kg, age, workout.durationS / 60, bmr));
 			if (measured === null) continue;
-			const kcal = Math.max(0, measured - stepCost(workout.steps));
+			const kcal = Math.max(0, measured - stepCost(workout));
 			if (kcal === 0) continue;
 			const item: TrainingItem = { name: workout.activity, kcal, source: workout.activeKcal === null ? "heart rate" : "watch" };
 			(STEP_WORKOUTS.has(workout.category) ? stepWatch : nonStepWatch).push(item);
@@ -246,9 +261,9 @@ function buildModel(inputs: ExpenditureInputs): Model {
 			const { bmr, method } = bmrOn(date, kg);
 			const living = LIVING_SHARE * bmr;
 			const steps = stepsOn(date);
-			const stepKcal = steps.count * STEP_KCAL_PER_KG * kg;
 			const items = trainingOn(date, kg, bmr);
 			const training = sum(items.map((item) => item.kcal));
+			const stepKcal = steps.activeKcal === null ? steps.count * STEP_KCAL_PER_KG * kg : Math.max(0, steps.activeKcal - training);
 			const base = scale * (bmr + living + stepKcal + training);
 			const eaten = intake.get(date) ?? null;
 			const tef = eaten === null ? (TEF_SHARE / (1 - TEF_SHARE)) * base : TEF_SHARE * eaten;
@@ -259,8 +274,9 @@ function buildModel(inputs: ExpenditureInputs): Model {
 				bmrMethod: method,
 				living: scale * living,
 				steps: scale * stepKcal,
-				stepCount: steps.estimated ? null : steps.count,
-				stepsEstimated: steps.estimated,
+				stepCount: steps.from === "count" ? steps.count : null,
+				stepsEstimated: steps.from === "median",
+				stepsFrom: steps.from,
 				training: scale * training,
 				sessions: items.map((item) => ({ ...item, kcal: scale * item.kcal })),
 				tef,
@@ -273,19 +289,38 @@ function buildModel(inputs: ExpenditureInputs): Model {
 
 type Block = { from: string; to: string; days: IntakeDay[] };
 
+export function usableIntake(intake: readonly IntakeDay[]): IntakeDay[] {
+	const bySource = new Map<string, IntakeDay[]>();
+	for (const day of intake) bySource.set(day.source ?? LOGGED_SOURCE, [...(bySource.get(day.source ?? LOGGED_SOURCE) ?? []), day]);
+	return [...bySource.entries()].flatMap(([source, days]) => {
+		if (source === LOGGED_SOURCE) return days;
+		const floor = PARTIAL_OF_MEDIAN * median(days.map((day) => day.kcal));
+		return days.filter((day) => day.kcal >= floor);
+	});
+}
+
 function loggedBlocks(intake: readonly IntakeDay[]): Block[] {
+	const sources = [...new Set(intake.map((day) => day.source ?? LOGGED_SOURCE))];
+	return sources.flatMap((source) => sourceBlocks(intake.filter((day) => (day.source ?? LOGGED_SOURCE) === source))).toSorted((a, b) => a.from.localeCompare(b.from));
+}
+
+function sourceBlocks(intake: readonly IntakeDay[]): Block[] {
 	const sorted = intake.toSorted((a, b) => a.date.localeCompare(b.date));
 	const blocks: Block[] = [];
 	let start = 0;
 	while (start < sorted.length) {
 		const first = sorted[start] as IntakeDay;
-		const days = between(sorted, first.date, addDays(first.date, MAX_WINDOW_DAYS - 1));
-		const last = days.at(-1) as IntakeDay;
-		const span = dayNumber(last.date) - dayNumber(first.date) + 1;
-		if (days.length >= CALIBRATION_MIN_DAYS && days.length / span >= MIN_COVERAGE) {
-			blocks.push({ from: first.date, to: last.date, days });
-			start += days.length;
-		} else start++;
+		const candidates = between(sorted, first.date, addDays(first.date, MAX_WINDOW_DAYS - 1));
+		const length = [...candidates.keys()]
+			.map((index) => index + 1)
+			.reverse()
+			.find((count) => count >= CALIBRATION_MIN_DAYS && count / (dayNumber((candidates[count - 1] as IntakeDay).date) - dayNumber(first.date) + 1) >= MIN_COVERAGE);
+		if (length === undefined) start++;
+		else {
+			const days = candidates.slice(0, length);
+			blocks.push({ from: first.date, to: (days.at(-1) as IntakeDay).date, days });
+			start += length;
+		}
 	}
 	return blocks;
 }
@@ -316,32 +351,42 @@ function datesFrom(from: string, to: string): string[] {
 }
 
 export function estimateExpenditure(inputs: ExpenditureInputs, from: string, to: string): ExpenditureResult {
-	const model = buildModel(inputs);
+	const usable = usableIntake(inputs.intake);
+	const model = buildModel({ ...inputs, intake: usable });
 	const weighIns = inputs.weighIns.toSorted((a, b) => a.date.localeCompare(b.date));
 	const windows: CalibrationWindow[] = [];
 	const fits: { s: number; sd: number }[] = [];
-	const addWindow = (kind: CalibrationWindow["kind"], dates: string[], tdee: number, se: number) => {
+	const yearsAway = (first: string, last: string) => Math.max(0, dayNumber(from) - dayNumber(last), dayNumber(first) - dayNumber(to)) / 365.25;
+	const addWindow = (kind: CalibrationWindow["kind"], source: string, dates: string[], tdee: number, se: number) => {
 		const estimates = dates.map((date) => model.estimate(date, 1)).filter((day) => day !== null);
 		if (estimates.length === 0) return;
 		const base = mean(estimates.map((day) => day.total - day.tef));
 		const tef = mean(estimates.map((day) => day.tef));
-		windows.push({ kind, from: dates[0] as string, to: dates.at(-1) as string, days: dates.length, tdee: Math.round(tdee), plusMinus: round10(se) });
-		fits.push({ s: (tdee - tef) / base, sd: se / base });
+		const first = dates[0] as string;
+		const last = dates.at(-1) as string;
+		const s = (tdee - tef) / base;
+		const sd = Math.hypot(se / base, DRIFT_PER_YEAR * yearsAway(first, last));
+		windows.push({ kind, source, from: first, to: last, days: dates.length, tdee: Math.round(tdee), plusMinus: round10(se), scale: Math.round(s * 1000) / 1000, weight: 0 });
+		fits.push({ s, sd });
 	};
-	for (const block of loggedBlocks(inputs.intake)) {
+	for (const block of loggedBlocks(usable)) {
 		const measured = measureBlock(block, weighIns);
-		if (measured !== null && measured.weighIns.length >= CALIBRATION_MIN_WEIGH_INS) addWindow("logged", block.days.map((day) => day.date), measured.tdee, measured.se);
+		if (measured !== null && measured.weighIns.length >= CALIBRATION_MIN_WEIGH_INS) addWindow("logged", block.days[0]?.source ?? LOGGED_SOURCE, block.days.map((day) => day.date), measured.tdee, measured.se);
 	}
-	for (const run of trackerRuns(inputs.tracker)) addWindow("tracker", run.map((day) => day.date), mean(run.map((day) => day.kcal)), TRACKER_SD);
+	for (const run of trackerRuns(inputs.tracker)) addWindow("tracker", "tracker", run.map((day) => day.date), mean(run.map((day) => day.kcal)), TRACKER_SD);
 
 	const precision = 1 / PRIOR_SD ** 2 + sum(fits.map((fit) => 1 / fit.sd ** 2));
 	const scale = (1 / PRIOR_SD ** 2 + sum(fits.map((fit) => fit.s / fit.sd ** 2))) / precision;
 	const scaleSd = Math.sqrt(1 / precision);
+	fits.forEach((fit, index) => {
+		const window = windows[index];
+		if (window !== undefined) window.weight = Math.round((1 / fit.sd ** 2 / precision) * 1000) / 1000;
+	});
 
 	const days = datesFrom(from, to)
 		.map((date) => model.estimate(date, scale))
 		.filter((day) => day !== null);
-	const inRange = inputs.intake.filter((day) => day.date >= from && day.date <= to);
+	const inRange = usable.filter((day) => day.date >= from && day.date <= to);
 	const result: ExpenditureResult = {
 		tdee: null,
 		plusMinus: null,
@@ -354,7 +399,7 @@ export function estimateExpenditure(inputs: ExpenditureInputs, from: string, to:
 	};
 	if (days.length === 0) return result;
 	const base = mean(days.map((day) => (day.total - day.tef) / scale));
-	const imputedShare = days.filter((day) => day.stepsEstimated).length / days.length;
+	const imputedShare = days.filter((day) => day.stepsFrom === "median").length / days.length;
 	return {
 		...result,
 		tdee: Math.round(mean(days.map((day) => day.total))),
