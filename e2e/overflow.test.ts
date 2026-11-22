@@ -101,6 +101,7 @@ let chrome: Subprocess;
 let socket: WebSocket;
 let nextId = 0;
 const pending = new Map<number, (message: Message) => void>();
+let serverErrors: string[] = [];
 
 function send(method: string, params: object = {}): Promise<Message> {
 	const id = ++nextId;
@@ -138,6 +139,11 @@ beforeAll(async () => {
 	socket.addEventListener("message", (event) => {
 		const message = JSON.parse(String(event.data)) as Message;
 		if (message.id !== undefined) pending.get(message.id)?.(message);
+		if (message.method === "Network.responseReceived") {
+			const { response } = message.params as { response: { url: string; status: number } };
+			if (response.status >= 500) serverErrors.push(`${response.status} ${new URL(response.url).pathname}`);
+			return;
+		}
 		if (message.method !== "Fetch.requestPaused") return;
 		const { requestId, request } = message.params as { requestId: string; request: { url: string } };
 		const path = new URL(request.url).pathname;
@@ -145,6 +151,7 @@ beforeAll(async () => {
 		const body = Buffer.from(JSON.stringify(FIXTURES[path])).toString("base64");
 		void send("Fetch.fulfillRequest", { requestId, responseCode: 200, responseHeaders: [{ name: "content-type", value: "application/json" }], body });
 	});
+	await send("Network.enable");
 	await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/tools/*" }] });
 }, START_TIMEOUT_MS * 2 + 5_000);
 
@@ -172,10 +179,12 @@ for (const width of PHONE_WIDTHS) {
 	for (const path of PAGES) {
 		test(`${path} fits a ${width}px phone`, async () => {
 			await send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: true });
+			serverErrors = [];
 			await send("Page.navigate", { url: `${BASE}${path}` });
 			const deadline = Date.now() + PAGE_TIMEOUT_MS;
 			while (Date.now() < deadline && !(await evaluate<boolean>(`document.readyState === "complete" && document.querySelector("main") !== null && document.querySelector("[aria-busy='true'], [data-slot='skeleton']") === null`))) await Bun.sleep(100);
 			await Bun.sleep(300);
+			expect(serverErrors).toEqual([]);
 			expect(await evaluate<string[]>(MEASURE)).toEqual([]);
 		});
 	}
