@@ -11,7 +11,10 @@ import webhook from "./webhook.ts";
 const pg = new PGlite();
 const migrationsDir = join(import.meta.dirname, "migrations");
 const migrations = await Promise.all((await readdir(migrationsDir)).toSorted().map((name) => readFile(join(migrationsDir, name), "utf-8")));
+const activityDir = join(import.meta.dirname, "..", "activity", "migrations");
+const activityMigrations = await Promise.all((await readdir(activityDir)).toSorted().map((name) => readFile(join(activityDir, name), "utf-8")));
 await pg.exec(`create schema nutrition; set search_path to nutrition; ${migrations.join(";\n")}; set search_path to public;`);
+await pg.exec(`create schema activity; set search_path to activity; ${activityMigrations.join(";\n")}; set search_path to public;`);
 const client: Database = {
 	query: async (text: string, values?: unknown[]) => {
 		const result = await pg.query(text, values);
@@ -145,4 +148,12 @@ test("summarizes the open phase", async () => {
 	const phase = await getPhase(client, "2026-11-22");
 	expect(phase?.summary.startWeight).toBe(180.6);
 	expect(phase?.summary.current).toMatchObject({ week: 0, verdict: "on track" });
+});
+
+test("steps come from activity when Withings has the day", async () => {
+	await updateDay(client, "2026-11-25", { steps: 4000 });
+	expect((await getDay(client, "2026-11-25")).checkIn.steps).toBe(4000);
+	await pg.query("insert into activity.days (day, source, steps, updated_by) values ('2026-11-25', 'withings', 11234, 'test'), ('2026-11-26', 'withings', 9000, 'test')");
+	expect((await getDay(client, "2026-11-25")).checkIn.steps).toBe(11234);
+	expect((await getDay(client, "2026-11-26")).checkIn).toMatchObject({ steps: 9000, notes: "" });
 });

@@ -48,7 +48,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, with
 		return Response.json(report, { status: report.ok ? 200 : 503, headers: NO_STORE });
 	}
 	if (pathname === "/api/debug") return Response.json(await debugReport(request, env, withDb, WEBHOOKS, DEBUGS), { headers: NO_STORE });
-	const match = TOOL_API_PATH.exec(pathname);
+	const match = TOOL_API_PATH.exec(pathname.startsWith("/api/withings/") ? `/api/tools/activity${pathname.slice("/api".length)}` : pathname);
 	if (match === null) return Response.json({ error: "Not found" }, { status: 404 });
 	const [, slug = "", rest = "/"] = match;
 	const api = TOOL_APIS.get(slug);

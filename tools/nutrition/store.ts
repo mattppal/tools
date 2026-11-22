@@ -65,7 +65,15 @@ async function targetsOn(client: Database, date: string): Promise<Targets | null
 
 export async function getDay(client: Database, date: string): Promise<DayView> {
 	const [day, entries, weight, phase, targets] = [
-		(await client.query<Row>("select closed_at, steps, bloat_score, energy, sleep, stress, notes, totals_estimated from nutrition.days where day = $1", [date])).rows[0],
+		(
+			await client.query<Row>(
+				`select d.closed_at, coalesce(a.steps, d.steps) as steps, d.bloat_score, d.energy, d.sleep, d.stress, d.notes, d.totals_estimated
+				from (select $1::date as day) w
+				left join nutrition.days d on d.day = w.day
+				left join activity.daily_activity a on a.day = w.day`,
+				[date],
+			)
+		).rows[0],
 		(await client.query<Row>("select * from nutrition.food_entries where day = $1 order by id", [date])).rows.map(toEntry),
 		(await client.query<Row>("select weight_lb from nutrition.daily_weights where measured_on = $1", [date])).rows[0],
 		(await client.query<Row>("select kind from nutrition.phases where start_date <= $1 and (end_date is null or end_date >= $1) order by start_date desc limit 1", [date])).rows[0],
