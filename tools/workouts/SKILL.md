@@ -32,11 +32,11 @@ A text load, such as `"find a weight"` or `"+42.5"`, is shown as text and never 
 ## Screens
 
 - **Today** shows the first day from this week on that isn't logged in the repo or the app, with **Start session**, or **Continue logging** if one is open.
-- **Week** lists this week and next, with each day's state: Planned, In progress, Sent to coach, or In training-log.
-- **History** lists sessions logged in the app, with their delivery state. Test sessions carry a Test tag.
+- **Week** lists this week and next. A day's button says what's left to do: **Start session**, **Continue logging**, or **View session**. Days already in training-log have no button.
+- **History** lists sessions logged in the app, with the delivery state in plain words. Test sessions start with "Test ·".
 - **Logging** shows one exercise at a time. Each set has weight and reps fields, an **As written** button, and RIR chips from 0 to 6. Every change saves at once, and a failed save shows **Retry**. The bottom bar moves between exercises. **Review** opens the right panel, where Matt adds a session note, finishes, or discards the session.
 
-No status dots anywhere. States are text tags.
+No status dots or status pills anywhere. State is said in plain words, or left to the button label.
 
 ## API
 

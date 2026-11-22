@@ -7,7 +7,7 @@ import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import { api, ApiError, formatDate, type ProgramResponse, type SessionSummary } from "./client.ts";
 import { formatLoad, formatVolume } from "./program.ts";
 import type { ScheduleDay } from "./schedule.ts";
-import { DeliveryBadge, SessionScreen } from "./session.tsx";
+import { deliveryWords, SessionScreen } from "./session.tsx";
 import styles from "./workouts.module.css";
 
 type Tab = "today" | "week" | "history";
@@ -19,13 +19,6 @@ const TABS: { id: Tab; label: string }[] = [
 	{ id: "week", label: "Week" },
 	{ id: "history", label: "History" },
 ];
-
-const STATE_LABEL: Record<ScheduleDay["state"], string> = {
-	logged: "In training-log",
-	finished: "Sent to coach",
-	open: "In progress",
-	todo: "Planned",
-};
 
 function readSessionParam(): string | null {
 	return new URLSearchParams(window.location.search).get("session");
@@ -86,7 +79,6 @@ function DayCard({ day, today, busy, onStart, onOpen }: { day: ScheduleDay; toda
 					</p>
 					<h2 className={styles.dayTitle}>{day.title}</h2>
 				</div>
-				{day.state === "todo" ? null : <span className={styles.stateTag} data-state={day.state}>{STATE_LABEL[day.state]}</span>}
 			</header>
 			<ExerciseList day={day} />
 			{day.state === "logged" ? null : day.sessionId !== null ? (
@@ -123,12 +115,12 @@ function HistoryList({ sessions, onOpen }: { sessions: SessionSummary[]; onOpen:
 					<button type="button" className={styles.historyRow} onClick={() => onOpen(session.id)}>
 						<span className={styles.historyMain}>
 							<span className={styles.exerciseName}>
-								{session.test ? <span className={styles.testTag}>Test</span> : null}
+								{session.test ? <span className={styles.testTag}>Test · </span> : null}
 								{session.weekId.toUpperCase()} {session.title}
 							</span>
 							<span className={styles.exerciseRx}>{formatDate(session.date)}</span>
 						</span>
-						{session.status === "open" ? <span className={styles.stateTag} data-state="open">In progress</span> : <DeliveryBadge delivery={session.delivery} />}
+						<span className={styles.stateText}>{session.status === "open" ? "In progress" : deliveryWords(session.delivery)}</span>
 						<Icon name="chevron-right" />
 					</button>
 				</li>
@@ -254,9 +246,6 @@ export default function Workouts() {
 											<span className={styles.historyMain}>
 												<span className={styles.exerciseName}>{day.title}</span>
 												<span className={styles.exerciseRx}>{formatDate(day.date)}</span>
-											</span>
-											<span className={styles.stateTag} data-state={day.state}>
-												{STATE_LABEL[day.state]}
 											</span>
 										</summary>
 										<div className={styles.weekBody}>

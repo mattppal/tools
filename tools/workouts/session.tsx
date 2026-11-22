@@ -49,11 +49,10 @@ function parseNumber(text: string): number | null | "invalid" {
 	return Number.isFinite(value) && value >= 0 ? value : "invalid";
 }
 
-export function DeliveryBadge({ delivery }: { delivery: SessionSummary["delivery"] }) {
-	if (delivery === null) return null;
-	if (delivery.deliveredAt !== null) return <span className={styles.stateTag} data-state="finished">Sent to coach</span>;
-	if (delivery.attempts === 0) return <span className={styles.stateTag} data-state="open">Waiting to send</span>;
-	return <span className={styles.stateTag} data-state="failed">Retrying</span>;
+export function deliveryWords(delivery: SessionSummary["delivery"]): string {
+	if (delivery === null) return "";
+	if (delivery.deliveredAt !== null) return "Sent to coach";
+	return delivery.attempts === 0 ? "Waiting to send" : "Not delivered yet";
 }
 
 function SaveStatus({ row, onRetry }: { row: Row; onRetry: () => void }) {
