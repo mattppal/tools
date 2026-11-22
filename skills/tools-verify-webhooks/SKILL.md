@@ -66,7 +66,7 @@ Change `delivery.tla` in the same PR as the code, so that `claim.cfg` and `claim
 | `worker/webhooks.ts` | `deliverDue`, `claimOne`, `sendWebhook` |
 | `worker/index.ts` | `scheduled` |
 | `tools/workouts/store.ts` | `finishSession` (insert), `requeue` |
-| `tools/*/migrations/0002-claim-deliveries.sql` | the claim columns |
+| `tools/workouts/migrations/0003-claim-deliveries.sql`, `tools/nutrition/migrations/0002-claim-deliveries.sql` | the claim columns |
 | `tools/workouts/api.ts` | first attempt after finish and after redeliver |
 | `tools/nutrition/store.ts` | `closeDayFromUi` (insert) |
 | `tools/nutrition/api.ts` | first attempt after close |
