@@ -286,6 +286,13 @@
 	gap: var(--space-1);
 }
 
+.controlGroup {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+}
+
 .dates {
 	display: flex;
 	gap: var(--space-2);
@@ -529,6 +536,13 @@
 	opacity: 0.6;
 }
 
+.dayBar[data-partial] {
+	fill-opacity: 0.45;
+	stroke: var(--text-3);
+	stroke-width: 1;
+	stroke-dasharray: 3 2;
+}
+
 .trend {
 	fill: none;
 	stroke: var(--chart-accent);
@@ -671,11 +685,21 @@ th[aria-sort] .sortButton {
 		border: 0;
 	}
 
+	.weightTable .table tbody {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding-top: var(--space-2);
+	}
+
 	.weightTable .table tbody tr {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
 		padding: var(--space-2) var(--space-1);
-		border-bottom: var(--border-width) solid var(--border-color);
+	}
+
+	.weightTable .table tbody tr:first-child td {
+		padding-top: 0;
 	}
 
 	.weightTable .table td {
@@ -756,8 +780,33 @@ th[aria-sort] .sortButton {
 .table th,
 .table td {
 	padding: var(--space-2) var(--space-2);
-	border-bottom: var(--border-width) solid var(--border-color);
 	text-align: right;
+}
+
+.table th {
+	border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.table tbody tr:first-child td {
+	padding-top: var(--space-3);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.table tbody td {
+		transition: background-color var(--duration-hover) ease;
+	}
+
+	.table tbody tr:hover td {
+		background: var(--hover-bg);
+	}
+
+	.table tbody td:first-child {
+		border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+	}
+
+	.table tbody td:last-child {
+		border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	}
 }
 
 .table th:first-child,

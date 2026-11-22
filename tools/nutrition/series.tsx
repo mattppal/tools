@@ -4,7 +4,7 @@ import { Input } from "../../src/kit/input.tsx";
 import { addDays, dayNumber, isIsoDate, isoDate, today } from "./dates.ts";
 import styles from "./nutrition.module.css";
 import { dayLabel, whole } from "./ui.tsx";
-import { type Average, type DateRange, nearestIndex, type Preset, presetRange, type SeriesEntry, type SeriesRow, type Sort, type SortKey, sortEntries, type Tone } from "./weights.ts";
+import { type Average, type DateRange, nearestIndex, type Preset, presetRange, type SeriesEntry, type SeriesRow, type Sort, sortRows, type Tone } from "./weights.ts";
 
 const PRESETS: { id: Preset; label: string }[] = [
 	{ id: "90d", label: "90 days" },
@@ -70,7 +70,7 @@ export function useSeriesRange(rows: { date: string }[]) {
 		choosePreset: (preset: Preset) => choose({ preset, range: null }),
 		chooseRange: (next: DateRange) => choose({ preset: null, range: next }),
 		resetPage: () => setPage(0),
-		sortBy: (key: SortKey) => {
+		sortBy: (key: string) => {
 			setSort((current) => (current.key === key ? { key, descending: !current.descending } : { key, descending: key === "date" }));
 			setPage(0);
 		},
@@ -109,30 +109,42 @@ export function RangeControls({ state }: { state: SeriesRange }) {
 	);
 }
 
-export function AverageControls({ state, children }: { state: SeriesRange; children?: ReactNode }) {
+export function AverageControls({ state, lead, children }: { state: SeriesRange; lead?: ReactNode; children?: ReactNode }) {
 	return (
 		<div className={styles.controls}>
-			<div className={styles.segmented} role="group" aria-label="Average">
-				{AVERAGES.map((option) => (
-					<Button key={option.id} size="sm" variant="quiet" aria-pressed={option.id === state.average} onClick={() => state.setAverage(option.id)}>
-						{option.label}
-					</Button>
-				))}
+			<div className={styles.controlGroup}>
+				{lead}
+				<div className={styles.segmented} role="group" aria-label="Average">
+					{AVERAGES.map((option) => (
+						<Button key={option.id} size="sm" variant="quiet" aria-pressed={option.id === state.average} onClick={() => state.setAverage(option.id)}>
+							{option.label}
+						</Button>
+					))}
+				</div>
 			</div>
 			{children}
 		</div>
 	);
 }
 
-export type SeriesStyle = {
+export type ChartRow = { date: string; value: number; length?: number; partial?: boolean };
+
+export type SeriesStyle<T extends ChartRow = SeriesRow> = {
 	name: string;
 	unit: string;
 	raw: "points" | "bars";
 	empty: string;
 	format: (value: number) => string;
 	domain: (values: number[]) => [low: number, high: number];
-	detail?: (row: SeriesRow) => string[];
+	label?: (row: T) => string;
+	detail?: (row: T) => string[];
 };
+
+export type Trend<T> = { label: string; value: (row: T) => number };
+
+export function averageTrend(average: Average): Trend<SeriesRow> {
+	return { label: averageLabel(average), value: (row) => row[average] };
+}
 
 const STEP_KEYS: Record<string, (index: number, last: number) => number> = {
 	ArrowLeft: (index) => index - 1,
@@ -144,9 +156,9 @@ const STEP_KEYS: Record<string, (index: number, last: number) => number> = {
 };
 const TIP_HALF_WIDTH = 88;
 
-type ChartProps = { rows: SeriesRow[]; series: SeriesStyle; average: Average; showRaw: boolean; showTrend: boolean; onBrush: (range: DateRange) => void };
+type ChartProps<T extends ChartRow> = { rows: T[]; series: SeriesStyle<T>; trend: Trend<T> | null; showRaw: boolean; showTrend: boolean; onBrush: (range: DateRange) => void };
 
-export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush }: ChartProps) {
+export function SeriesChart<T extends ChartRow>({ rows, series, trend, showRaw, showTrend, onBrush }: ChartProps<T>) {
 	const [ref, width] = useWidth();
 	const [brush, setBrush] = useState<{ start: number; end: number } | null>(null);
 	const [hover, setHover] = useState<number | null>(null);
@@ -154,20 +166,23 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 	const last = rows.at(-1);
 	if (first === undefined || last === undefined) return <p className={styles.empty}>{series.empty}</p>;
 	const edge = series.raw === "bars" ? 0.5 : 0;
+	const length = (row: T) => row.length ?? 1;
+	const center = (row: T) => dayNumber(row.date) + (length(row) - 1) / 2;
+	const label = series.label ?? ((row: T) => longDate(row.date));
 	const startDay = dayNumber(first.date) - edge;
-	const span = Math.max(dayNumber(last.date) + edge - startDay, 1);
+	const span = Math.max(dayNumber(last.date) + (series.raw === "bars" ? length(last) - 1 : 0) + edge - startDay, 1);
 	const inner = width - PAD.left - PAD.right;
-	const [low, high] = series.domain(rows.flatMap((row) => (showRaw ? [row.value, row[average]] : [row[average]])));
-	const x = (date: string) => PAD.left + ((dayNumber(date) - startDay) / span) * inner;
+	const [low, high] = series.domain(rows.flatMap((row) => (trend === null ? [row.value] : showRaw ? [row.value, trend.value(row)] : [trend.value(row)])));
+	const x = (row: T) => PAD.left + ((center(row) - startDay) / span) * inner;
 	const y = (value: number) => PAD.top + ((high - value) / (high - low)) * (HEIGHT - PAD.top - PAD.bottom);
 	const dateAt = (px: number) => isoDate(Math.round(startDay + (Math.min(Math.max(px - PAD.left, 0), inner) / inner) * span));
-	const line = rows.map((row, index) => `${index === 0 ? "M" : "L"}${x(row.date).toFixed(1)},${y(row[average]).toFixed(1)}`).join("");
+	const line = trend === null ? "" : rows.map((row, index) => `${index === 0 ? "M" : "L"}${x(row).toFixed(1)},${y(trend.value(row)).toFixed(1)}`).join("");
 	const bottom = HEIGHT - PAD.bottom;
-	const barWidth = Math.max((inner / span) * BAR_SHARE, 1);
+	const barWidth = (row: T) => Math.max((inner / span) * length(row) * BAR_SHARE, 1);
 	const ticks = [low, (low + high) / 2, high];
 	const local = (event: PointerEvent<SVGSVGElement>) => event.clientX - event.currentTarget.getBoundingClientRect().left;
 
-	const snap = (px: number) => setHover(nearestIndex(rows, startDay + ((px - PAD.left) / inner) * span));
+	const snap = (px: number) => setHover(nearestIndex(rows, startDay + ((px - PAD.left) / inner) * span, center));
 
 	const begin = (event: PointerEvent<SVGSVGElement>) => {
 		if (event.pointerType === "touch") {
@@ -188,11 +203,11 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 		if (event.pointerType !== "touch") setHover(null);
 	};
 	const hovered = hover === null || brush !== null ? undefined : rows[hover];
-	const hoverX = hovered === undefined ? 0 : x(hovered.date);
+	const hoverX = hovered === undefined ? 0 : x(hovered);
 	const valueY = hovered === undefined ? 0 : y(hovered.value);
-	const trendY = hovered === undefined ? 0 : y(hovered[average]);
+	const trendY = hovered === undefined || trend === null ? valueY : y(trend.value(hovered));
 	const trendLabelY = Math.abs(trendY - valueY) >= LABEL_GAP ? trendY : valueY + (trendY >= valueY ? LABEL_GAP : -LABEL_GAP);
-	const clearOf = (tickY: number) => hovered === undefined || (Math.abs(tickY - valueY) >= LABEL_GAP && Math.abs(tickY - trendLabelY) >= LABEL_GAP);
+	const clearOf = (tickY: number) => hovered === undefined || (Math.abs(tickY - valueY) >= LABEL_GAP && (trend === null || Math.abs(tickY - trendLabelY) >= LABEL_GAP));
 	const unit = series.unit === "" ? "" : ` ${series.unit}`;
 	const keyDown = (event: KeyboardEvent<SVGSVGElement>) => {
 		const step = STEP_KEYS[event.key];
@@ -203,7 +218,11 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 		setHover(Math.min(Math.max(step(hover ?? last, last), 0), last));
 	};
 	const tipLines = hovered === undefined ? [] : (series.detail?.(hovered) ?? []);
-	const readout = hovered === undefined ? "" : `${longDate(hovered.date)}, ${series.format(hovered.value)}${unit}, ${averageLabel(average)} average ${series.format(hovered[average])}`;
+	const readout =
+		hovered === undefined
+			? ""
+			: [...(series.detail?.(hovered) ?? [label(hovered), `${series.format(hovered.value)}${unit}`]), ...(trend === null ? [] : [`${trend.label} average ${series.format(trend.value(hovered))}`])].join(", ");
+	const latest = trend === null ? `latest ${series.format(last.value)}${unit}` : `latest ${trend.label} average ${series.format(trend.value(last))}${unit}`;
 	const finish = () => {
 		if (brush === null) return;
 		setBrush(null);
@@ -220,7 +239,7 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 					width={width}
 					height={HEIGHT}
 					role="img"
-					aria-label={`${series.name} from ${longDate(first.date)} to ${longDate(last.date)}, latest ${averageLabel(average)} average ${series.format(last[average])}${unit}`}
+					aria-label={`${series.name} from ${label(first)} to ${label(last)}, ${latest}`}
 					onPointerDown={begin}
 					onPointerMove={move}
 					onPointerUp={finish}
@@ -244,44 +263,47 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 					{hovered === undefined ? (
 						<>
 							<text x={PAD.left} y={HEIGHT - 6} className={styles.axis}>
-								{longDate(first.date)}
+								{label(first)}
 							</text>
 							<text x={width - PAD.right} y={HEIGHT - 6} className={styles.axis} textAnchor="end">
-								{longDate(last.date)}
+								{label(last)}
 							</text>
 						</>
 					) : null}
 					{showRaw && series.raw === "points"
-						? rows.map((row) => <circle key={row.date} cx={x(row.date)} cy={y(row.value)} r={rows.length > 400 ? 1 : 1.75} className={styles.point} />)
+						? rows.map((row) => <circle key={row.date} cx={x(row)} cy={y(row.value)} r={rows.length > 400 ? 1 : 1.75} className={styles.point} />)
 						: null}
 					{showRaw && series.raw === "bars"
 						? rows.map((row) => (
 								<rect
 									key={row.date}
-									x={x(row.date) - barWidth / 2}
+									x={x(row) - barWidth(row) / 2}
 									y={y(row.value)}
-									width={barWidth}
+									width={barWidth(row)}
 									height={Math.max(bottom - y(row.value), 0)}
 									className={styles.dayBar}
 									data-hovered={row === hovered ? "" : undefined}
+									data-partial={row.partial === true ? "" : undefined}
 								/>
 							))
 						: null}
-					{showTrend ? <path d={line} className={styles.trend} /> : null}
+					{showTrend && trend !== null ? <path d={line} className={styles.trend} /> : null}
 					{hovered === undefined ? null : (
 						<g>
 							<line x1={hoverX} x2={hoverX} y1={PAD.top} y2={bottom} className={styles.crosshair} />
 							<line x1={PAD.left} x2={width - PAD.right} y1={valueY} y2={valueY} className={styles.crosshair} />
 							{series.raw === "points" ? <circle cx={hoverX} cy={valueY} r={3} className={styles.hoverValue} /> : null}
-							<circle cx={hoverX} cy={trendY} r={3} className={styles.hoverTrend} />
+							{trend === null ? null : <circle cx={hoverX} cy={trendY} r={3} className={styles.hoverTrend} />}
 							<text x={PAD.left - 6} y={valueY} className={styles.axisValue} textAnchor="end" dominantBaseline="middle">
 								{series.format(hovered.value)}
 							</text>
-							<text x={PAD.left - 6} y={trendLabelY} className={styles.axisTrend} textAnchor="end" dominantBaseline="middle">
-								{series.format(hovered[average])}
-							</text>
+							{trend === null ? null : (
+								<text x={PAD.left - 6} y={trendLabelY} className={styles.axisTrend} textAnchor="end" dominantBaseline="middle">
+									{series.format(trend.value(hovered))}
+								</text>
+							)}
 							<text x={Math.min(Math.max(hoverX, PAD.left + DATE_HALF_WIDTH), width - PAD.right - DATE_HALF_WIDTH)} y={HEIGHT - 6} className={styles.axisValue} textAnchor="middle">
-								{longDate(hovered.date)}
+								{label(hovered)}
 							</text>
 						</g>
 					)}
@@ -330,25 +352,36 @@ export function SeriesSummary({ items }: { items: SummaryItem[] }) {
 	);
 }
 
-type TableProps<T extends SeriesEntry> = { rows: T[]; series: SeriesStyle; state: SeriesRange; tint?: (change: number) => Tint };
+export type Column<T> = { key: string; label: string; kind: "head" | "value" | "detail"; sort: (row: T) => number | string; cell: (row: T) => ReactNode };
 
-export function SeriesTable<T extends SeriesEntry>({ rows, series, state, tint }: TableProps<T>) {
-	const { average, sort, page } = state;
-	const sorted = useMemo(() => sortEntries(rows, sort, average), [rows, sort, average]);
-	const pages = Math.max(Math.ceil(rows.length / PAGE_SIZE), 1);
-	const current = Math.min(page, pages - 1);
-	const visible = sorted.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
-	const label = averageLabel(average);
-	const columns: { key: SortKey; label: string }[] = [
-		{ key: "date", label: "Date" },
-		{ key: "value", label: series.name },
-		{ key: "average", label },
-		{ key: "change", label: "Change" },
-	];
+export function seriesColumns<T extends SeriesEntry>(series: SeriesStyle<T>, average: Average, tint?: (change: number) => Tint): Column<T>[] {
 	const signed = (value: number) => {
 		const text = series.format(Math.abs(value));
 		return text === series.format(0) ? text : `${value > 0 ? "+" : "\u2212"}${text}`;
 	};
+	return [
+		{ key: "date", label: "Date", kind: "head", sort: (row) => row.date, cell: (row) => longDate(row.date) },
+		{ key: "value", label: series.name, kind: "value", sort: (row) => row.value, cell: (row) => series.format(row.value) },
+		{ key: "average", label: averageLabel(average), kind: "detail", sort: (row) => row[average], cell: (row) => series.format(row[average]) },
+		{
+			key: "change",
+			label: "Change",
+			kind: "detail",
+			sort: (row) => row.change ?? Number.NEGATIVE_INFINITY,
+			cell: (row) => (row.change === null ? "" : <span {...tint?.(row.change)}>{signed(row.change)}</span>),
+		},
+	];
+}
+
+type TableProps<T extends { date: string }> = { rows: T[]; columns: Column<T>[]; state: SeriesRange };
+
+export function SeriesTable<T extends { date: string }>({ rows, columns, state }: TableProps<T>) {
+	const { sort, page } = state;
+	const sortColumn = columns.find((column) => column.key === sort.key) ?? columns[0];
+	const sorted = useMemo(() => (sortColumn === undefined ? rows : sortRows(rows, sort.descending, sortColumn.sort)), [rows, sort.descending, sortColumn]);
+	const pages = Math.max(Math.ceil(rows.length / PAGE_SIZE), 1);
+	const current = Math.min(page, pages - 1);
+	const visible = sorted.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
 	if (rows.length === 0) return null;
 	return (
 		<div className={styles.weightTable}>
@@ -356,11 +389,11 @@ export function SeriesTable<T extends SeriesEntry>({ rows, series, state, tint }
 				<thead>
 					<tr>
 						{columns.map((column) => (
-							<th key={column.key} aria-sort={sort.key === column.key ? (sort.descending ? "descending" : "ascending") : undefined}>
+							<th key={column.key} aria-sort={sortColumn?.key === column.key ? (sort.descending ? "descending" : "ascending") : undefined}>
 								<button type="button" className={styles.sortButton} onClick={() => state.sortBy(column.key)}>
 									{column.label}
 									<span className={styles.sortMark} aria-hidden="true">
-										{sort.key === column.key ? (sort.descending ? "\u2193" : "\u2191") : ""}
+										{sortColumn?.key === column.key ? (sort.descending ? "\u2193" : "\u2191") : ""}
 									</span>
 								</button>
 							</th>
@@ -370,10 +403,11 @@ export function SeriesTable<T extends SeriesEntry>({ rows, series, state, tint }
 				<tbody>
 					{visible.map((row) => (
 						<tr key={row.date}>
-							<td>{longDate(row.date)}</td>
-							<td className={styles.weightCell}>{series.format(row.value)}</td>
-							<td data-label={label}>{series.format(row[average])}</td>
-							<td data-label="Change">{row.change === null ? "" : <span {...tint?.(row.change)}>{signed(row.change)}</span>}</td>
+							{columns.map((column) => (
+								<td key={column.key} className={column.kind === "value" ? styles.weightCell : undefined} data-label={column.kind === "detail" ? column.label : undefined}>
+									{column.cell(row)}
+								</td>
+							))}
 						</tr>
 					))}
 				</tbody>

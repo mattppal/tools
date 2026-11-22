@@ -12,7 +12,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const START_TIMEOUT_MS = 30_000;
 const PAGE_TIMEOUT_MS = 10_000;
 const PHONE_WIDTHS = [360, 390];
-const PAGES = ["/nutrition", "/nutrition/history", "/nutrition/weight", "/nutrition/steps", "/workouts"];
+const PAGES = ["/nutrition", "/nutrition/history", "/nutrition/weight", "/nutrition/steps", "/nutrition/steps?group=week", "/nutrition/steps?group=month", "/workouts"];
 const CHROME = Bun.which("google-chrome") ?? Bun.which("chromium") ?? "/usr/local/bin/google-chrome";
 
 const isoDay = (offset: number) => new Date(Date.UTC(2026, 10, 22) + offset * 86_400_000).toISOString().slice(0, 10);

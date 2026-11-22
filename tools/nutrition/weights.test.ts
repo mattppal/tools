@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { changeTone, inRange, nearestIndex, presetRange, previousRange, type SeriesRow, sortEntries, summarize, toneStrength, withChanges } from "./weights.ts";
+import { dayNumber } from "./dates.ts";
+import { changeTone, inRange, nearestIndex, presetRange, previousRange, type SeriesRow, sortRows, summarize, toneStrength, withChanges } from "./weights.ts";
 
 const row = (date: string, value: number, rolling7d: number, source = "sheet"): SeriesRow => ({ date, value, rolling7d, rolling14d: rolling7d + 0.5, rolling28d: rolling7d + 1, source });
 
@@ -55,14 +56,22 @@ describe("weights", () => {
 		expect(nearestIndex(rows, day("2026-03-01"))).toBe(3);
 	});
 
+	test("snaps to the nearest center when rows span several days", () => {
+		const weeks = [{ date: "2026-01-05" }, { date: "2026-01-12" }, { date: "2026-01-19" }];
+		const center = (row: { date: string }) => dayNumber(row.date) + 3;
+		expect(nearestIndex(weeks, dayNumber("2026-01-10"), center)).toBe(0);
+		expect(nearestIndex(weeks, dayNumber("2026-01-13"), center)).toBe(1);
+		expect(nearestIndex(weeks, dayNumber("2026-01-25"), center)).toBe(2);
+	});
+
 	test("the previous period is the same length and ends the day before", () => {
 		expect(previousRange({ from: "2026-03-01", to: "2026-03-30" })).toEqual({ from: "2026-01-30", to: "2026-02-28" });
 	});
 
 	test("sorts by column and breaks ties by date in the same direction", () => {
 		const entries = withChanges(rows);
-		expect(sortEntries(entries, { key: "date", descending: true }, "rolling7d")[0]?.date).toBe("2026-01-15");
-		expect(sortEntries(entries, { key: "value", descending: true }, "rolling7d").map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-08", "2026-01-02", "2026-01-15"]);
-		expect(sortEntries(entries, { key: "change", descending: false }, "rolling7d").map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-15", "2026-01-02", "2026-01-08"]);
+		expect(sortRows(entries, true, (entry) => entry.date)[0]?.date).toBe("2026-01-15");
+		expect(sortRows(entries, true, (entry) => entry.value).map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-08", "2026-01-02", "2026-01-15"]);
+		expect(sortRows(entries, false, (entry) => entry.change ?? Number.NEGATIVE_INFINITY).map((entry) => entry.date)).toEqual(["2026-01-01", "2026-01-15", "2026-01-02", "2026-01-08"]);
 	});
 });

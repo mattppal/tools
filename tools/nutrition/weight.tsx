@@ -3,7 +3,7 @@ import { Button } from "../../src/kit/button.tsx";
 import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
-import { AverageControls, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, type SummaryItem, type Tint, useSeriesRange } from "./series.tsx";
+import { AverageControls, averageTrend, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, seriesColumns, type SummaryItem, type Tint, useSeriesRange } from "./series.tsx";
 import type { ExpenditureView, PhaseView } from "./store.ts";
 import type { WeightRow } from "./types.ts";
 import { dayLabel, tenths, useJson, VIEWS, whole } from "./ui.tsx";
@@ -230,9 +230,9 @@ export function Weight() {
 				) : (
 					<>
 						<Summary rows={selected} average={state.average} phaseKind={phaseKind} spent={spent} onBreakdown={() => setBreakdownOpen(true)} />
-						<SeriesChart rows={selected} series={WEIGHT} average={state.average} showRaw={showPoints} showTrend={showTrend} onBrush={state.chooseRange} />
+						<SeriesChart rows={selected} series={WEIGHT} trend={averageTrend(state.average)} showRaw={showPoints} showTrend={showTrend} onBrush={state.chooseRange} />
 						<p className={styles.hint}>Drag across the chart to zoom in.</p>
-						<SeriesTable rows={selected} series={WEIGHT} state={state} tint={(change) => tint(change, phaseKind, FLAT_CHANGE, FULL_ENTRY_CHANGE)} />
+						<SeriesTable rows={selected} columns={seriesColumns(WEIGHT, state.average, (change) => tint(change, phaseKind, FLAT_CHANGE, FULL_ENTRY_CHANGE))} state={state} />
 					</>
 				)}
 			</div>

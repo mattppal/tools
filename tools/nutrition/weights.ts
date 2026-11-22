@@ -3,8 +3,7 @@ import { addDays, dayNumber } from "./dates.ts";
 export type Preset = "90d" | "1y" | "all";
 export type DateRange = { from: string; to: string };
 export type Average = "rolling7d" | "rolling14d" | "rolling28d";
-export type SortKey = "date" | "value" | "average" | "change";
-export type Sort = { key: SortKey; descending: boolean };
+export type Sort = { key: string; descending: boolean };
 export type SeriesRow = { date: string; value: number; source?: string } & Record<Average, number>;
 export type SeriesEntry<T extends SeriesRow = SeriesRow> = T & { change: number | null };
 export type WeightSummary = { start: number; end: number; change: number; average: number; weeklyRate: number; days: number };
@@ -59,28 +58,23 @@ export function toneStrength(change: number, full: number): number {
 	return Math.min(Math.max(Math.abs(change) / full, 0.3), 1);
 }
 
-export function nearestIndex(rows: { date: string }[], day: number): number {
+export function nearestIndex<T extends { date: string }>(rows: T[], day: number, center: (row: T) => number = (row) => dayNumber(row.date)): number {
 	let low = 0;
 	let high = rows.length - 1;
 	while (low < high) {
 		const middle = (low + high) >> 1;
-		if (dayNumber(rows[middle]?.date ?? "") < day) low = middle + 1;
+		const row = rows[middle];
+		if (row !== undefined && center(row) < day) low = middle + 1;
 		else high = middle;
 	}
 	const before = rows[low - 1];
 	const at = rows[low];
-	if (before !== undefined && at !== undefined && day - dayNumber(before.date) <= dayNumber(at.date) - day) return low - 1;
+	if (before !== undefined && at !== undefined && day - center(before) <= center(at) - day) return low - 1;
 	return low;
 }
 
-export function sortEntries<T extends SeriesEntry>(rows: T[], sort: Sort, average: Average): T[] {
-	const value = (row: T): number | string => {
-		if (sort.key === "date") return row.date;
-		if (sort.key === "value") return row.value;
-		if (sort.key === "average") return row[average];
-		return row.change ?? Number.NEGATIVE_INFINITY;
-	};
-	const direction = sort.descending ? -1 : 1;
+export function sortRows<T extends { date: string }>(rows: T[], descending: boolean, value: (row: T) => number | string): T[] {
+	const direction = descending ? -1 : 1;
 	return [...rows].sort((a, b) => {
 		const left = value(a);
 		const right = value(b);
