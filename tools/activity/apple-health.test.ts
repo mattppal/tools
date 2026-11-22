@@ -233,7 +233,7 @@ test("every metric is stored whatever its shape or key order, by source and time
 	expect(again.changed).toEqual({ sleep: 0, samples: 0, workouts: 0 });
 });
 
-test("daily steps take the one Apple source with the most steps each local day, and fill only days Withings has no steps for", async () => {
+test("daily steps take the one Apple source with the most steps each local day, and each day keeps whichever of Withings and Apple has more", async () => {
 	await post(await sample("all-metrics"));
 	const days = await rows(
 		"select day::text as day, steps, active_kcal::float8 as active, total_kcal::float8 as total, distance_m::float8 as distance, device, raw from activity.days where source = 'apple_health' order by day",
@@ -250,9 +250,11 @@ test("daily steps take the one Apple source with the most steps each local day, 
 		"insert into activity.days (day, source, steps, active_kcal, updated_by) values ('2026-11-20', 'withings', 4100, 350, 'withings'), ('2026-11-21', 'withings', 0, 0, 'withings')",
 	);
 	expect(await rows("select day::text as day, source, steps from activity.daily_activity order by day")).toEqual([
-		{ day: "2026-11-20", source: "withings", steps: 4100 },
+		{ day: "2026-11-20", source: "apple_health", steps: 5580 },
 		{ day: "2026-11-21", source: "apple_health", steps: 2100 },
 	]);
+	await pg.query("update activity.days set steps = 7100 where source = 'withings' and day = '2026-11-20'");
+	expect(await rows("select day::text as day, source, steps from activity.daily_activity where day = '2026-11-20'")).toEqual([{ day: "2026-11-20", source: "withings", steps: 7100 }]);
 	const later = JSON.stringify({
 		data: { metrics: [{ name: "step_count", units: "count", data: [{ qty: 400, date: "2026-11-21 18:00:00 -0800", source: "Matt’s Apple Watch" }] }] },
 	});

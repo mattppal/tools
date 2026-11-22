@@ -1,6 +1,6 @@
 ---
 name: tool-activity
-description: "Daily steps, active calories, distance, and heart rate pulled from Withings into activity.days, Withings weigh-ins into nutrition.weigh_ins, and Withings workouts, sleep, body measures, and intraday steps and heart rate into activity tables, with daily_health as the per-day view for TDEE. Also takes Apple Health pushes from the Health Auto Export iOS app (every health metric, sleep stages, workouts) into apple_health_* tables, and fills activity.days from Apple Health steps on days Withings has none. No page of its own; the Withings and Apple Health status is under Settings. Covers the Withings OAuth connect and callback routes, token storage, the sync cron, the backfill, and the Apple Health ingest route. Use when changing tools/activity/ or anything that reads daily activity."
+description: "Daily steps, active calories, distance, and heart rate pulled from Withings into activity.days, Withings weigh-ins into nutrition.weigh_ins, and Withings workouts, sleep, body measures, and intraday steps and heart rate into activity tables, with daily_health as the per-day view for TDEE. Also takes Apple Health pushes from the Health Auto Export iOS app (every health metric, sleep stages, workouts) into apple_health_* tables, and fills activity.days from Apple Health steps, keeping whichever of Withings and Apple has more steps each day. No page of its own; the Withings and Apple Health status is under Settings. Covers the Withings OAuth connect and callback routes, token storage, the sync cron, the backfill, and the Apple Health ingest route. Use when changing tools/activity/ or anything that reads daily activity."
 ---
 
 # Activity
@@ -71,7 +71,7 @@ The response is `{ received, changed, skipped, metrics, days, warnings }`. `rece
 
 Size limits. A Worker has 128 MB of memory and Cloudflare caps request bodies at 100 MB on this zone, so the route never holds a whole body:
 - `hae-scanner.ts` reads the body as a stream and emits one sample at a time. Rows are written 2,000 at a time.
-- Samples that arrive before their metric's `name` and `units` wait as raw JSON text, up to 8 million characters. A body over 40 MiB (`MAX_BODY_BYTES`, checked against `content-length` and while streaming) or past that queue answers 413, telling Matt to turn on Batch Requests or upload a shorter range. Rows written before the 413 stay; re-sending is safe.
+- Samples that arrive before their metric's `name` and `units` wait as raw JSON text, up to 8 million characters. A body over 95 MiB (`MAX_BODY_BYTES`, just under Cloudflare's 100 MB cap, checked against `content-length` and while streaming) or past that queue answers 413, telling Matt to turn on Batch Requests or upload a shorter range. Rows written before the 413 stay; re-sending is safe.
 - Measured in Node with V8: a 40 MB body of 270,000 samples takes about 2 s of CPU and peaks near 52 MB of heap. In local `wrangler dev` against Postgres it finished in 4.5 s.
 
 ## Steps from Apple Health
@@ -79,7 +79,7 @@ Size limits. A Worker has 128 MB of memory and Cloudflare caps request bodies at
 A push with `step_count`, `walking_running_distance`, `active_energy` or `basal_energy_burned` recomputes those local days from everything stored, so a day split across batched requests comes out whole:
 - Steps are summed per source per local day (the reading's own UTC offset). The day takes the single Apple source with the most steps, usually the iPhone or the Watch, never their sum, because both count the same walking. `raw.steps` keeps every source's total.
 - `distance_m` comes from that same source; `active_kcal` from the source with the most active energy, and `total_kcal` from that source's active plus basal energy.
-- The row is `activity.days` with source `apple_health`. `daily_activity` then keeps one source per day: Withings when it has more than 0 steps, otherwise Apple Health, otherwise manual. Withings steps in this account are themselves HealthKit data relayed by Health Mate, so a day never counts both.
+- The row is `activity.days` with source `apple_health`. `daily_activity` then keeps one source per day, the one with the most steps; ties go to Withings, then Apple Health, then manual. The two are never added: Withings steps in this account are HealthKit data relayed by Health Mate, whose import stopped for whole months (2022-08 onward; see `internal/withings-steps-gap.md` in the Project store) and left zero runs and partial edge days that the larger Apple count replaces. The day's other columns come from the same row.
 
 ## Nights
 
@@ -119,7 +119,7 @@ Schema `activity`, from `migrations/`. Other tools read it through the functions
 | Table or view | Holds |
 | --- | --- |
 | `days` | Key `(day, source)`. `source` is `withings`, `apple_health`, or `manual`. `steps`, `active_kcal`, `total_kcal`, `distance_m`, `elevation_m`, `soft_s`, `moderate_s`, `intense_s`, `hr_avg`, `hr_min`, `hr_max`, `hr_zone_0_s` to `hr_zone_3_s`, `device`, `raw`, `updated_by`, `updated_at`. |
-| `daily_activity` | One row per day: the first source with more than 0 steps of Withings, Apple Health, then manual. Read this, not `days`. |
+| `daily_activity` | One row per day: the source with the most steps, ties going to Withings, then Apple Health, then manual. Read this, not `days`. |
 | `withings` | The connection: user id, scope, encrypted tokens, expiry, backfill cursor and offset, the `getmeas` cursor (`meas_lastupdate`, `meas_pending_lastupdate`, `meas_offset`), last syncs, last error, and the claim. |
 | `withings_streams` | Cursor state per feed (`measures`, `workouts`, `sleep`, `intraday`), with `synced_at` and `done_at`. |
 | `withings_measures` | Key `(grpid, type)`. Every real body measure, `value = value * 10^unit`. `weight_kg`, fat, muscle, bone, hydration, BP, pulse, SpO2, temperature, PWV, and so on. |
