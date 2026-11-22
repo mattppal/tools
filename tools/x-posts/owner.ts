@@ -3,6 +3,7 @@ import type { Database } from "../../worker/db.ts";
 import { monthOf, readBlocklist, rescreen } from "./ingest.ts";
 import { LIVE_INGEST, MONTHLY_READ_BUDGET, QUERY, QUEUE_OPEN, STALE_FEED_MS } from "./query.ts";
 import { BATCH_CAP, DAILY_CAP, iso, listJobs, printDay, type JobState } from "./queue.ts";
+import { readAccount, type Reply, type XAccount } from "./reply.ts";
 import { normalizeTerm, postUrl } from "./screen.ts";
 
 export const POST_STATUSES = ["pending", "approved", "rejected", "overflow", "queued", "printed", "unconfirmed", "failed", "summarized"] as const;
@@ -25,6 +26,8 @@ export type OwnerPost = {
 	decidedBy: string | null;
 	decidedAt: string | null;
 	jobId: string | null;
+	sources: string[];
+	reply: Reply | null;
 	metrics: { likes: number | null; reposts: number | null; replies: number | null; quotes: number | null; impressions: number | null };
 	metricsAt: string;
 	ingestedAt: string;
@@ -47,6 +50,11 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			decided_by: string | null;
 			decided_at: Date | string | null;
 			job_id: string | null;
+			sources: string[];
+			reply_id: string | null;
+			reply_text: string | null;
+			reply_username: string | null;
+			replied_at: Date | string | null;
 			likes: number | null;
 			reposts: number | null;
 			replies: number | null;
@@ -55,8 +63,13 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			metrics_at: Date | string;
 			ingested_at: Date | string;
 		}>(
-			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at
-			from x_posts.posts where ($1::text is null or status = $1) and ($2::bigint is null or id < $2::bigint)
+			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, sources, reply_id, reply_text, reply_username, replied_at, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at
+			from x_posts.posts
+			left join lateral (
+				select reply_id::text as reply_id, text as reply_text, username as reply_username, created_at as replied_at
+				from x_posts.replies where post_id = posts.id order by created_at desc limit 1
+			) as latest on true
+			where ($1::text is null or status = $1) and ($2::bigint is null or id < $2::bigint)
 			order by id desc limit $3`,
 			[status, before, limit + 1],
 		)
@@ -79,6 +92,11 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			decidedBy: row.decided_by,
 			decidedAt: row.decided_at === null ? null : iso(row.decided_at),
 			jobId: row.job_id,
+			sources: row.sources,
+			reply:
+				row.reply_id === null || row.reply_username === null || row.replied_at === null
+					? null
+					: { id: row.reply_id, url: postUrl(row.reply_username, row.reply_id), text: row.reply_text ?? "", at: iso(row.replied_at) },
 			metrics: { likes: row.likes, reposts: row.reposts, replies: row.replies, quotes: row.quotes, impressions: row.impressions },
 			metricsAt: iso(row.metrics_at),
 			ingestedAt: iso(row.ingested_at),
@@ -98,6 +116,7 @@ export type Status = {
 	jobs: JobState[];
 	blocklist: string[];
 	shadow: Shadow;
+	x: XAccount | null;
 };
 
 export type Shadow = { since: string | null; matched: number; autoRejected: number; rejectedByFlag: Record<string, number>; addressed: number; addressedRate: number; passedScreen: number; wouldPrint: number };
@@ -171,6 +190,7 @@ export async function readStatus(client: Database, now: Date): Promise<Status> {
 		jobs: await listJobs(client, 30),
 		blocklist: await readBlocklist(client),
 		shadow: await readShadow(client),
+		x: await readAccount(client),
 	};
 }
 

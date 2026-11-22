@@ -10,6 +10,7 @@ import { checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
 import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE_CLOSED, requeueJob, sweep } from "./queue.ts";
 
 const openApi = xPostsApi({ queueOpen: true });
+import { REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
 
@@ -37,7 +38,7 @@ const MATT: Caller = { kind: "owner", email: "mattppalmer@gmail.com" };
 const NOW = new Date("2026-11-22T20:00:00Z");
 
 beforeEach(async () => {
-	await pg.exec(`truncate x_posts.posts, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
+	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
 		update x_posts.sync_state set since_id = null, pending_since_id = null, next_token = null, next_run_at = '-infinity', last_run_at = null, last_success_at = null, last_error = null, failures = 0, month = '', month_reads = 0, capped_month = null, stale_noticed_for = null;`);
 });
 
@@ -413,4 +414,135 @@ test("a database outage answers 503 with its own error text, apart from the clos
 		expect(await response.json()).toEqual({ error: DB_DOWN });
 	}
 	expect(DB_DOWN).not.toBe(QUEUE_CLOSED);
+});
+
+const X_ENV = { X_CLIENT_ID: "client", X_CLIENT_SECRET: "client-secret" } as Env;
+type XCall = { url: string; method: string; body: string; authorization: string | null };
+
+function fakeOAuthX(answers: ((call: XCall) => Response)[]): { fetcher: (input: string, init?: RequestInit) => Promise<Response>; calls: XCall[] } {
+	const calls: XCall[] = [];
+	return {
+		calls,
+		fetcher: async (input, init) => {
+			const call = { url: input, method: init?.method ?? "GET", body: String(init?.body ?? ""), authorization: new Headers(init?.headers).get("authorization") };
+			calls.push(call);
+			const answer = answers.shift();
+			if (answer === undefined) throw new Error(`Unexpected X call ${call.method} ${input}`);
+			return answer(call);
+		},
+	};
+}
+
+async function sendAs(path: string, fetcher: (input: string, init?: RequestInit) => Promise<Response>, { method = "GET", body, caller = MATT, cookie }: { method?: string; body?: unknown; caller?: Caller; cookie?: string } = {}): Promise<Response> {
+	const url = `https://tools.test/api/tools/x-posts${path}`;
+	const headers: Record<string, string> = { "content-type": "application/json" };
+	if (cookie !== undefined) headers["cookie"] = cookie;
+	return await xPostsApi({ queueOpen: false, fetcher })(new Request(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }), {
+		env: X_ENV,
+		ctx: { waitUntil() {} } as never,
+		path: new URL(url).pathname.replace("/api/tools/x-posts", ""),
+		db,
+		caller,
+	});
+}
+
+const tokenAnswer = (access: string, refresh: string) => () => Response.json({ token_type: "bearer", expires_in: 7200, access_token: access, refresh_token: refresh, scope: "tweet.read tweet.write users.read offline.access" });
+
+async function connectAs(username = "mattyp"): Promise<XCall[]> {
+	const none = fakeOAuthX([]);
+	const start = await sendAs("/x/connect", none.fetcher);
+	const cookie = (start.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+	const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+	const x = fakeOAuthX([tokenAnswer("access-1", "refresh-1"), () => Response.json({ data: { id: "1518984544421965824", username } })]);
+	const done = await sendAs(`/x/callback?code=abc&state=${encodeURIComponent(state)}`, x.fetcher, { cookie });
+	expect(done.status).toBe(302);
+	return x.calls;
+}
+
+test("Connect X sends Matt to X with PKCE and the posting scopes, and bots can't start it", async () => {
+	const response = await sendAs("/x/connect", fakeOAuthX([]).fetcher);
+	expect(response.status).toBe(302);
+	const location = new URL(response.headers.get("location") ?? "");
+	expect(location.origin + location.pathname).toBe("https://x.com/i/oauth2/authorize");
+	expect(Object.fromEntries(location.searchParams)).toMatchObject({ client_id: "client", scope: "tweet.read tweet.write users.read offline.access", code_challenge_method: "S256", redirect_uri: "https://tools.mattpalmer.io/api/tools/x-posts/x/callback" });
+	expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+	expect((await sendAs("/x/connect", fakeOAuthX([]).fetcher, { caller: REVIEW })).status).toBe(403);
+	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", caller: BRIDGE, body: { id: "1", text: "hi" } })).status).toBe(403);
+});
+
+test("the callback checks the state, sends the verifier, and stores only sealed tokens", async () => {
+	const forged = await sendAs("/x/callback?code=abc&state=1.2.3", fakeOAuthX([]).fetcher, { cookie: "x_oauth=1.2.3~verifier" });
+	expect(forged.status).toBe(400);
+	const calls = await connectAs();
+	expect(calls[0]?.body).toContain("grant_type=authorization_code");
+	expect(calls[0]?.body).toMatch(/code_verifier=[\w-]{43}/);
+	expect(calls[0]?.authorization).toBe(`Basic ${btoa("client:client-secret")}`);
+	const row = (await pg.query<{ username: string; access_token: string; refresh_token: string }>("select username, access_token, refresh_token from x_posts.account")).rows[0];
+	expect(row?.username).toBe("mattyp");
+	expect(row?.access_token.startsWith("v1.")).toBe(true);
+	expect(JSON.stringify(row)).not.toContain("refresh-1");
+	const status = await (await sendAs("/status", fakeOAuthX([]).fetcher)).json();
+	expect(status.x).toMatchObject({ username: "mattyp", lastError: null });
+});
+
+test("a reply posts to X as a reply to that post and shows on the post", async () => {
+	const [id] = await seed([{ text: "@mattyp mattyp mattyp" }]);
+	await connectAs();
+	const x = fakeOAuthX([() => Response.json({ data: { id: "1990000000000000001", text: "thanks" } }, { status: 201 })]);
+	const response = await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "  thanks  " } });
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ id: "1990000000000000001", url: "https://x.com/mattyp/status/1990000000000000001", text: "thanks" });
+	expect(x.calls[0]?.url).toBe("https://api.x.com/2/tweets");
+	expect(x.calls[0]?.authorization).toBe("Bearer access-1");
+	expect(JSON.parse(x.calls[0]?.body ?? "")).toEqual({ text: "thanks", reply: { in_reply_to_tweet_id: id } });
+	const listed = await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json();
+	expect(listed.posts[0]).toMatchObject({ sources: ["summons"], reply: { id: "1990000000000000001", text: "thanks" } });
+});
+
+test("an expiring token is refreshed and the rotated refresh token is saved first", async () => {
+	const [id] = await seed([{}]);
+	await connectAs();
+	await pg.query("update x_posts.account set expires_at = $1", [new Date(Date.now() + 60_000)]);
+	const x = fakeOAuthX([tokenAnswer("access-2", "refresh-2"), () => Response.json({ data: { id: "1990000000000000002" } }, { status: 201 })]);
+	expect((await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "hi" } })).status).toBe(200);
+	expect(x.calls[0]?.body).toBe("grant_type=refresh_token&refresh_token=refresh-1");
+	expect(x.calls[1]?.authorization).toBe("Bearer access-2");
+	await pg.query("update x_posts.account set expires_at = $1", [new Date(Date.now() + 60_000)]);
+	const again = fakeOAuthX([tokenAnswer("access-3", "refresh-3"), () => Response.json({ data: { id: "1990000000000000003" } }, { status: 201 })]);
+	await sendAs("/reply", again.fetcher, { method: "POST", body: { id, text: "hi again" } });
+	expect(again.calls[0]?.body).toBe("grant_type=refresh_token&refresh_token=refresh-2");
+});
+
+test("a refused refresh asks Matt to connect again and stops further sends", async () => {
+	const [id] = await seed([{}]);
+	await connectAs();
+	await pg.query("update x_posts.account set expires_at = $1", [new Date(Date.now() - 1000)]);
+	const x = fakeOAuthX([() => Response.json({ error: "invalid_request", error_description: "Value passed for the token was invalid." }, { status: 400 })]);
+	const response = await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "hi" } });
+	expect(response.status).toBe(409);
+	expect(await response.json()).toEqual({ error: "X signed you out. Connect X again.", connect: true });
+	const later = await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "hi" } });
+	expect(later.status).toBe(409);
+	expect((await pg.query("select count(*)::int as n from x_posts.replies")).rows[0]).toEqual({ n: 0 });
+});
+
+test("X refusing a reply passes its reason through and records nothing", async () => {
+	const [id] = await seed([{}]);
+	await connectAs();
+	const detail = "Reply to this conversation is not allowed because you have not been mentioned or otherwise engaged by the author of the post you are replying to.";
+	const x = fakeOAuthX([() => Response.json({ title: "Forbidden", detail, status: 403 }, { status: 403 })]);
+	const response = await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "hi" } });
+	expect(response.status).toBe(502);
+	expect((await response.json()).error).toBe(`X didn't post it: ${detail.slice(0, 200)}`);
+	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "x".repeat(281) } })).status).toBe(400);
+	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "   " } })).status).toBe(400);
+	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id: "123", text: "hi" } })).status).toBe(404);
+});
+
+test("reply length counts like X", () => {
+	expect(replyLength("hello")).toBe(5);
+	expect(replyLength("see https://example.com/a/very/long/path/that/goes/on")).toBe(4 + 23);
+	expect(replyLength("👍🏽")).toBe(2);
+	expect(replyLength("日本")).toBe(4);
+	expect(replyLength("x".repeat(280))).toBe(REPLY_MAX);
 });

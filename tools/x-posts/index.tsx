@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
 import { PostCard } from "./card.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
+import type { Reply } from "./reply.ts";
+import { ConnectX, ReplyBox, ReplyFailure } from "./reply-box.tsx";
 import styles from "./x-posts.module.css";
 
 const API = "/api/tools/x-posts";
@@ -45,6 +47,27 @@ async function request<T>(path: string, init?: { method: string; body: unknown }
 	const json: unknown = await response.json().catch(() => null);
 	if (!response.ok) throw new Error((json as { error?: string } | null)?.error ?? `Request failed with ${response.status}`);
 	return json as T;
+}
+
+async function sendReply(body: { id: string; text: string }): Promise<Reply> {
+	let response: Response;
+	try {
+		response = await fetch(`${API}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+	} catch (error) {
+		throw new ReplyFailure(describe(error), false);
+	}
+	const json = (await response.json().catch(() => null)) as (Reply & { error?: string; connect?: boolean }) | null;
+	if (!response.ok || json === null) throw new ReplyFailure(json?.error ?? `Request failed with ${response.status}`, json?.connect === true);
+	return json;
+}
+
+function replyFor(post: OwnerPost, status: Load<Status>): ReactNode {
+	const connected = status.status === "ready" && status.data.x !== null;
+	return connected || post.reply !== null ? <ReplyBox post={post} send={sendReply} /> : null;
+}
+
+function connectPrompt(status: Load<Status>): ReactNode {
+	return status.status === "ready" && status.data.x === null ? <ConnectX /> : null;
 }
 
 function useLoad<T>(path: string): [Load<T>, () => void] {
@@ -163,12 +186,13 @@ function PostFoot({ post }: { post: OwnerPost }) {
 	);
 }
 
-function LivePost({ post, now, fresh }: { post: OwnerPost; now: number; fresh: boolean }) {
+function LivePost({ post, now, fresh, children }: { post: OwnerPost; now: number; fresh: boolean; children?: ReactNode }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined}>
 			<PostBody post={post} now={now} time={ago(post.createdAt, now)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
 			<PostFoot post={post} />
+			{children}
 		</li>
 	);
 }
@@ -203,6 +227,7 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 					? "Watching for new posts."
 					: `X checked ${sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}${sync.nextRunAt === null ? ", next check due now" : `, next check ${when(sync.nextRunAt)}`}. Every minute while posts are arriving, every 5 minutes otherwise.`}
 			</p>
+			{connectPrompt(status)}
 			{posts.status !== "ready" ? (
 				<LoadState load={posts} retry={retry} />
 			) : posts.data.posts.length === 0 ? (
@@ -210,7 +235,9 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 			) : (
 				<ul className={styles.list}>
 					{posts.data.posts.map((post) => (
-						<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)} />
+						<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)}>
+							{replyFor(post, status)}
+						</LivePost>
 					))}
 				</ul>
 			)}
@@ -271,6 +298,7 @@ function Details({ status }: { status: Load<Status> }) {
 		["Batch size", `Up to ${data.today.batchCap} posts`],
 		...Object.entries(data.counts).map(([key, value]): [string, string] => [key[0]?.toUpperCase() + key.slice(1), value.toLocaleString("en-US")]),
 	];
+	rows.push(["Replies as", data.x === null ? "Not connected" : `@${data.x.username}${data.x.lastError === null ? "" : `, ${data.x.lastError}`}`]);
 	if (data.sync.lastError !== null) rows.push(["Last error", data.sync.lastError]);
 	return (
 		<dl className={styles.details}>
@@ -284,7 +312,7 @@ function Details({ status }: { status: Load<Status> }) {
 	);
 }
 
-function PostItem({ post, now, canDecide, onDecided }: { post: OwnerPost; now: number; canDecide: boolean; onDecided: () => void }) {
+function PostItem({ post, now, canDecide, onDecided, children }: { post: OwnerPost; now: number; canDecide: boolean; onDecided: () => void; children?: ReactNode }) {
 	const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	async function decide(kind: "approve" | "reject") {
@@ -314,6 +342,7 @@ function PostItem({ post, now, canDecide, onDecided }: { post: OwnerPost; now: n
 				</div>
 			) : null}
 			{error === null ? null : <p className={styles.error}>{error}</p>}
+			{children}
 		</li>
 	);
 }
@@ -332,6 +361,7 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 					</Button>
 				))}
 			</div>
+			{connectPrompt(status)}
 			{posts.status !== "ready" ? (
 				<LoadState load={posts} retry={retry} />
 			) : posts.data.posts.length === 0 ? (
@@ -348,7 +378,9 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 								retry();
 								refreshStatus();
 							}}
-						/>
+						>
+							{replyFor(post, status)}
+						</PostItem>
 					))}
 				</ul>
 			)}
