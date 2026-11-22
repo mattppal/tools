@@ -92,7 +92,7 @@ The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to
 
 3. When the event happens, insert the row in the same transaction as the change. Put the `delivery_id` in the payload too. After the transaction, send the first attempt with `ctx.waitUntil(withRequestDb(env.DB, ctx, (db) => deliverDue(db, webhook, env, [deliveryId])))`. The request's own connection closes after the response, so the first attempt opens a fresh one.
 
-Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `authorization` exactly as given, with no scheme added. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. `bun run test` covers the delivery code against PGlite.
+Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `authorization` exactly as given, with no scheme added. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. Each send first claims its row by setting `claim_id` and `claimed_until`, sends with no transaction open, and records the result only while `claim_id` still matches, so cron runs, first attempts and "Send again" never send one delivery at the same time. A tool with deliveries adds both claim columns to its deliveries table. A tool that requeues a delivery uses a plain `update` that leaves the claim alone. Before changing any of this, read `skills/tools-verify-webhooks/SKILL.md`.
 
 ## Remove a tool
 
