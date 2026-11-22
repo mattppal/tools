@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolApi } from "./tool-api.ts";
 
@@ -37,7 +37,7 @@ function openObjects(schema: Schema, path: string): string[] {
 }
 
 const slugs = readdirSync(TOOLS, { withFileTypes: true })
-	.filter((entry) => entry.isDirectory())
+	.filter((entry) => entry.isDirectory() && existsSync(join(TOOLS, entry.name, "api.ts")))
 	.map((entry) => entry.name);
 
 test("every MCP tool rejects argument names it does not know, at every depth", async () => {

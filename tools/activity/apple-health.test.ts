@@ -141,6 +141,36 @@ test("Settings shows each automation's last push", async () => {
 	);
 });
 
+test("a pushed night reads back as Eight Sleep's, with its own HRV and breathing and the watch's resting HR", async () => {
+	await post(await sample("metrics"));
+	const { nights } = (await (await get("/nights?from=2026-11-20&to=2026-11-21")).json()) as { nights: Record<string, unknown>[] };
+	expect(nights).toHaveLength(1);
+	const { timeline, ...night } = nights[0] ?? {};
+	expect(night).toEqual({
+		date: "2026-11-21",
+		source: "Eight Sleep",
+		bedtime: "23:02",
+		wake: "06:22",
+		inBedFrom: "22:48",
+		inBedTo: "06:52",
+		asleepS: 25_980,
+		inBedS: 29_040,
+		lightS: 16_080,
+		deepS: 3540,
+		remS: 6360,
+		awakeS: 900,
+		restingHr: 52,
+		hrv: 57,
+		respiratoryRate: 14.6,
+		alsoFrom: ["Matt’s Apple Watch"],
+	});
+	expect((timeline as unknown[]).slice(0, 3)).toEqual([
+		{ stage: "light", startS: 840, endS: 4320 },
+		{ stage: "deep", startS: 4320, endS: 6180 },
+		{ stage: "light", startS: 6180, endS: 9240 },
+	]);
+});
+
 test("dates keep the phone's offset and local date", () => {
 	expect(parseDate("2026-11-21 06:12:44 -0800")).toEqual({ iso: "2026-11-21T06:12:44-08:00", ms: Date.parse("2026-11-21T14:12:44Z"), offsetMin: -480, localDate: "2026-11-21" });
 	expect(parseDate("2026-03-08 03:30:00 -0700")?.offsetMin).toBe(-420);

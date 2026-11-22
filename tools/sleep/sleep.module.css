@@ -1,0 +1,272 @@
+.page {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	max-width: 720px;
+	padding-top: var(--space-4);
+	padding-bottom: var(--space-6);
+}
+
+.night {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.nightHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.eyebrow {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--text-3);
+}
+
+.stepper {
+	display: flex;
+	gap: var(--space-1);
+}
+
+.total {
+	margin: 0;
+	font-size: var(--text-display);
+	line-height: var(--leading-display);
+	font-weight: var(--weight-title);
+	letter-spacing: var(--tracking-display);
+	font-variant-numeric: tabular-nums;
+}
+
+.span {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--text-2);
+}
+
+.hypnogram {
+	width: 100%;
+	margin-top: var(--space-3);
+}
+
+.hypnogram svg,
+.chart svg {
+	display: block;
+	overflow: visible;
+	user-select: none;
+}
+
+.laneLabel {
+	fill: var(--text-3);
+	font-size: 11px;
+}
+
+.laneTrack {
+	fill: var(--sunken-bg);
+}
+
+.stage {
+	fill: var(--text-2);
+}
+
+[data-stage="awake"] .stage {
+	fill: var(--text-3);
+	opacity: 0.6;
+}
+
+.axis {
+	fill: var(--text-3);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
+.stats,
+.summary {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+	gap: var(--space-3);
+	margin: var(--space-2) 0 0;
+}
+
+.stats dt,
+.summary dt {
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+}
+
+.stats dd,
+.summary dd {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.rangeHeader {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	margin-top: var(--space-4);
+	padding-top: var(--space-4);
+	border-top: var(--border-width) solid var(--border-color);
+}
+
+.rangeTitle {
+	margin: 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: var(--weight-title);
+}
+
+.segmented {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.chart {
+	width: 100%;
+	min-height: 168px;
+}
+
+.chart svg {
+	touch-action: pan-y;
+	cursor: pointer;
+}
+
+.gridLine {
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+.bar {
+	fill: var(--text-3);
+	opacity: 0.45;
+	transition: opacity var(--duration-hover) ease;
+}
+
+.bar[data-hover] {
+	opacity: 0.75;
+}
+
+.bar[data-selected] {
+	fill: var(--text-1);
+	opacity: 1;
+}
+
+.average {
+	fill: none;
+	stroke: var(--chart-accent);
+	stroke-width: 2;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+	pointer-events: none;
+}
+
+.chartLabel {
+	fill: var(--text-2);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.table th {
+	font-size: var(--text-xs);
+	font-weight: var(--weight-ui);
+	color: var(--text-3);
+}
+
+.table th,
+.table td {
+	padding: var(--space-2);
+	border-bottom: var(--border-width) solid var(--border-color);
+	text-align: right;
+}
+
+.table th:first-child,
+.table td:first-child {
+	text-align: left;
+}
+
+.table td {
+	color: var(--text-2);
+}
+
+.table tr[data-selected] td {
+	color: var(--text-1);
+	background: var(--chrome-selected);
+}
+
+.rowButton {
+	min-height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+	transition: transform var(--duration-press) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.rowButton:hover {
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+}
+
+.rowButton:active {
+	transform: scale(var(--press-scale));
+}
+
+.empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-7) 0;
+	color: var(--text-3);
+	text-align: center;
+}
+
+.empty p {
+	margin: 0;
+}
+
+.hint {
+	font-size: var(--text-sm);
+	color: var(--text-3);
+	max-width: 420px;
+}
+
+.heroSkeleton {
+	height: 220px;
+}
+
+.chartSkeleton {
+	height: 168px;
+}
+
+@media (max-width: 639px) {
+	.table [data-optional] {
+		display: none;
+	}
+}

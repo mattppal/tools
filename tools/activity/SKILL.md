@@ -24,6 +24,7 @@ No page. `tool.ts` is hidden, so the sidebar and home skip it, and its debug row
 | `GET /api/tools/activity/measures?from=&to=&types=` | Body measures, decoded, with names from `MEASURE_TYPES`. `types` is a comma list of Withings type numbers. |
 | `GET /api/tools/activity/intraday?day=` | One day of 5-minute buckets. |
 | `POST /api/tools/activity/apple-health` | Health Auto Export's REST API automation. Bot `apple-health` only. See Apple Health. |
+| `GET /api/tools/activity/nights?from=&to=` | One night per local wake date, built by `nights.ts` from Apple Health sleep with Withings sleep as the fallback. Default the last 30 days. See Nights. |
 | `GET /api/tools/activity/apple-health/workouts?from=&to=` | Apple Health workouts, with `withingsId` set when a Withings workout overlaps it in time. Default the last 30 days. |
 | `GET /api/tools/activity/weights?from=&to=` | Withings weigh-ins in the withings-weight plugin's shape: `daily` like its `get_weights`, and `trend` with `daily` and `summary` like its `trend_weight`. Default the last 30 days. |
 
@@ -65,6 +66,15 @@ The body is `{"data":{"metrics":[...],"workouts":[...]}}` in the shapes of Healt
 - Each push records the `automation-name` and `session-id` headers in `apple_health_pushes`. Settings shows one row per automation with its last push and counts.
 
 The response is `{ received, changed, skipped }`. `received` and `changed` count `sleep`, `samples` and `workouts`; `skipped` counts `withings` and `invalid` (no date, no value, or an unknown stage).
+
+## Nights
+
+`nights.ts` turns sleep into one night per date, for the Sleep tool.
+
+- Segments from one source join into a sleep when the gap between them is 2 hours or less. A sleep's date is the local date it ends, so a nap and the night before it stay apart.
+- Each date keeps one sleep. Eight Sleep wins, then any other Apple Health source, then Withings. Within a rank the longest asleep wins. The others are listed in `alsoFrom`.
+- Light is Core. A source with no Core, Deep or REM has no stage totals, and its timeline uses the `asleep` lane.
+- Resting HR, HRV and breathing come from samples between going to bed and an hour after waking, from the night's own source when it has one, so values from different sensors never mix in one night.
 
 ## Weight parity rules
 
@@ -114,4 +124,4 @@ This tool writes `nutrition.weigh_ins` rows with source `withings`. Nutrition's 
 
 ## Tests
 
-`apple-health.test.ts` posts the samples in `samples/` through the route: bearer checks, sources and Withings drops, an unchanged re-push writing nothing, unit conversion and Withings overlap on workouts, the 422 for summarized sleep, the Settings row, and date offsets. `bun test tools/activity` also runs the routes and the sync against PGlite with a fake Withings: the bare callback ping, a forged and an expired state, a state from another browser, encrypted storage, the 7-day pull and the windowed backfill down to the floor, refresh-token rotation, a rejected token, an unchanged re-sync writing nothing, the weight parity rules, resumable `getmeas` paging, the EMA trend, the workouts, sleep, and measures feeds with an idempotent re-sync, a failing feed that leaves the others running, intraday bucketing across DST and the empty-run stop, and the workout link rules. One more test rebuilds the raw weigh-ins in tinkabot's 30-day sample and checks that `daily`, the trend rows, and the summary match it exactly. The sample is Matt's real weight data and this repo is public, so the sample stays in the Project store and the test skips when the file is missing, as it is in CI.
+`apple-health.test.ts` posts the samples in `samples/` through the route: bearer checks, sources and Withings drops, an unchanged re-push writing nothing, unit conversion and Withings overlap on workouts, the 422 for summarized sleep, the Settings row, date offsets, and the night `/nights` builds from the sample. `nights.test.ts` covers the night rules: the Withings fallback, source ranking, a mid-night wake against a nap, a source without stages, and which source's vitals win. `bun test tools/activity` also runs the routes and the sync against PGlite with a fake Withings: the bare callback ping, a forged and an expired state, a state from another browser, encrypted storage, the 7-day pull and the windowed backfill down to the floor, refresh-token rotation, a rejected token, an unchanged re-sync writing nothing, the weight parity rules, resumable `getmeas` paging, the EMA trend, the workouts, sleep, and measures feeds with an idempotent re-sync, a failing feed that leaves the others running, intraday bucketing across DST and the empty-run stop, and the workout link rules. One more test rebuilds the raw weigh-ins in tinkabot's 30-day sample and checks that `daily`, the trend rows, and the summary match it exactly. The sample is Matt's real weight data and this repo is public, so the sample stays in the Project store and the test skips when the file is missing, as it is in CI.
