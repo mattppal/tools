@@ -1,4 +1,4 @@
-import { type PointerEvent, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { Input } from "../../src/kit/input.tsx";
 import { Skeleton } from "../../src/kit/skeleton.tsx";
@@ -61,7 +61,6 @@ type ChartProps = { rows: WeightRow[]; average: Average; showPoints: boolean; sh
 
 function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 	const [ref, width] = useWidth();
-	const gradient = useId();
 	const [brush, setBrush] = useState<{ start: number; end: number } | null>(null);
 	const first = rows[0];
 	const last = rows.at(-1);
@@ -77,7 +76,6 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 	const dateAt = (px: number) => isoDate(startDay + Math.round((Math.min(Math.max(px - PAD.left, 0), inner) / inner) * span));
 	const line = rows.map((row, index) => `${index === 0 ? "M" : "L"}${x(row.date).toFixed(1)},${y(row[average]).toFixed(1)}`).join("");
 	const bottom = HEIGHT - PAD.bottom;
-	const area = `${line}L${x(last.date).toFixed(1)},${bottom}L${x(first.date).toFixed(1)},${bottom}Z`;
 	const ticks = [low, (low + high) / 2, high];
 	const local = (event: PointerEvent<SVGSVGElement>) => event.clientX - event.currentTarget.getBoundingClientRect().left;
 
@@ -112,12 +110,6 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 					onPointerUp={finish}
 					onPointerCancel={() => setBrush(null)}
 				>
-					<defs>
-						<linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1">
-							<stop offset="0" className={styles.areaTop} />
-							<stop offset="1" className={styles.areaBottom} />
-						</linearGradient>
-					</defs>
 					{ticks.map((tick) => (
 						<g key={tick}>
 							<line x1={PAD.left} x2={width - PAD.right} y1={y(tick)} y2={y(tick)} className={styles.gridLine} />
@@ -132,7 +124,6 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 					<text x={width - PAD.right} y={HEIGHT - 6} className={styles.axis} textAnchor="end">
 						{longDate(last.date)}
 					</text>
-					{showTrend ? <path d={area} fill={`url(#${gradient})`} /> : null}
 					{showPoints ? rows.map((row) => <circle key={row.date} cx={x(row.date)} cy={y(row.weight)} r={rows.length > 400 ? 1 : 1.75} className={styles.point} />) : null}
 					{showTrend ? <path d={line} className={styles.trend} /> : null}
 					{brush === null ? null : (

@@ -379,16 +379,6 @@
 	stroke-linecap: round;
 }
 
-.areaTop {
-	stop-color: var(--chart-accent);
-	stop-opacity: 0.16;
-}
-
-.areaBottom {
-	stop-color: var(--chart-accent);
-	stop-opacity: 0;
-}
-
 .brush {
 	fill: var(--chart-accent);
 	opacity: 0.12;
