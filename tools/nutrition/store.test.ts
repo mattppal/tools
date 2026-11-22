@@ -159,7 +159,7 @@ test("reading a day writes nothing", async () => {
 
 test("a closed day under half its kcal target is partial", async () => {
 	const history = await getHistory(client);
-	expect(history.find((day) => day.date === "2026-11-20")).toMatchObject({ kcal: 52, kcalTarget: 2750, partial: true });
+	expect(history.find((day) => day.date === "2026-11-20")).toMatchObject({ kcal: 52, kcalTarget: 2750, kcalRange: { min: 2650, max: 2850 }, partial: true });
 	expect(history.find((day) => day.date === "2026-11-21")).toMatchObject({ entries: 0, partial: false });
 });
 

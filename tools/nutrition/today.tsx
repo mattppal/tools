@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button, IconButton } from "../../src/kit/button.tsx";
 import { Input } from "../../src/kit/input.tsx";
 import { Skeleton } from "../../src/kit/skeleton.tsx";
@@ -6,6 +6,7 @@ import { navigate, useSearchParam } from "../../src/router.tsx";
 import { Icon } from "../../src/shell/icons.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import { addDays, today } from "./dates.ts";
+import { Inspect, TipLines } from "./inspect.tsx";
 import styles from "./nutrition.module.css";
 import type { CheckIn, DayView, FoodEntry, Macro, MacroProgress } from "./types.ts";
 import { dayLabel, request, SOURCE_TAGS, tenths, useJson, VIEWS, whole, withEntries } from "./ui.tsx";
@@ -61,15 +62,45 @@ function goTo(date: string) {
 	navigate(date === today() ? "/nutrition" : `/nutrition?date=${date}`);
 }
 
-function stepsLine(day: DayView): string | null {
+function dayState(day: DayView): string {
+	return [day.closed ? "Closed" : "Open", day.estimated ? "estimated totals" : null].filter(Boolean).join(", ");
+}
+
+function stepsTip(day: DayView, steps: number): (string | null)[] {
+	const target = day.targets?.stepsTarget ?? null;
+	return [
+		`Steps · ${dayLabel(day.date)}`,
+		`${whole(steps)} steps`,
+		target === null ? "No steps target in the plan" : steps < target ? `${whole(target - steps)} short of ${whole(target)}` : `${whole(steps - target)} over the ${whole(target)} target`,
+	];
+}
+
+function StepsLine({ day }: { day: DayView }) {
 	const { steps } = day.checkIn;
 	if (steps === null) return null;
 	const target = day.targets?.stepsTarget ?? null;
-	if (target === null) return `${whole(steps)} steps`;
-	return `${whole(steps)} steps · ${steps < target ? `${whole(target - steps)} to go` : "target met"}`;
+	const text = target === null ? `${whole(steps)} steps` : `${whole(steps)} steps · ${steps < target ? `${whole(target - steps)} to go` : "target met"}`;
+	return (
+		<Inspect className={styles.barFootnote} tip={<TipLines lines={stepsTip(day, steps)} />}>
+			{text}
+		</Inspect>
+	);
 }
 
-function Bar({ label, unit, progress, footnote }: { label: string; unit: string; progress: MacroProgress; footnote?: string | null }) {
+function macroTip(day: DayView, label: string, unit: string, progress: MacroProgress): (string | null)[] {
+	const { total, min, max, status } = progress;
+	const suffix = unit === "" ? "" : ` ${unit}`;
+	return [
+		`${label} · ${dayLabel(day.date)}`,
+		`${whole(total)} of ${whole(min)}–${whole(max)}${suffix}`,
+		status === "under" ? `${whole(min - total)}${suffix} to the low end` : status === "over" ? `${whole(total - max)}${suffix} over the top` : `In range, ${whole(max - total)}${suffix} below the top`,
+		dayState(day),
+	];
+}
+
+type BarProps = { day: DayView; label: string; unit: string; progress: MacroProgress; children?: ReactNode };
+
+function Bar({ day, label, unit, progress, children }: BarProps) {
 	const { total, min, max, status } = progress;
 	const scale = Math.max(max * 1.15, total, 1);
 	const at = (value: number) => Math.min(value / scale, 1);
@@ -77,23 +108,25 @@ function Bar({ label, unit, progress, footnote }: { label: string; unit: string;
 	const text = status === "under" ? `${whole(min - total)}${suffix} to go` : status === "over" ? `+${whole(total - max)}${suffix} over` : "in range";
 	return (
 		<div className={styles.bar} data-status={status}>
-			<div className={styles.barTop}>
-				<span className={styles.barLabel}>{label}</span>
-				<span className={styles.barStatus}>{text}</span>
-			</div>
-			<div className={styles.barValue}>
-				{whole(total)}
-				<span className={styles.barTarget}>
-					{" "}
-					of {whole(min)}–{whole(max)}
-					{suffix}
-				</span>
-			</div>
-			<div className={styles.track} role="meter" aria-label={`${label}, ${text}`} aria-valuemin={0} aria-valuemax={max} aria-valuenow={total}>
-				<div className={styles.band} style={{ left: `${at(min) * 100}%`, width: `${(at(max) - at(min)) * 100}%` }} />
-				<div className={styles.fill} style={{ transform: `scaleX(${at(total)})` }} />
-			</div>
-			{footnote ? <span className={styles.barFootnote}>{footnote}</span> : null}
+			<Inspect className={styles.barInspect} tip={<TipLines lines={macroTip(day, label, unit, progress)} />}>
+				<div className={styles.barTop}>
+					<span className={styles.barLabel}>{label}</span>
+					<span className={styles.barStatus}>{text}</span>
+				</div>
+				<div className={styles.barValue}>
+					{whole(total)}
+					<span className={styles.barTarget}>
+						{" "}
+						of {whole(min)}–{whole(max)}
+						{suffix}
+					</span>
+				</div>
+				<div className={styles.track} role="meter" aria-label={`${label}, ${text}`} aria-valuemin={0} aria-valuemax={max} aria-valuenow={total}>
+					<div className={styles.band} style={{ left: `${at(min) * 100}%`, width: `${(at(max) - at(min)) * 100}%` }} />
+					<div className={styles.fill} style={{ transform: `scaleX(${at(total)})` }} />
+				</div>
+			</Inspect>
+			{children}
 		</div>
 	);
 }
@@ -121,7 +154,9 @@ function DaySummary({ day }: { day: DayView }) {
 			) : (
 				<div className={styles.bars}>
 					{BARS.map((bar) => (
-						<Bar key={bar.macro} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress} footnote={bar.macro === "kcal" ? stepsLine(day) : null} />
+						<Bar key={bar.macro} day={day} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress}>
+							{bar.macro === "kcal" ? <StepsLine day={day} /> : null}
+						</Bar>
 					))}
 				</div>
 			)}

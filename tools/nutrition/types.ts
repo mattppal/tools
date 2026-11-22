@@ -49,7 +49,7 @@ export type DayView = {
 
 export const PARTIAL_DAY_SHARE = 0.5;
 
-export type HistoryDay = { date: string; closed: boolean; entries: number; kcalTarget: number | null; partial: boolean; steps: number | null } & Record<Macro, number>;
+export type HistoryDay = { date: string; closed: boolean; entries: number; kcalTarget: number | null; partial: boolean; steps: number | null; kcalRange: Range | null } & Record<Macro, number>;
 
 export function isPartialDay(day: { closed: boolean; entries: number; kcal: number; kcalTarget: number | null }): boolean {
 	return day.closed && day.entries > 0 && day.kcalTarget !== null && day.kcal < day.kcalTarget * PARTIAL_DAY_SHARE;

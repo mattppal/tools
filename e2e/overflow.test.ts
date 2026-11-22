@@ -39,7 +39,10 @@ const day: DayView = {
 	progress: macroProgress(totals, targets),
 	checkIn: { bodyweightLb: 180.6, steps: 16_459, bloatScore: 3, energy: 7, sleep: 8, stress: 4, notes: "A long note about the day that has to wrap on a phone screen without pushing anything sideways." },
 };
-const history: HistoryDay[] = days(30).map((date, index) => ({ date, closed: true, entries: 14, kcalTarget: 2750, partial: false, steps: 10_000 + index * 517, kcal: 2_700, protein_g: 190, carbs_g: 320, fat_g: 66 }));
+const history: HistoryDay[] = days(30).map((date, index) => {
+	const kcal = index % 7 === 0 ? 1_100 : 2_400 + index * 20;
+	return { date, closed: index < 29, entries: 14, kcalTarget: 2750, kcalRange: { min: 2600, max: 2900 }, partial: kcal < 1_375, steps: 10_000 + index * 517, kcal, protein_g: 190, carbs_g: 320, fat_g: 66 };
+});
 const weights: WeightRow[] = days(120).map((date, index) => ({ date, weight: 180 + Math.sin(index / 9), rolling7d: 180.2, rolling14d: 180.3, rolling28d: 180.4, source: "withings" }));
 const steps: StepsRow[] = days(120).map((date, index) => ({ date, steps: 8_000 + ((index * 3_331) % 14_000), rolling7d: 12_345, rolling14d: 12_100, rolling28d: 11_900, target: 10_000 }));
 const expenditure: ExpenditureView = { tdee: null, loggedDays: 8, minDays: 14, avgSteps: 13_205, stepDays: 61 };

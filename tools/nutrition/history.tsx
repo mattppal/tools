@@ -4,7 +4,8 @@ import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { Link } from "../../src/router.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
-import { type HistoryDay, PARTIAL_DAY_SHARE } from "./types.ts";
+import { Inspect, TipLines } from "./inspect.tsx";
+import { type HistoryDay, PARTIAL_DAY_SHARE, type Range } from "./types.ts";
 import { dayLabel, useJson, VIEWS, whole } from "./ui.tsx";
 
 const FILTERS = [
@@ -32,16 +33,44 @@ function hiddenNote(days: HistoryDay[], filter: Filter): string {
 	const partial = filter === "logged" ? days.filter((day) => day.partial).length : 0;
 	const empty = filter === "all" ? 0 : days.filter((day) => day.entries === 0).length;
 	const parts = [partial > 0 ? `${partial} partial` : null, empty > 0 ? `${empty} with no entries` : null].filter((part) => part !== null);
-	if (parts.length === 0) return "";
-	return `${parts.join(" and ")} hidden. Partial means closed under ${PARTIAL_DAY_SHARE * 100}% of the day's kcal target.`;
+	return parts.length === 0 ? "" : `${parts.join(" and ")} hidden`;
 }
 
 function dayMeta(day: HistoryDay): string {
 	const parts = [day.entries === 0 ? "Check-in only" : `${day.entries} ${day.entries === 1 ? "entry" : "entries"}`];
-	if (day.partial && day.kcalTarget !== null) parts.push(`Partial, ${whole((day.kcal / day.kcalTarget) * 100)}% of target`);
-	if (day.steps !== null && day.steps !== undefined) parts.push(`${whole(day.steps)} steps`);
+	if (day.partial) parts.push("Partial");
+	if (day.steps !== null) parts.push(`${whole(day.steps)} steps`);
 	if (!day.closed) parts.push("Open");
 	return parts.join(" · ");
+}
+
+type Status = "under" | "in" | "over";
+
+function kcalStatus(kcal: number, range: Range): Status {
+	return kcal < range.min ? "under" : kcal > range.max ? "over" : "in";
+}
+
+function kcalTip(day: HistoryDay, range: Range): (string | null)[] {
+	const status = kcalStatus(day.kcal, range);
+	return [
+		dayLabel(day.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" }),
+		`${whole(day.kcal)} of ${whole(range.min)}–${whole(range.max)} kcal`,
+		status === "under" ? `${whole(range.min - day.kcal)} under the low end` : status === "over" ? `${whole(day.kcal - range.max)} over the top` : "In range",
+		day.partial ? `Partial, under ${PARTIAL_DAY_SHARE * 100}% of target, so averages skip it` : day.closed ? "Logged and closed" : "Open",
+	];
+}
+
+function DayMeter({ day, range }: { day: HistoryDay; range: Range }) {
+	const scale = Math.max(range.max * 1.15, day.kcal, 1);
+	const at = (value: number) => Math.min(value / scale, 1);
+	return (
+		<Inspect className={styles.dayMeter} data-status={kcalStatus(day.kcal, range)} tip={<TipLines lines={kcalTip(day, range)} />}>
+			<div className={styles.track} role="meter" aria-label={`${whole(day.kcal)} of ${whole(range.min)} to ${whole(range.max)} kcal`} aria-valuemin={0} aria-valuemax={range.max} aria-valuenow={day.kcal}>
+				<div className={styles.band} style={{ left: `${at(range.min) * 100}%`, width: `${(at(range.max) - at(range.min)) * 100}%` }} />
+				<div className={styles.fill} style={{ transform: `scaleX(${at(day.kcal)})` }} />
+			</div>
+		</Inspect>
+	);
 }
 
 export function History() {
@@ -84,7 +113,7 @@ export function History() {
 						) : (
 							<ul className={styles.entries}>
 								{visible.map((day) => (
-									<li key={day.date}>
+									<li key={day.date} className={styles.historyRow}>
 										<Link href={`/nutrition?date=${day.date}`} className={styles.entry}>
 											<span className={styles.entryMain}>
 												<span className={styles.entryFood}>{dayLabel(day.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</span>
@@ -97,6 +126,7 @@ export function History() {
 												</span>
 											)}
 										</Link>
+										{day.entries === 0 || day.kcalRange === null ? null : <DayMeter day={day} range={day.kcalRange} />}
 									</li>
 								))}
 							</ul>

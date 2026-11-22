@@ -312,10 +312,15 @@
 
 	.dateField {
 		flex: 1;
+		flex-direction: column;
+		align-items: stretch;
+		gap: var(--space-1);
+		min-width: 0;
 	}
 
 	.dateField input {
 		flex: 1;
+		min-width: 0;
 		font-size: 16px;
 	}
 }
@@ -518,6 +523,7 @@ th[aria-sort] .sortButton {
 
 @media (max-width: 639px) {
 	.weightTable .table,
+	.weightTable .table thead,
 	.weightTable .table tbody {
 		display: block;
 	}
@@ -633,4 +639,96 @@ th[aria-sort] .sortButton {
 
 .table tr[data-future] td {
 	color: var(--text-3);
+}
+
+.inspect {
+	border-radius: var(--radius-sm);
+	outline: none;
+	cursor: default;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.inspect:focus-visible {
+	outline: 2px solid var(--focus-line);
+	outline-offset: 3px;
+}
+
+.barInspect {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.tip {
+	border: var(--border-width) solid var(--border-color);
+	font-variant-numeric: tabular-nums;
+}
+
+.tipLines {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-width: 15rem;
+}
+
+.tipHead {
+	font-weight: var(--weight-ui);
+}
+
+.historyRow {
+	position: relative;
+}
+
+.historyRow .entry {
+	padding-bottom: var(--space-4);
+}
+
+.dayMeter {
+	--fill: var(--change-down);
+	position: absolute;
+	right: var(--space-1);
+	bottom: 2px;
+	left: var(--space-1);
+	padding-block: 6px;
+}
+
+.dayMeter[data-status="in"] {
+	--fill: var(--change-good);
+}
+
+.dayMeter[data-status="over"] {
+	--fill: var(--change-bad);
+}
+
+.dayMeter .track {
+	height: 3px;
+}
+
+.chart {
+	position: relative;
+}
+
+.chart svg:focus-visible {
+	outline: 2px solid var(--focus-line);
+	outline-offset: 4px;
+	border-radius: var(--radius-sm);
+}
+
+.chartTip {
+	position: absolute;
+	top: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: var(--space-1) var(--space-2);
+	border: var(--border-width) solid var(--border-color);
+	border-radius: var(--radius-sm);
+	background: var(--float-bg);
+	color: var(--text-1);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	transform: translate(-50%, calc(-100% - var(--space-1)));
+	pointer-events: none;
 }

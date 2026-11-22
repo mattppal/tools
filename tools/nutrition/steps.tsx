@@ -3,7 +3,7 @@ import { Button } from "../../src/kit/button.tsx";
 import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
-import { AverageControls, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, type SummaryItem, useSeriesRange } from "./series.tsx";
+import { AverageControls, longDate, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, type SummaryItem, useSeriesRange } from "./series.tsx";
 import type { StepsRow } from "./types.ts";
 import { useJson, VIEWS, whole } from "./ui.tsx";
 import { changeTone, type DateRange, inRange, previousRange, type SeriesRow, toneStrength, withChanges } from "./weights.ts";
@@ -20,6 +20,17 @@ const STEPS: SeriesStyle = {
 	format: whole,
 	domain: (values) => [0, Math.max(Math.ceil(Math.max(...values) / STEP_TICK) * STEP_TICK, STEP_TICK)],
 };
+
+function stepsDetail(targets: Map<string, number | null>) {
+	return (row: SeriesRow): string[] => {
+		const target = targets.get(row.date) ?? null;
+		return [
+			longDate(row.date),
+			`${whole(row.value)} steps`,
+			target === null ? "No target that day" : row.value >= target ? `Met the ${whole(target)} target` : `${whole(target - row.value)} short of ${whole(target)}`,
+		];
+	};
+}
 
 type StepsPoint = SeriesRow & { target: number | null };
 
@@ -61,6 +72,7 @@ export function Steps() {
 	const entries = useMemo(() => withChanges(all), [all]);
 	const selected = inRange(entries, state.range, null);
 	const latest = all.at(-1);
+	const series = useMemo<SeriesStyle>(() => ({ ...STEPS, detail: stepsDetail(new Map(all.map((row) => [row.date, row.target]))) }), [all]);
 
 	return (
 		<ToolLayout title="Steps" sections={VIEWS}>
@@ -88,9 +100,9 @@ export function Steps() {
 				) : (
 					<>
 						<Summary rows={selected} all={all} range={state.range} />
-						<SeriesChart rows={selected} series={STEPS} average={state.average} showRaw={showDays} showTrend={showTrend} onBrush={state.chooseRange} />
+						<SeriesChart rows={selected} series={series} average={state.average} showRaw={showDays} showTrend={showTrend} onBrush={state.chooseRange} />
 						<p className={styles.hint}>Drag across the chart to zoom in.</p>
-						<SeriesTable rows={selected} series={STEPS} state={state} />
+						<SeriesTable rows={selected} series={series} state={state} />
 					</>
 				)}
 			</div>

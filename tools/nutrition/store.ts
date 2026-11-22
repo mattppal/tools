@@ -286,10 +286,12 @@ export async function getPhase(client: Database, date = today()): Promise<PhaseV
 	return { kind: settings.kind, startDate: settings.startDate, settings, summary: phaseSummary(settings, weights, days, date) };
 }
 
-const DAY_KCAL_TARGET = `coalesce(
-	(select (v.kcal_min + v.kcal_max) / 2.0 from nutrition.plan_versions v where v.effective_from <= t.day order by v.effective_from desc limit 1),
+const dayKcal = (plan: string) => `coalesce(
+	(select ${plan} from nutrition.plan_versions v where v.effective_from <= t.day order by v.effective_from desc limit 1),
 	(select k.current_kcal_target from nutrition.phases p join nutrition.phase_trackers k on k.phase_id = p.id where p.start_date <= t.day and (p.end_date is null or p.end_date >= t.day))
 )`;
+
+const DAY_KCAL_TARGET = dayKcal("(v.kcal_min + v.kcal_max) / 2.0");
 
 async function fullDays(client: Database, from: string, to: string): Promise<LoggedDay[]> {
 	const { rows } = await client.query<Row>(
@@ -322,7 +324,7 @@ export async function getExpenditure(client: Database, from: string, to: string)
 
 export async function getHistory(client: Database): Promise<HistoryDay[]> {
 	const { rows } = await client.query<Row>(
-		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target, nullif(coalesce(a.steps, d.steps), 0) as steps
+		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target, ${dayKcal("v.kcal_min")} as kcal_min, ${dayKcal("v.kcal_max")} as kcal_max, nullif(coalesce(a.steps, d.steps), 0) as steps
 		from nutrition.day_totals t join nutrition.days d on d.day = t.day left join activity.daily_activity a on a.day = t.day
 		order by t.day desc limit 400`,
 	);
@@ -337,7 +339,9 @@ export async function getHistory(client: Database): Promise<HistoryDay[]> {
 			fat_g: num(row["fat_g"]),
 			kcalTarget: numOrNull(row["kcal_target"]),
 		};
-		return { ...day, partial: isPartialDay(day), steps: numOrNull(row["steps"]) };
+		const min = numOrNull(row["kcal_min"]);
+		const max = numOrNull(row["kcal_max"]);
+		return { ...day, partial: isPartialDay(day), steps: numOrNull(row["steps"]), kcalRange: min === null || max === null ? null : { min, max } };
 	});
 }
 

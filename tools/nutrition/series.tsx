@@ -1,4 +1,4 @@
-import { type CSSProperties, type PointerEvent, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { Input } from "../../src/kit/input.tsx";
 import { addDays, dayNumber, isIsoDate, isoDate, today } from "./dates.ts";
@@ -131,7 +131,18 @@ export type SeriesStyle = {
 	empty: string;
 	format: (value: number) => string;
 	domain: (values: number[]) => [low: number, high: number];
+	detail?: (row: SeriesRow) => string[];
 };
+
+const STEP_KEYS: Record<string, (index: number, last: number) => number> = {
+	ArrowLeft: (index) => index - 1,
+	ArrowRight: (index) => index + 1,
+	PageUp: (index) => index - 7,
+	PageDown: (index) => index + 7,
+	Home: () => 0,
+	End: (_, last) => last,
+};
+const TIP_HALF_WIDTH = 88;
 
 type ChartProps = { rows: SeriesRow[]; series: SeriesStyle; average: Average; showRaw: boolean; showTrend: boolean; onBrush: (range: DateRange) => void };
 
@@ -182,6 +193,17 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 	const trendY = hovered === undefined ? 0 : y(hovered[average]);
 	const trendLabelY = Math.abs(trendY - valueY) >= LABEL_GAP ? trendY : valueY + (trendY >= valueY ? LABEL_GAP : -LABEL_GAP);
 	const clearOf = (tickY: number) => hovered === undefined || (Math.abs(tickY - valueY) >= LABEL_GAP && Math.abs(tickY - trendLabelY) >= LABEL_GAP);
+	const unit = series.unit === "" ? "" : ` ${series.unit}`;
+	const keyDown = (event: KeyboardEvent<SVGSVGElement>) => {
+		const step = STEP_KEYS[event.key];
+		if (event.key === "Escape") setHover(null);
+		if (step === undefined) return;
+		event.preventDefault();
+		const last = rows.length - 1;
+		setHover(Math.min(Math.max(step(hover ?? last, last), 0), last));
+	};
+	const tipLines = hovered === undefined ? [] : (series.detail?.(hovered) ?? []);
+	const readout = hovered === undefined ? "" : `${longDate(hovered.date)}, ${series.format(hovered.value)}${unit}, ${averageLabel(average)} average ${series.format(hovered[average])}`;
 	const finish = () => {
 		if (brush === null) return;
 		setBrush(null);
@@ -190,7 +212,6 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 		const to = dateAt(Math.max(brush.start, brush.end));
 		if (from < to) onBrush({ from, to });
 	};
-	const unit = series.unit === "" ? "" : ` ${series.unit}`;
 
 	return (
 		<div ref={ref} className={styles.chart}>
@@ -205,6 +226,10 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 					onPointerUp={finish}
 					onPointerLeave={leave}
 					onPointerCancel={() => setBrush(null)}
+					tabIndex={0}
+					onFocus={() => setHover((current) => current ?? rows.length - 1)}
+					onBlur={() => setHover(null)}
+					onKeyDown={keyDown}
 				>
 					{ticks.map((tick) => (
 						<g key={tick}>
@@ -265,6 +290,18 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 					)}
 				</svg>
 			)}
+			{tipLines.length === 0 || hovered === undefined ? null : (
+				<div className={styles.chartTip} style={{ left: Math.min(Math.max(hoverX, TIP_HALF_WIDTH), width - TIP_HALF_WIDTH) }} aria-hidden="true">
+					{tipLines.map((line, index) => (
+						<span key={line} className={index === 0 ? styles.tipHead : undefined}>
+							{line}
+						</span>
+					))}
+				</div>
+			)}
+			<p className="sr-only" aria-live="polite">
+				{readout}
+			</p>
 		</div>
 	);
 }
