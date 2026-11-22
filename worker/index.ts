@@ -1,3 +1,4 @@
+import { accessGate } from "./access.ts";
 import { type WithDb, withRequestDb } from "./db.ts";
 import { debugReport } from "./debug.ts";
 import type { ToolApi, ToolCron } from "./tool-api.ts";
@@ -20,6 +21,8 @@ const DEBUGS = bySlug(import.meta.glob<{ default: ToolDebug }>("../tools/*/debug
 const CRONS = bySlug(import.meta.glob<{ default: ToolCron }>("../tools/*/cron.ts", { eager: true }));
 
 const NO_STORE = { "cache-control": "no-store" };
+
+const gate = accessGate();
 
 const TOOL_API_PATH = /^\/api\/tools\/([a-z0-9-]+)(\/.*)?$/;
 
@@ -64,7 +67,11 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, with
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
-		if (url.pathname.startsWith("/api/")) return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
+		if (url.pathname.startsWith("/api/")) {
+			const denied = await gate(request);
+			if (denied !== null) return denied;
+			return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
+		}
 		if (url.pathname.startsWith("/assets/")) return new Response("Not found", { status: 404 });
 		return env.ASSETS.fetch(new Request(new URL("/", url), request));
 	},
