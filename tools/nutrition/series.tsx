@@ -403,11 +403,15 @@ export function SeriesTable<T extends { date: string }>({ rows, columns, state }
 				<tbody>
 					{visible.map((row) => (
 						<tr key={row.date}>
-							{columns.map((column) => (
-								<td key={column.key} className={column.kind === "value" ? styles.weightCell : undefined} data-label={column.kind === "detail" ? column.label : undefined}>
-									{column.cell(row)}
-								</td>
-							))}
+							{columns.map((column) => {
+								const cell = column.cell(row);
+								const empty = cell === "" || cell === null || cell === undefined;
+								return (
+									<td key={column.key} className={column.kind === "value" ? styles.weightCell : undefined} data-label={column.kind === "detail" && !empty ? column.label : undefined}>
+										{cell}
+									</td>
+								);
+							})}
 						</tr>
 					))}
 				</tbody>
