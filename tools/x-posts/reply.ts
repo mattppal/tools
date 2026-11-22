@@ -15,7 +15,7 @@ declare global {
 
 export const CALLBACK_PATH = "/api/tools/x-posts/x/callback";
 export const CALLBACK_URL = `https://tools.mattpalmer.io${CALLBACK_PATH}`;
-export const SCOPE = "tweet.read tweet.write users.read like.write offline.access";
+export const SCOPE = "tweet.read tweet.write users.read offline.access";
 
 const AUTHORIZE_URL = "https://x.com/i/oauth2/authorize";
 const TOKEN_URL = `${X_API}/oauth2/token`;

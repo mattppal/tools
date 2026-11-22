@@ -464,7 +464,7 @@ test("Connect X sends Matt to X with PKCE and the posting scopes, and bots can't
 	expect(response.status).toBe(302);
 	const location = new URL(response.headers.get("location") ?? "");
 	expect(location.origin + location.pathname).toBe("https://x.com/i/oauth2/authorize");
-	expect(Object.fromEntries(location.searchParams)).toMatchObject({ client_id: "client", scope: "tweet.read tweet.write users.read like.write offline.access", code_challenge_method: "S256", redirect_uri: "https://tools.mattpalmer.io/api/tools/x-posts/x/callback" });
+	expect(Object.fromEntries(location.searchParams)).toMatchObject({ client_id: "client", scope: "tweet.read tweet.write users.read offline.access", code_challenge_method: "S256", redirect_uri: "https://tools.mattpalmer.io/api/tools/x-posts/x/callback" });
 	expect(response.headers.get("set-cookie")).toContain("HttpOnly");
 	expect((await sendAs("/x/connect", fakeOAuthX([]).fetcher, { caller: REVIEW })).status).toBe(403);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", caller: BRIDGE, body: { id: "1", text: "hi" } })).status).toBe(403);
