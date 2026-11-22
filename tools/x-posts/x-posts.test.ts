@@ -481,7 +481,7 @@ test("the callback checks the state, sends the verifier, and stores only sealed 
 	expect(row?.username).toBe("mattyp");
 	expect(row?.access_token.startsWith("v1.")).toBe(true);
 	expect(JSON.stringify(row)).not.toContain("refresh-1");
-	const status = await (await sendAs("/status", fakeOAuthX([]).fetcher)).json();
+	const status = (await (await sendAs("/status", fakeOAuthX([]).fetcher)).json()) as { x: unknown };
 	expect(status.x).toMatchObject({ username: "mattyp", lastError: null });
 });
 
@@ -495,7 +495,7 @@ test("a reply posts to X as a reply to that post and shows on the post", async (
 	expect(x.calls[0]?.url).toBe("https://api.x.com/2/tweets");
 	expect(x.calls[0]?.authorization).toBe("Bearer access-1");
 	expect(JSON.parse(x.calls[0]?.body ?? "")).toEqual({ text: "thanks", reply: { in_reply_to_tweet_id: id } });
-	const listed = await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json();
+	const listed = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: unknown[] };
 	expect(listed.posts[0]).toMatchObject({ sources: ["summons"], reply: { id: "1990000000000000001", text: "thanks" } });
 });
 
@@ -533,7 +533,7 @@ test("X refusing a reply passes its reason through and records nothing", async (
 	const x = fakeOAuthX([() => Response.json({ title: "Forbidden", detail, status: 403 }, { status: 403 })]);
 	const response = await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "hi" } });
 	expect(response.status).toBe(502);
-	expect((await response.json()).error).toBe(`X didn't post it: ${detail.slice(0, 200)}`);
+	expect(((await response.json()) as { error: string }).error).toBe(`X didn't post it: ${detail.slice(0, 200)}`);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "x".repeat(281) } })).status).toBe(400);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "   " } })).status).toBe(400);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id: "123", text: "hi" } })).status).toBe(404);
