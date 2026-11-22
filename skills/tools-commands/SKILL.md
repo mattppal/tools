@@ -16,6 +16,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run build` | Skill and style checks, then write `public/build.json` and build the Worker, client, and service worker into `dist/`. |
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
 | `bun run test` | `bun test` over `worker`, `tools`, `src`, and `scripts`. Vendored skills keep their own tests, which this skips. |
+| `bun run test:e2e` | Serve `dist/` with `vite preview` in workerd and check routing, cache headers, and that bot routes refuse a caller without the token. Run `bun run build` first. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
 | `bun run check:style` | Fail on code comments, status dots and pills, and a tool that imports `withRequestDb`. `bun run build` runs it too. |
@@ -26,7 +27,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run preview` | Build and upload a preview with `wrangler preview`. |
 | `bunx wrangler types` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc`. |
 
-Run `bun run build`, `bun run typecheck`, and `bun run test` before you push. The `checks` workflow runs the same three on every PR and on `main`.
+Run `bun run build`, `bun run typecheck`, `bun run test`, and `bun run test:e2e` before you push. The `checks` workflow runs them on every PR and on `main`, along with `bun run verify:webhooks` and the Postgres tests. Set `TEST_DATABASE_URL` to run the Postgres tests locally; without it they skip.
 
 Land a PR only with `bun run land <pr>`. Pushing anything else to `main`, such as a local squash, leaves GitHub showing the PR closed instead of merged.
 

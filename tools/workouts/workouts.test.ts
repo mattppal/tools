@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
-import { deliverDue, webhookTarget } from "../../worker/webhooks.ts";
+import { deliverDue } from "../../worker/webhooks.ts";
 import { parseSet } from "./api.ts";
 import { buildLog, checkLog, pacificMidnight } from "./log.ts";
 import { formatLoad, formatVolume, parseProgram, programDays, weekOf, type Program } from "./program.ts";
@@ -278,9 +278,16 @@ describe("session lifecycle", () => {
 	});
 
 	test("deliveries wait while the URL or key is unset", async () => {
-		expect(webhookTarget(webhook, { COACH_WEBHOOK_URL: "https://x" } as Env)).toBeNull();
-		expect(webhookTarget(webhook, { COACH_WEBHOOK_KEY: "k" } as Env)).toBeNull();
-		expect(webhookTarget(webhook, env)).toEqual({ url: server.url.href, key: KEY, deliveryHeader: "X-Workouts-Delivery" });
+		const day = findDay(program, "w5", "day-1");
+		if (day === null) throw new Error("missing day");
+		const id = await createSession(client, program.id, day, "2026-11-23", true);
+		const deliveryId = await finishSession(client, id, (delivery) => ({ event: "session.finished", deliveryId: delivery, sessionId: id }));
+		expect(await deliverDue(db, webhook, { COACH_WEBHOOK_URL: server.url.href } as Env, [deliveryId])).toBe(0);
+		expect(await deliverDue(db, webhook, { COACH_WEBHOOK_KEY: KEY } as Env, [deliveryId])).toBe(0);
+		expect(received).toHaveLength(0);
+		expect((await getSession(client, id))?.delivery).toMatchObject({ deliveryId, attempts: 0 });
+		expect(await deliverDue(db, webhook, env, [deliveryId])).toBe(1);
+		expect(received.map((delivery) => delivery.delivery)).toEqual([deliveryId]);
 	});
 });
 

@@ -20,7 +20,8 @@
 		"land": "bun scripts/land.ts",
     "deploy": "bun run build && wrangler deploy",
     "preview": "bun run build && wrangler preview",
-    "test": "bun test ./worker ./tools ./src ./scripts"
+    "test": "bun test ./worker ./tools ./src ./scripts",
+    "test:e2e": "bun test ./e2e"
   },
   "packageManager": "bun@1.4.5",
   "dependencies": {

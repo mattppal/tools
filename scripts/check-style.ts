@@ -3,7 +3,7 @@ import { join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const SCANNED = ["src/**/*.{ts,tsx,css}", "worker/**/*.ts", "tools/**/*.{ts,tsx,css,sql}", "scripts/**/*.ts", "index.html", "vite.config.ts"];
+const SCANNED = ["src/**/*.{ts,tsx,css}", "worker/**/*.ts", "tools/**/*.{ts,tsx,css,sql}", "scripts/**/*.ts", "e2e/**/*.ts", "index.html", "vite.config.ts"];
 const GENERATED = new Set(["tools/workouts/openweight/workout-log-validator.js", "tools/workouts/openweight/workout-log-validator.d.ts"]);
 const DOT_MAX_PX = 14;
 const FULL_RADIUS = /^(?:var\(--radius-full\)|50%|100%|\d{3,}px)$/;
