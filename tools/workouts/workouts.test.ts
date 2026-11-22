@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
-import { deliverDue } from "../../worker/webhooks.ts";
+import { deliverDue, webhookTarget } from "../../worker/webhooks.ts";
 import { parseSet } from "./api.ts";
 import { buildLog, checkLog, pacificMidnight } from "./log.ts";
 import { formatLoad, formatVolume, parseProgram, programDays, weekOf, type Program } from "./program.ts";
@@ -156,7 +156,7 @@ beforeEach(async () => {
 });
 
 describe("session lifecycle", () => {
-	test("logs literally, finishes once, and delivers with the key as the whole Authorization header", async () => {
+	test("logs literally, finishes once, and delivers with the key as a Bearer token", async () => {
 		const day = findDay(program, "w5", "day-1");
 		if (day === null) throw new Error("missing day");
 		const id = await createSession(client, program.id, day, "2026-11-23", false);
@@ -187,15 +187,15 @@ describe("session lifecycle", () => {
 		expect(await finishSession(client, id, () => ({}))).toBe(deliveryId);
 		expect(await deliverDue(db, webhook, env, [deliveryId])).toBe(1);
 		expect(received).toHaveLength(1);
-		expect(received[0]?.authorization).toBe(KEY);
+		expect(received[0]?.authorization).toBe(`Bearer ${KEY}`);
 		expect(received[0]?.delivery).toBe(deliveryId);
 		expect(received[0]?.body).toMatchObject({ deliveryId, sessionId: id });
 
 		expect(await requeue(client, id)).toBe(deliveryId);
 		expect(await deliverDue(db, webhook, env, [deliveryId])).toBe(1);
 		expect(received.map((delivery) => [delivery.delivery, delivery.body.deliveryId, delivery.authorization])).toEqual([
-			[deliveryId, deliveryId, KEY],
-			[deliveryId, deliveryId, KEY],
+			[deliveryId, deliveryId, `Bearer ${KEY}`],
+			[deliveryId, deliveryId, `Bearer ${KEY}`],
 		]);
 		expect((await getSession(client, id))?.delivery).toMatchObject({ deliveryId, attempts: 2, lastStatus: 202 });
 	});
@@ -213,9 +213,9 @@ describe("session lifecycle", () => {
 	});
 
 	test("deliveries wait while the URL or key is unset", async () => {
-		expect(webhook.target({ COACH_WEBHOOK_URL: "https://x" } as Env)).toBeNull();
-		expect(webhook.target({ COACH_WEBHOOK_KEY: "k" } as Env)).toBeNull();
-		expect(webhook.target(env)).toEqual({ url: server.url.href, authorization: KEY, deliveryHeader: "X-Workouts-Delivery" });
+		expect(webhookTarget(webhook, { COACH_WEBHOOK_URL: "https://x" } as Env)).toBeNull();
+		expect(webhookTarget(webhook, { COACH_WEBHOOK_KEY: "k" } as Env)).toBeNull();
+		expect(webhookTarget(webhook, env)).toEqual({ url: server.url.href, key: KEY, deliveryHeader: "X-Workouts-Delivery" });
 	});
 });
 

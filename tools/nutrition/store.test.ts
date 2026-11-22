@@ -61,7 +61,7 @@ test("edits and removes entries on the day", async () => {
 	await expect(changeFood(client, "2026-11-20", { remove: [999] }, "ui")).rejects.toBeInstanceOf(Rejected);
 });
 
-test("closing from the UI queues one delivery that sends the key verbatim", async () => {
+test("closing from the UI queues one delivery that sends the key as a Bearer token", async () => {
 	const first = await closeDayFromUi(client, "2026-11-20");
 	const again = await closeDayFromUi(client, "2026-11-20");
 	expect(first.day.closed).toBe(true);
@@ -69,7 +69,7 @@ test("closing from the UI queues one delivery that sends the key verbatim", asyn
 	expect(again.deliveryId).toBeNull();
 	expect(await deliverDue(db, webhook, env, [first.deliveryId ?? ""])).toBe(1);
 	expect(received).toHaveLength(1);
-	expect(received[0]?.authorization).toBe(KEY);
+	expect(received[0]?.authorization).toBe(`Bearer ${KEY}`);
 	expect(received[0]?.delivery).toBe(first.deliveryId);
 	expect(received[0]?.body).toMatchObject({
 		event: "day.closed",

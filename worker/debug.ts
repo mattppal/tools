@@ -1,6 +1,6 @@
 import type { WithDb } from "./db.ts";
 import type { DebugRow, ToolDebug } from "./tool-debug.ts";
-import type { Webhook } from "./webhooks.ts";
+import { type Webhook, webhookTarget } from "./webhooks.ts";
 
 export type ToolDebugReport = { slug: string; rows: readonly DebugRow[] };
 
@@ -25,7 +25,7 @@ function targetHost(url: string): string {
 }
 
 export async function webhookRows(db: WithDb, webhook: Webhook, env: Env): Promise<DebugRow[]> {
-	const target = webhook.target(env);
+	const target = webhookTarget(webhook, env);
 	const backlog = await db(
 		async (client) =>
 			(

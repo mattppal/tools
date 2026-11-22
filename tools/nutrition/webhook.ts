@@ -9,8 +9,7 @@ declare global {
 
 export default defineWebhook({
 	table: "nutrition.deliveries",
-	target: (env) =>
-		env.NUTRITION_WEBHOOK_URL && env.NUTRITION_WEBHOOK_KEY
-			? { url: env.NUTRITION_WEBHOOK_URL, authorization: env.NUTRITION_WEBHOOK_KEY, deliveryHeader: "X-Nutrition-Delivery" }
-			: null,
+	urlSecret: "NUTRITION_WEBHOOK_URL",
+	keySecret: "NUTRITION_WEBHOOK_KEY",
+	deliveryHeader: "X-Nutrition-Delivery",
 });

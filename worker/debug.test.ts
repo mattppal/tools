@@ -5,6 +5,14 @@ import { debugReport } from "./debug.ts";
 import { defineToolDebug } from "./tool-debug.ts";
 import { defineWebhook } from "./webhooks.ts";
 
+declare global {
+	interface Env {
+		TEST_WEBHOOK_URL?: string;
+		TEST_WEBHOOK_KEY?: string;
+		TEST_UNSET_WEBHOOK_URL?: string;
+	}
+}
+
 const pg = new PGlite();
 await pg.exec(`create schema hooks;
 create table hooks.deliveries (
@@ -18,10 +26,10 @@ create table hooks.deliveries (
 );`);
 const db: WithDb = (work) => work({ query: (text: string, values?: unknown[]) => pg.query(text, values) } as never);
 
-const env = { CF_VERSION_METADATA: { id: "0f3a9c1e-77aa-4d2b-9a43-2a2f5f0f1a11", tag: "", timestamp: "2026-11-22T16:32:00.000Z" } } as Env;
+const env = { TEST_WEBHOOK_URL: "https://coach.example/hooks/abc?key=secret", TEST_WEBHOOK_KEY: "k", CF_VERSION_METADATA: { id: "0f3a9c1e-77aa-4d2b-9a43-2a2f5f0f1a11", tag: "", timestamp: "2026-11-22T16:32:00.000Z" } } as Env;
 const request = new Request("https://tools.example/api/debug", { headers: { "cf-access-authenticated-user-email": "matt@example.com" } });
-const configured = defineWebhook({ table: "hooks.deliveries", target: () => ({ url: "https://coach.example/hooks/abc?key=secret", authorization: "k", deliveryHeader: "X-Test" }) });
-const unset = defineWebhook({ table: "hooks.deliveries", target: () => null });
+const configured = defineWebhook({ table: "hooks.deliveries", urlSecret: "TEST_WEBHOOK_URL", keySecret: "TEST_WEBHOOK_KEY", deliveryHeader: "X-Test" });
+const unset = defineWebhook({ table: "hooks.deliveries", urlSecret: "TEST_UNSET_WEBHOOK_URL", keySecret: "TEST_WEBHOOK_KEY", deliveryHeader: "X-Test" });
 
 beforeEach(async () => {
 	await pg.exec("delete from hooks.deliveries");

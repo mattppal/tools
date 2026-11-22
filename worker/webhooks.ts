@@ -1,8 +1,10 @@
 import type { WithDb } from "./db.ts";
 
-export type WebhookTarget = { url: string; authorization: string; deliveryHeader: string };
+type StringSecret = { [Name in keyof Env]-?: NonNullable<Env[Name]> extends string ? Name : never }[keyof Env];
 
-export type Webhook = { table: string; target: (env: Env) => WebhookTarget | null };
+export type Webhook = { table: string; urlSecret: StringSecret; keySecret: StringSecret; deliveryHeader: string };
+
+export type WebhookTarget = { url: string; key: string; deliveryHeader: string };
 
 type ClaimedDelivery = { delivery_id: string; payload: unknown; attempts: number };
 type Attempt = { status: number | null; error: string | null };
@@ -17,6 +19,12 @@ export function defineWebhook(webhook: Webhook): Webhook {
 	return webhook;
 }
 
+export function webhookTarget(webhook: Webhook, env: Env): WebhookTarget | null {
+	const url = env[webhook.urlSecret];
+	const key = env[webhook.keySecret];
+	return url && key ? { url, key, deliveryHeader: webhook.deliveryHeader } : null;
+}
+
 export function retryDelayMinutes(attempts: number): number {
 	return BACKOFF_MINUTES[Math.min(Math.max(attempts, 1), BACKOFF_MINUTES.length) - 1] ?? 60;
 }
@@ -25,7 +33,7 @@ export async function sendWebhook(target: WebhookTarget, deliveryId: string, pay
 	try {
 		const response = await fetch(target.url, {
 			method: "POST",
-			headers: { authorization: target.authorization, [target.deliveryHeader]: deliveryId, "content-type": "application/json" },
+			headers: { authorization: `Bearer ${target.key}`, [target.deliveryHeader]: deliveryId, "content-type": "application/json" },
 			body: JSON.stringify(payload),
 			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
 		});
@@ -33,7 +41,7 @@ export async function sendWebhook(target: WebhookTarget, deliveryId: string, pay
 			await response.body?.cancel();
 			return { status: response.status, error: null };
 		}
-		const detail = (await response.text().catch(() => "")).replaceAll(target.authorization, "[key]").replace(/\s+/g, " ").trim().slice(0, ERROR_DETAIL_CHARS);
+		const detail = (await response.text().catch(() => "")).replaceAll(target.key, "[key]").replace(/\s+/g, " ").trim().slice(0, ERROR_DETAIL_CHARS);
 		return { status: response.status, error: detail === "" ? `HTTP ${response.status}` : `HTTP ${response.status}: ${detail}` };
 	} catch (error) {
 		return { status: null, error: error instanceof Error ? error.message : String(error) };
@@ -64,7 +72,7 @@ async function claimOne(db: WithDb, webhook: Webhook, claimId: string, only: rea
 }
 
 export async function deliverDue(db: WithDb, webhook: Webhook, env: Env, only: readonly string[] = []): Promise<number> {
-	const target = webhook.target(env);
+	const target = webhookTarget(webhook, env);
 	if (target === null) return 0;
 	const tried: string[] = [];
 	let delivered = 0;

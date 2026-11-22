@@ -86,7 +86,7 @@ Schema `workouts`, created by `migrations/0001-create-sessions.sql` and `0002-cr
 | Secret | Use |
 | --- | --- |
 | `COACH_WEBHOOK_URL` | The Grok Bot routine URL. It's a secret because the URL is a capability. |
-| `COACH_WEBHOOK_KEY` | Sent as the whole `Authorization` header, with no `Bearer` or other scheme |
+| `COACH_WEBHOOK_KEY` | The raw key. Every delivery sends `Authorization: Bearer <key>`, and `worker/webhooks.ts` adds `Bearer ` |
 
 Matt sets both with `bunx wrangler secret put`. No agent reads the values. While either is unset, finished sessions wait in `deliveries`.
 

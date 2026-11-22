@@ -3,6 +3,13 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import type { WithDb } from "./db.ts";
 import { defineWebhook, deliverDue, retryDelayMinutes } from "./webhooks.ts";
 
+declare global {
+	interface Env {
+		TEST_WEBHOOK_URL?: string;
+		TEST_WEBHOOK_KEY?: string;
+	}
+}
+
 const pg = new PGlite();
 await pg.exec(`create schema hooks;
 create table hooks.deliveries (
@@ -37,11 +44,8 @@ const server = Bun.serve({
 afterAll(() => server.stop(true));
 
 const KEY = "k3y-with spaces=and/symbols";
-const webhook = defineWebhook({
-	table: "hooks.deliveries",
-	target: () => ({ url: server.url.href, authorization: KEY, deliveryHeader: "X-Test-Delivery" }),
-});
-const env = {} as Env;
+const webhook = defineWebhook({ table: "hooks.deliveries", urlSecret: "TEST_WEBHOOK_URL", keySecret: "TEST_WEBHOOK_KEY", deliveryHeader: "X-Test-Delivery" });
+const env = { TEST_WEBHOOK_URL: server.url.href, TEST_WEBHOOK_KEY: KEY } as Env;
 const ID = "6f1c1f43-3c3e-4b9b-9a43-2a2f5f0f1a11";
 
 async function row() {
@@ -59,9 +63,9 @@ beforeEach(async () => {
 	await pg.query("insert into hooks.deliveries (delivery_id, payload, next_attempt_at) values ($1, $2, now() + interval '1 minute')", [ID, { event: "test", deliveryId: ID }]);
 });
 
-test("sends the authorization value verbatim and the delivery id header", async () => {
+test("sends Authorization as Bearer plus the raw key, and the delivery id header", async () => {
 	expect(await deliverDue(db, webhook, env, [ID])).toBe(1);
-	expect(received).toEqual([{ authorization: KEY, delivery: ID, body: { event: "test", deliveryId: ID } }]);
+	expect(received).toEqual([{ authorization: "Bearer k3y-with spaces=and/symbols", delivery: ID, body: { event: "test", deliveryId: ID } }]);
 	expect(await row()).toMatchObject({ attempts: 1, last_status: 200 });
 	expect((await row())?.delivered_at).not.toBeNull();
 });
@@ -99,7 +103,8 @@ test("keeps the start of a rejection body with the key masked", async () => {
 });
 
 test("waits without a target", async () => {
-	expect(await deliverDue(db, defineWebhook({ table: "hooks.deliveries", target: () => null }), env, [ID])).toBe(0);
+	expect(await deliverDue(db, webhook, { TEST_WEBHOOK_URL: server.url.href } as Env, [ID])).toBe(0);
+	expect(await deliverDue(db, webhook, { TEST_WEBHOOK_KEY: KEY } as Env, [ID])).toBe(0);
 	expect(received).toHaveLength(0);
 });
 

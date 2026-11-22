@@ -1,6 +1,6 @@
 import { type Database, withRequestDb } from "../../worker/db.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
-import { deliverDue } from "../../worker/webhooks.ts";
+import { deliverDue, webhookTarget } from "../../worker/webhooks.ts";
 import { buildLog, checkLog } from "./log.ts";
 import { requireBot } from "../../worker/bot-auth.ts";
 import { buildWeek, currentWeek, findDay, nextDay, pacificToday, trainingLogFrom, weekRefs, type TrainingLog } from "./schedule.ts";
@@ -77,7 +77,7 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 				week: ref === null ? null : buildWeek(log, sessions, ref),
 				next: nextDay(log, sessions, weeks, today),
 				sync,
-				webhookReady: webhook.target(env) !== null,
+				webhookReady: webhookTarget(webhook, env) !== null,
 			});
 		}
 

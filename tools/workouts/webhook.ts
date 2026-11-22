@@ -9,5 +9,7 @@ declare global {
 
 export default defineWebhook({
 	table: "workouts.deliveries",
-	target: (env) => (env.COACH_WEBHOOK_URL && env.COACH_WEBHOOK_KEY ? { url: env.COACH_WEBHOOK_URL, authorization: env.COACH_WEBHOOK_KEY, deliveryHeader: "X-Workouts-Delivery" } : null),
+	urlSecret: "COACH_WEBHOOK_URL",
+	keySecret: "COACH_WEBHOOK_KEY",
+	deliveryHeader: "X-Workouts-Delivery",
 });

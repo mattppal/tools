@@ -50,7 +50,7 @@ The bot sends three headers: `CF-Access-Client-Id` and `CF-Access-Client-Secret`
 
 Closing a day in the UI POSTs to `NUTRITION_WEBHOOK_URL`. Closing it through `update_day` sends nothing, because the bot already knows.
 
-- Headers: `Authorization: <NUTRITION_WEBHOOK_KEY>` with the key exactly as stored and no scheme, `X-Nutrition-Delivery: <uuid>`, and `content-type: application/json`.
+- Headers: `Authorization: Bearer <NUTRITION_WEBHOOK_KEY>`, where the secret holds the raw key and `worker/webhooks.ts` adds `Bearer `, `X-Nutrition-Delivery: <uuid>`, and `content-type: application/json`.
 - Body: `{ event: "day.closed", deliveryId, date, closedAt, estimated, entries, totals, targets, progress }`.
 - `closeDayFromUi` writes the delivery row in the same transaction as the close. The route then tries it once in `ctx.waitUntil`, and the every-minute cron in `worker/webhooks.ts` retries it with backoff until a 2xx. Every retry keeps the same delivery ID.
 - `nutrition.deliveries` shows each delivery's attempts, last status, and when it landed.

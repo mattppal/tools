@@ -3,6 +3,13 @@ import { Client } from "pg";
 import type { WithDb } from "./db.ts";
 import { defineWebhook, deliverDue } from "./webhooks.ts";
 
+declare global {
+	interface Env {
+		TEST_WEBHOOK_URL?: string;
+		TEST_WEBHOOK_KEY?: string;
+	}
+}
+
 const url = process.env.TEST_DATABASE_URL;
 if (url === undefined && process.env.CI) throw new Error("TEST_DATABASE_URL must be set in CI so the Postgres webhook tests run");
 
@@ -29,8 +36,8 @@ describe.skipIf(url === undefined)("webhook delivery against Postgres", () => {
 			return new Response(null, { status });
 		},
 	});
-	const webhook = defineWebhook({ table: TABLE, target: () => ({ url: server.url.href, authorization: "key", deliveryHeader: "X-Test-Delivery" }) });
-	const env = {} as Env;
+	const webhook = defineWebhook({ table: TABLE, urlSecret: "TEST_WEBHOOK_URL", keySecret: "TEST_WEBHOOK_KEY", deliveryHeader: "X-Test-Delivery" });
+	const env = { TEST_WEBHOOK_URL: server.url.href, TEST_WEBHOOK_KEY: "key" } as Env;
 
 	async function connect(): Promise<Client> {
 		const client = new Client({ connectionString: url });
