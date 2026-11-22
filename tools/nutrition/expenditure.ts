@@ -181,7 +181,12 @@ function buildModel(inputs: ExpenditureInputs): Model {
 	const intake = new Map(inputs.intake.map((day) => [day.date, day.kcal]));
 	const stepRows = inputs.steps.filter((day) => day.steps !== null && day.steps >= MIN_WORN_STEPS).toSorted((a, b) => a.date.localeCompare(b.date));
 	const worn = new Map(stepRows.map((day) => [day.date, day.steps as number]));
-	const fallbackSteps = stepRows.length === 0 ? 0 : median(stepRows.map((day) => day.steps as number));
+	const nearestSteps = (date: string) => {
+		if (stepRows.length === 0) return 0;
+		const target = dayNumber(date);
+		const nearest = stepRows.toSorted((a, b) => Math.abs(dayNumber(a.date) - target) - Math.abs(dayNumber(b.date) - target)).slice(0, STEP_MEDIAN_DAYS);
+		return median(nearest.map((day) => day.steps as number));
+	};
 	const comp = bodyCompSeries(inputs.bodyComp);
 	const workouts = groupBy(inputs.workouts.filter((workout) => workout.durationS <= MAX_WORKOUT_S));
 	const sessions = groupBy(inputs.sessions);
@@ -212,7 +217,7 @@ function buildModel(inputs: ExpenditureInputs): Model {
 		const activeKcal = active.get(date);
 		if (activeKcal !== undefined) return { count: 0, from: "active energy", activeKcal };
 		const prior = between(stepRows, addDays(date, -STEP_MEDIAN_DAYS), addDays(date, -1));
-		return { count: prior.length === 0 ? fallbackSteps : median(prior.map((day) => day.steps as number)), from: "median", activeKcal: null };
+		return { count: prior.length === 0 ? nearestSteps(date) : median(prior.map((day) => day.steps as number)), from: "median", activeKcal: null };
 	};
 
 	const trainingOn = (date: string, kg: number, bmr: number): TrainingItem[] => {
