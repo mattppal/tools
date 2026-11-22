@@ -70,7 +70,7 @@ All routes are under `/api/tools/workouts`.
 | `GET /history/exercises/:key` | `{ key, name, unit, sessions, prs }`. Each session has `prescribed` text, `sets`, `top`, `volume`, and `topReps`. 404 when there's no history. |
 | `GET /history/runs` | `{ sessions }`. Each run has its longest effort's `distance`, `distanceUnit`, `miles`, `durationSeconds`, and `paceSecondsPerMile`, plus `modality` and `status`. |
 | `GET /history/summary` | Session counts by kind and block, recovery sessions, exercises with session count and last date, and PR count, all from the history tables |
-| `POST /sync` | Bots only, through `requireBot`. Runs one sync now. `?force=1` skips the ETag check. Returns `{ result, sync }`, or 502 when the run fails. The bot sends both Access headers, its bearer token, and an explicit `User-Agent`. A 302 means the Access headers are wrong, a 401 the bearer token, and a 403 with error 1010 a blocked default User-Agent. |
+| `POST /sync` | Bots only, through `requireBot`. Runs one sync now. `?force=1` skips the ETag check. Returns `{ result, sync }`, or 502 when the run fails. The bot sends the `coach-bot` Access headers and an explicit `User-Agent`; its old bearer token still works until the bearer-removal PR. A 302 means the Access headers are wrong, a 403 naming the bot a route outside its scopes, and a 403 with error 1010 a blocked default User-Agent. |
 | `GET /sessions` | The latest 100 sessions with their delivery state |
 | `POST /sessions` | `{ blockId, weekId, dayId, test? }`. Creates the session from the mirrored program, or returns the open one for that day. |
 | `GET`, `PATCH`, `DELETE /sessions/:id` | Read, set the session note, or discard. Only open or test sessions can be deleted. |

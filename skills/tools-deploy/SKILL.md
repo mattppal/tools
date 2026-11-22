@@ -55,11 +55,12 @@ Don't write your own proxy. The `mattpalmer.io` zone has Hotlink Protection on, 
 
 ## Bot credentials
 
-Each bot has its own Access service token, a Service Auth policy with the same name, and a bearer token stored as a Worker secret. `skills/tools-add-a-tool/SKILL.md` covers the Worker side.
+Each bot has one credential: its own Access service token, with a Service Auth policy of the same name. Agents create, rotate and store it through the Cloudflare API; Matt does none of it. `skills/tools-add-a-tool/SKILL.md` covers the Worker side.
 
 1. Create the service token: `POST /accounts/$CLOUDFLARE_ACCOUNT_ID/access/service_tokens` with `{"name":"<bot>-bot","duration":"8760h"}`. The response is the only time the client secret is shown.
 2. Find the app with `GET /accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps` and pick the one named "tools - Cloudflare Workers". Add the policy with `POST /accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps/<app id>/policies`, sending `{"name":"<bot>-bot","decision":"non_identity","include":[{"service_token":{"token_id":"<token id>"}}]}`. Its precedence goes after the existing policies, and those policies stay as they are.
-3. Generate the bearer token with `openssl rand -base64 32` and set it with `bunx wrangler secret put BOT_TOKEN_<BOT>`.
-4. Write all three values to a file only the owner can read (mode 0600), outside the repo and the Project store, and tell the user its path so the values go into 1Password. Never commit them.
-5. Add the token's name and client ID to `ACCESS.serviceTokens` in `worker/access.ts` and land it. Until then the Worker answers 403.
-6. Check that the bot's endpoint answers through Access with all three headers and an explicit `User-Agent`. It should answer 401 when the bearer token is missing.
+3. Store the client ID and secret where the bot reads them: a GitHub Actions secret for a workflow, a Worker secret for a Worker, or a 1Password item for an outside bot. Pass only the item or secret name in replies. Never commit the values.
+4. Add a `BOTS` entry in `worker/access.ts` with the token's name, client ID and scopes, and land it. Until then the Worker answers 403.
+5. Check that the bot's endpoint answers through Access with the two Access headers and an explicit `User-Agent`, and answers 403 on a route outside its scopes.
+
+To rotate a secret, `POST /accounts/$CLOUDFLARE_ACCOUNT_ID/access/service_tokens/<token id>/rotate` with `previous_client_secret_expires_at` set to give the bot time to switch, then update the stored copy. The client ID stays the same, so the registry needs no change.

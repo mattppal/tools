@@ -47,20 +47,17 @@ Keep everything a tool needs inside its folder. Shared code goes in `src/` only 
 
 ## API and data
 
-`api.ts` receives `(request, { env, ctx, path, db })`. `path` is the part after `/api/tools/<slug>`. `db(async (client) => ...)` runs on the request's single Postgres connection through Hyperdrive. The first call opens it, and the Worker closes it after the response, so finish database work before the handler returns.
+`api.ts` receives `(request, { env, ctx, path, db, caller })`. `caller` is who the Access gate let in: `{ kind: "owner", email }` for Matt's browser, `{ kind: "bot", bot }` for a registered service token, `{ kind: "local" }` on localhost, or `{ kind: "public" }` on a public route. `path` is the part after `/api/tools/<slug>`. `db(async (client) => ...)` runs on the request's single Postgres connection through Hyperdrive. The first call opens it, and the Worker closes it after the response, so finish database work before the handler returns.
 
 Only add tables a tool needs. A tool's tables live in its own schema, named after the slug with `-` replaced by `_`. Write each change as a numbered file in `tools/<slug>/migrations/` (`0001-create-items.sql`), apply it with `bun run migrate`, and never edit an applied file. Qualify table names with the schema in queries (`my_tool.items`). Document each table in the tool's `SKILL.md`. `docs/database.md` has the full rules.
 
 ## Bot access
 
-Bots reach a tool through an MCP endpoint or bot-only HTTP routes. Every bot request carries two credentials:
+Bots reach a tool through an MCP endpoint or bot-only HTTP routes. A bot has one credential: its own Access service token, sent as `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Cloudflare Access checks it at the edge, and `worker/access.ts` verifies the Access JWT and maps its client ID to a bot. The bot also sends an explicit `User-Agent`. Cloudflare's Browser Integrity Check blocks some clients' default User-Agent, such as Python urllib's, with a 403 and error 1010, before Access or the Worker sees the request.
 
-- an Access service token, sent as `CF-Access-Client-Id` and `CF-Access-Client-Secret`, which Cloudflare Access checks at the edge and `worker/access.ts` checks against its allowlist;
-- `Authorization: Bearer <token>`, which the Worker checks against the bot's Worker secret.
+`BOTS` in `worker/access.ts` is the one registry: each bot's service token name, client ID, and scopes per tool, either `"all"` or a list of routes such as `"GET /days"`. `requireBot(request, context, "<slug>")` returns the bot's name, a 401 when no bot is calling, or a 403 naming the bot when the route is outside its scopes. To add a bot, add a `BOTS` entry with its client ID and scopes (`skills/tools-deploy/SKILL.md`, "Bot credentials").
 
-The bot also sends an explicit `User-Agent`. Cloudflare's Browser Integrity Check blocks some clients' default User-Agent, such as Python urllib's, with a 403 and error 1010, before Access or the Worker sees the request.
-
-`worker/bot-auth.ts` lists each bot, its secret name, and the tools it may call. `requireBot(request, env, "<slug>")` returns the bot's name or a 401 `Response`. A bot whose secret is unset can't authenticate, so a preview deployment without the secret rejects every bot. To add a bot, add a `BOTS` entry, declare its secret on `Env` in the same file, and set the secret with `bunx wrangler secret put <NAME>`.
+Until the bearer-removal PR, `requireBot` also accepts the old `Authorization: Bearer <BOT_TOKEN_*>` for a bot that has one, with the same scopes. Each check logs one JSON line, `{ auth: "bot", tool, route, bot, via, access, bearer }`, with bot names only: `via` is `access` or `bearer`, and `bearer` is the bot the bearer matched, `absent` or `unmatched`. Don't give a new bot a bearer.
 
 `worker/mcp.ts` serves MCP as stateless Streamable HTTP with JSON responses, and no Durable Object is needed. `toolMcp` calls `requireBot` before it handles a request.
 

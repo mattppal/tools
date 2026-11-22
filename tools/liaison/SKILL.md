@@ -52,14 +52,14 @@ The coordinator's messages to bots. `data`:
 
 ## API
 
-All routes need Access plus `Authorization: Bearer <BOT_TOKEN_COORDINATOR>` (bot `coordinator` in `worker/bot-auth.ts`, Access token `tools-coordinator`). Any other caller gets a 401.
+Both routes need the `tools-coordinator` Access service token (bot `coordinator` in `BOTS`, `worker/access.ts`), whose scopes are exactly these two routes. Another bot gets a 403, and a caller with no bot identity gets a 401. Until the bearer-removal PR, `Authorization: Bearer <BOT_TOKEN_COORDINATOR>` also works.
 
 | Route | Does |
 | --- | --- |
 | `POST /api/tools/liaison/notices` | `{ for, label, confirm?, subject, body, refs?, replyTo?, test?, noticeId? }`. Queues the notice, tries it once, and returns its delivery state and the exact body sent: 201 new, 200 when `noticeId` was already sent with the same content (nothing is resent), 409 for the same id with other content, 404 for an unknown `replyTo`, 400 for a bad label or a real subject starting with `TEST`. |
 | `GET /api/tools/liaison/deliveries?app=&thread=` | The latest 50 liaison deliveries, newest first, with attempts, last status and the body sent. |
 
-`bun run notify [<for>] <label> --subject <text> [--confirm <text>] [--ref <url>]... [--reply-to <id>] [--test] [--body-file <path>]` sends one, with the body from stdin when there's no `--body-file`. Without `<for>` it goes to the liaison alone; use `all` only for something every bot should read. It generates the `noticeId` once and retries 5xx and network errors under it, so a retry never sends twice. `bun run notify --list [--app tools] [--thread <id>]` lists deliveries. Both read `TOOLS_COORDINATOR_CLIENT_ID`, `TOOLS_COORDINATOR_CLIENT_SECRET` (falling back to `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`) and `BOT_TOKEN_COORDINATOR`, which Matt keeps in Cursor's environment secrets; `TOOLS_URL` defaults to production. `--dry-run` prints the notice without sending.
+`bun run notify [<for>] <label> --subject <text> [--confirm <text>] [--ref <url>]... [--reply-to <id>] [--test] [--body-file <path>]` sends one, with the body from stdin when there's no `--body-file`. Without `<for>` it goes to the liaison alone; use `all` only for something every bot should read. It generates the `noticeId` once and retries 5xx and network errors under it, so a retry never sends twice. `bun run notify --list [--app tools] [--thread <id>]` lists deliveries. Both send only the `tools-coordinator` Access headers, from `TOOLS_COORDINATOR_CLIENT_ID` and `TOOLS_COORDINATOR_CLIENT_SECRET`. When those are unset, `--mint` rotates that token's secret through the Cloudflare API (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) and uses it in this process only. It never prints the secret and needs no Worker secret or deploy. Cloudflare keeps only the previous secret valid, for one hour, so a third `--mint` within that hour cuts off the oldest run's secret and leaves any stored copy stale. `TOOLS_URL` defaults to production. `--dry-run` prints the notice without sending.
 
 ## Data
 

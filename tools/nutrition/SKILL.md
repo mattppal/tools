@@ -47,7 +47,7 @@ A rejected write, such as an edit to a closed day, returns `409 { error }`.
 | `update_targets` | Start a new plan version with kcal and macro ranges and an optional `steps_target`, and optionally set the tracker's current kcal target. |
 | `get_phase_summary` | The tracker week and the day's progress. Read-only. |
 
-The bot sends three headers: `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `nutrition-bot` Access service token, and `Authorization: Bearer <BOT_TOKEN_NUTRITION>`. It also sends an explicit `User-Agent`. A 302 to `cloudflareaccess.com` means the Access headers are missing or wrong, a 401 means the bearer token is, and a 403 with Cloudflare error 1010 means Browser Integrity Check blocked a client's default User-Agent, such as Python urllib's.
+The bot sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `nutrition-bot` Access service token, and an explicit `User-Agent`. That token is its only credential; `Authorization: Bearer <BOT_TOKEN_NUTRITION>` still works until the bearer-removal PR, but isn't needed. A 302 to `cloudflareaccess.com` means the Access headers are missing or wrong, a 403 naming the bot means the route is outside its scopes, and a 403 with Cloudflare error 1010 means Browser Integrity Check blocked a client's default User-Agent, such as Python urllib's.
 
 Since the 2026-11-22 cutover the bot logs each food through `log_food` as Matt reports it, and this database is the source of truth. Days on or after the cutover never come from `training-log`; rerun the import only with `--cutover 2026-11-22`.
 
