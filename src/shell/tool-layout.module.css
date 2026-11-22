@@ -53,13 +53,12 @@
 	width: var(--secondary-width, 256px);
 	min-height: 0;
 	overflow: hidden;
-	border-inline-end: 1px solid var(--line);
+	background: var(--sunken-bg);
 	transition: width var(--duration-hover) ease-out;
 }
 
 .secondary[data-state="closed"] {
 	width: 0;
-	border-inline-end-width: 0;
 }
 
 .secondaryInner {
@@ -113,6 +112,7 @@
 .secondarySheet,
 .panelSheet {
 	width: min(360px, calc(100vw - var(--space-7)));
+	border: 0;
 	padding-top: env(safe-area-inset-top);
 	padding-bottom: env(safe-area-inset-bottom);
 }

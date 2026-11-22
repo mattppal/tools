@@ -18,8 +18,7 @@
 	min-height: 0;
 	border-start-start-radius: var(--radius-xl);
 	border-end-start-radius: var(--radius-xl);
-	border: var(--border-width) solid var(--border-color);
-	border-inline-end: 0;
+	border: 0;
 	box-shadow: var(--shadow-raised);
 	background: var(--panel-bg);
 	color: var(--text-1);
@@ -92,6 +91,7 @@
 
 .navSheet {
 	width: min(var(--list-width), calc(100vw - var(--space-7)));
+	border: 0;
 	background: var(--chrome-bg);
 	color: var(--chrome-text);
 	padding-top: env(safe-area-inset-top);

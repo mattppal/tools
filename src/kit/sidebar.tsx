@@ -82,7 +82,7 @@ export function SidebarInset({ className, ...props }: ComponentProps<"main">) {
 	return (
 		<main
 			data-slot="sidebar-inset"
-			className={cn("edge-raised relative flex min-h-0 min-w-0 flex-1 flex-col rounded-s-xl bg-background text-foreground group-data-[sidebar-state=closed]/sidebar:rounded-none", className)}
+			className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col rounded-s-xl bg-background text-foreground group-data-[sidebar-state=closed]/sidebar:rounded-none", className)}
 			{...props}
 		/>
 	);

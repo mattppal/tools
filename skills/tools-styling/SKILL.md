@@ -10,9 +10,16 @@ Read `skills/emil-design-eng/SKILL.md` before UI work.
 ## Primitives and tokens
 
 - `src/kit/` is a copy of poaster's kit (Base UI + Tailwind 4 + `cva`). Use `Button`, `IconButton`, `Input`, `ScrollArea`, `Sheet`, `Tooltip`, and the `Sidebar*` parts before writing new ones.
-- Tokens live in `src/styles/tokens.css`. Use them for color, space, radius, type, and motion: `var(--space-3)`, `var(--text-sm)`, `var(--radius-md)`, `var(--duration-hover)`. Don't hard-code colors; every color token works in light and dark.
+- Tokens live in `src/styles/tokens.css` and `src/styles/hairline.css`. Use them for color, space, radius, type, and motion: `var(--space-3)`, `var(--text-sm)`, `var(--radius-md)`, `var(--duration-hover)`. Don't hard-code colors; every color token works in light and dark.
+- The look is poaster's Hairline preset. Its values (space, type, radius, elevation, 1px `--border-width`, no shadows) live only in `src/styles/presets/hairline.json`. `bun run hairline` generates `src/styles/hairline.css` from it, and `bun run build` fails when they drift. To change one of those tokens, edit the JSON and regenerate; don't redefine them in `tokens.css` or a module. To adopt a newer poaster preset, copy poaster's `src/web/ui/kit-gallery/presets/hairline.json` over ours and run `bun run hairline`.
 - Tailwind utilities map to the same tokens (`bg-chrome`, `text-muted-foreground`, `h-control-md`). CSS modules are fine; poaster uses both.
 - Icons come from `src/shell/icons.tsx` (Hugeicons). Add a glyph there to use a new one.
+
+## Edges
+
+- Hairlines by default: surfaces, cards, fields, buttons, and popovers draw `border: var(--border-width) solid var(--border-color)`, or the kit's `edge-surface` / `edge-raised` / `edge-overlay` utilities. Don't hard-code `1px solid`.
+- The shell's columns are the exception. The primary sidebar against the main pane, the secondary sidebar, and the right panel are separated by shade alone (`--chrome-bg`, `--panel-bg`, `--sunken-bg`) with no border, and so are their phone drawers. Don't add a line there.
+- Before adding a border, check that the neighbor doesn't already draw one, so you never get a doubled line. Check light and dark at desktop and 390px.
 
 ## Layout
 
