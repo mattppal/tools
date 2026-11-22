@@ -120,7 +120,7 @@ test("unknown API paths are JSON 404s", async () => {
 });
 
 test("bot routes refuse callers without the bot's token", async () => {
-	const routes = ["/api/tools/workouts/sync", "/api/tools/nutrition/mcp", "/api/tools/liaison/notices", "/api/tools/activity/apple-health"];
+	const routes = ["/api/tools/workouts/sync", "/api/tools/nutrition/mcp", "/api/tools/liaison/notices", "/api/tools/activity/apple-health", "/api/tools/goals/mcp"];
 	for (const path of routes) {
 		for (const headers of [{}, { authorization: "Bearer guess" }, { authorization: "guess" }] as Record<string, string>[]) {
 			const response = await get(path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: "{}" });
