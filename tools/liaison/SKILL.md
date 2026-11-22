@@ -22,7 +22,7 @@ tools talks to Matt's bots through one bot, the tools liaison. Every outbound ev
 { "app": "nutrition" | "workouts" | "tools", "event": "day.closed" | "session.finished" | "notice", "deliveryId": "<uuid>", "test": true, "data": {} }
 ```
 
-`test: true` is present only on test deliveries. `queueForLiaison` writes the row with the envelope as `payload`, in the same transaction as the event.
+`test: true` is present only on test deliveries. `queueForLiaison` writes the row with the envelope as `payload`, in the same transaction as the event. `payload` is jsonb, which reorders keys, so `liaisonWire` rebuilds this key order on every send and moves `data.body` last. The liaison's receiver keeps only the first 4,000 characters of a request body, so whatever is cut is the tail of the body, never the routing fields.
 
 | `app` / `event` | Relayed to | `data` |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ The coordinator's messages to bots. `data`:
 | `confirm` | Only with coach's `please confirm`: what coach should confirm. |
 | `line` | Ready to relay: `nutrition bot: action needed`, `coach: please confirm <confirm>`, `all bots: FYI`. |
 | `subject` | Up to 200 characters. Starts with `TEST` exactly when the delivery is a test; a test subject gets the prefix added. |
-| `body` | Markdown, up to 64,000 characters. |
+| `body` | Markdown. The whole envelope as sent must fit in 4,000 characters, or the notice is refused with a 413 that says how much to cut. Send longer material as notices that reply to the first one (`replyTo`). |
 | `refs` | Up to 20 https URLs. |
 | `threadId`, `replyTo` | A notice's id is its `deliveryId`. `replyTo` names an earlier notice, and `threadId` is the first notice of that thread. |
 | `createdAt` | When the coordinator created it. Unchanged on retries. |
@@ -56,7 +56,7 @@ Both routes need the `tools-coordinator` Access service token (bot `coordinator`
 
 | Route | Does |
 | --- | --- |
-| `POST /api/tools/liaison/notices` | `{ for, label, confirm?, subject, body, refs?, replyTo?, test?, noticeId? }`. Queues the notice, tries it once, and returns its delivery state and the exact body sent: 201 new, 200 when `noticeId` was already sent with the same content (nothing is resent), 409 for the same id with other content, 404 for an unknown `replyTo`, 400 for a bad label or a real subject starting with `TEST`. |
+| `POST /api/tools/liaison/notices` | `{ for, label, confirm?, subject, body, refs?, replyTo?, test?, noticeId? }`. Queues the notice, tries it once, and returns its delivery state and the exact body sent: 201 new, 200 when `noticeId` was already sent with the same content (nothing is resent), 409 for the same id with other content, 404 for an unknown `replyTo`, 413 for a notice over 4,000 characters as sent, 400 for a bad label or a real subject starting with `TEST`. |
 | `GET /api/tools/liaison/deliveries?app=&thread=` | The latest 50 liaison deliveries, newest first, with attempts, last status and the body sent. |
 
 `bun run notify [<for>] <label> --subject <text> [--confirm <text>] [--ref <url>]... [--reply-to <id>] [--test] [--body-file <path>]` sends one, with the body from stdin when there's no `--body-file`. Without `<for>` it goes to the liaison alone; use `all` only for something every bot should read. It generates the `noticeId` once and retries 5xx and network errors under it, so a retry never sends twice. `bun run notify --list [--app tools] [--thread <id>]` lists deliveries. Both send only the `tools-coordinator` Access headers, from `TOOLS_COORDINATOR_CLIENT_ID` and `TOOLS_COORDINATOR_CLIENT_SECRET`. When those are unset, `--mint` rotates that token's secret through the Cloudflare API (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) and uses it in this process only. Access takes a few seconds to accept a new secret, so with a minted secret a 302 is retried every 2 seconds for up to 30. It never prints the secret and needs no Worker secret or deploy. Cloudflare keeps only the previous secret valid, for one hour, so a third `--mint` within that hour cuts off the oldest run's secret and leaves any stored copy stale. `TOOLS_URL` defaults to production. `--dry-run` prints the notice without sending.

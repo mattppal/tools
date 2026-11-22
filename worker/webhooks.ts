@@ -4,7 +4,7 @@ type StringSecret = { [Name in keyof Env]-?: NonNullable<Env[Name]> extends stri
 
 export type Envelope = { app: string; events: readonly string[] };
 
-export type Webhook = { table: string; urlSecret: StringSecret; keySecret: StringSecret; deliveryHeader: string; envelope?: Envelope };
+export type Webhook = { table: string; urlSecret: StringSecret; keySecret: StringSecret; deliveryHeader: string; envelope?: Envelope; wire?: (payload: unknown) => unknown };
 
 export type WebhookTarget = { url: string; key: string; deliveryHeader: string };
 
@@ -29,7 +29,7 @@ export function webhookTarget(webhook: Webhook, env: Env): WebhookTarget | null 
 }
 
 export function webhookBody(webhook: Webhook, payload: unknown): { body: unknown } | { error: string } {
-	if (webhook.envelope === undefined) return { body: payload };
+	if (webhook.envelope === undefined) return { body: webhook.wire === undefined ? payload : webhook.wire(payload) };
 	const event = typeof payload === "object" && payload !== null && "event" in payload ? payload.event : undefined;
 	if (typeof event !== "string" || !webhook.envelope.events.includes(event)) {
 		return { error: `Payload event ${JSON.stringify(event ?? null)} is not one of ${webhook.envelope.app}'s events: ${webhook.envelope.events.join(", ")}` };

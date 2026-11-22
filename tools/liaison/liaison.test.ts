@@ -86,6 +86,23 @@ test("a notice goes to the liaison in the tools envelope with its bot, label and
 	expect(json["sent"]).toEqual(sent?.body);
 });
 
+test("the envelope goes out routing fields first and the body last, though jsonb reorders the stored row", async () => {
+	const { json } = await call({ body: nutritionNotice });
+	const sent = received[0]?.body ?? {};
+	expect(Object.keys(sent)).toEqual(["app", "event", "deliveryId", "data"]);
+	expect(Object.keys(sent["data"]).at(-1)).toBe("body");
+	expect(Object.keys(json["sent"])).toEqual(Object.keys(sent));
+});
+
+test("a notice longer than the liaison keeps is refused before anything is queued or sent", async () => {
+	const { status, json } = await call({ body: { ...nutritionNotice, body: "x".repeat(4_000) } });
+	expect(status).toBe(413);
+	expect(json["error"]).toContain("the liaison keeps only the first 4000");
+	expect(received).toHaveLength(0);
+	expect((await call({ method: "GET", path: "/deliveries" })).json["deliveries"]).toHaveLength(0);
+	expect((await call({ body: { ...nutritionNotice, body: "x".repeat(3_000) } })).status).toBe(201);
+});
+
 test("a notice for the liaison itself is addressed to it, not broadcast", async () => {
 	expect((await call({ body: { for: "liaison", label: "FYI", subject: "Shipped", body: "b" } })).status).toBe(201);
 	expect(received[0]?.body["data"]).toMatchObject({ for: "liaison", label: "FYI", line: "liaison: FYI" });

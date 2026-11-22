@@ -3,7 +3,7 @@ import { requireBot } from "../../worker/bot-auth.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
 import { noticeRequest, queueNotice, Refused } from "./notices.ts";
-import liaison from "./webhook.ts";
+import liaison, { liaisonWire } from "./webhook.ts";
 
 const LIST_LIMIT = 50;
 
@@ -28,7 +28,7 @@ function view(row: DeliveryRow) {
 		lastStatus: row.last_status,
 		lastError: row.last_error,
 		nextAttemptAt: row.delivered_at === null ? row.next_attempt_at.toISOString() : null,
-		sent: row.payload,
+		sent: liaisonWire(row.payload),
 	};
 }
 

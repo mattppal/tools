@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Database } from "../../worker/db.ts";
-import { queueForLiaison } from "./webhook.ts";
+import { LIAISON_RECEIVER_CHARS, liaisonEnvelope, liaisonWire, queueForLiaison } from "./webhook.ts";
 
 const GENERAL_LABELS = ["action needed", "FYI", "nothing"] as const;
 
@@ -131,6 +131,14 @@ export async function queueNotice(client: Database, notice: NoticeRequest): Prom
 		threadId = parent.data.threadId;
 	}
 	const data = noticeData(notice, { noticeId, threadId, createdAt: new Date().toISOString() });
-	await queueForLiaison(client, { app: "tools", event: "notice", ref: threadId, test: notice.test, data }, noticeId);
+	const event = { app: "tools" as const, event: "notice", ref: threadId, test: notice.test, data };
+	const chars = JSON.stringify(liaisonWire(liaisonEnvelope(event, noticeId))).length;
+	if (chars > LIAISON_RECEIVER_CHARS) {
+		throw new Refused(
+			413,
+			`This notice is ${chars} characters as sent, and the liaison keeps only the first ${LIAISON_RECEIVER_CHARS}. Shorten the body by ${chars - LIAISON_RECEIVER_CHARS} or more, or split it into notices that reply to this one with replyTo.`,
+		);
+	}
+	await queueForLiaison(client, event, noticeId);
 	return { noticeId, created: true };
 }
