@@ -114,7 +114,6 @@ export function Home() {
 			<div className={styles.page}>
 				<section className={styles.intro}>
 					<h2 className={styles.heading}>Tools</h2>
-					<p className={styles.lede}>Small utilities, one place. Pick a tool to get started.</p>
 					<p className={styles.meta}>
 						<span className={styles.count}>{countText(TOOLS.length)}</span>
 						<DbStatus />
