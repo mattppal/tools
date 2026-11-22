@@ -7,6 +7,7 @@ export type LoggedExercise = { name: string; summary: string };
 
 export type ScheduleDay = ProgramDay & {
 	blockId: string;
+	modality: string | null;
 	planned: boolean;
 	state: DayState;
 	repoStatus: string | null;
@@ -24,11 +25,12 @@ export type AppSession = { id: string; blockId: string; weekId: string; dayId: s
 export type RepoSession = {
 	path: string;
 	blockId: string | null;
-	weekId: string;
-	dayId: string;
+	weekId: string | null;
+	dayId: string | null;
 	date: string;
 	title: string;
 	kind: string;
+	modality: string | null;
 	status: string | null;
 	exercises: LoggedExercise[];
 };
@@ -45,7 +47,6 @@ function str(value: unknown): string | null {
 	return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
-const SESSION_FILE = /(\d{4}-\d{2}-\d{2})-.*-w(\d+)-d(\d+)\.(json|md)$/;
 const SESSION_DATE = /(\d{4}-\d{2}-\d{2})/;
 
 function clock(seconds: number): string {
@@ -79,19 +80,18 @@ function loggedExercises(content: Json): LoggedExercise[] {
 export function parseRepoSession(file: MirroredFile): RepoSession | null {
 	if (!isRecord(file.content)) return null;
 	const content = file.content;
-	const match = SESSION_FILE.exec(file.path);
-	const weekId = str(content.weekId) ?? (match ? `w${match[2]}` : null);
-	const dayId = str(content.dayId) ?? (match ? `day-${match[3]}` : null);
 	const date = str(content.date)?.slice(0, 10) ?? SESSION_DATE.exec(file.path)?.[1] ?? null;
-	if (weekId === null || dayId === null || date === null) return null;
+	if (date === null) return null;
+	const dayId = str(content.dayId);
 	return {
 		path: file.path,
 		blockId: str(content.blockId),
-		weekId,
+		weekId: str(content.weekId),
 		dayId,
 		date,
-		title: str(content.name) ?? dayId,
+		title: str(content.name) ?? dayId ?? file.path.replace(/^sessions\/|\.(json|md)$/g, ""),
 		kind: str(content.kind) ?? "lift",
+		modality: str(content.modality),
 		status: str(content.status),
 		exercises: loggedExercises(content),
 	};
@@ -116,7 +116,7 @@ function calendarStart(program: Program, weekId: string): string | null {
 	return typeof start === "string" ? start : null;
 }
 
-function monday(date: string): string {
+export function monday(date: string): string {
 	const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
 	return addDays(date, -((weekday + 6) % 7));
 }
@@ -131,7 +131,7 @@ function plannedWeeks(programs: Program[]): WeekRef[] {
 }
 
 function weekFor(session: RepoSession, blockId: string, planned: WeekRef[]): WeekRef | undefined {
-	return planned.find((week) => week.blockId === blockId && week.weekId === session.weekId) ?? planned.find((week) => week.blockId === blockId && week.start <= session.date && session.date <= week.end);
+	return planned.find((week) => week.blockId === blockId && session.weekId !== null && week.weekId === session.weekId) ?? planned.find((week) => week.blockId === blockId && week.start <= session.date && session.date <= week.end);
 }
 
 export function weekRefs(log: TrainingLog): WeekRef[] {
@@ -144,13 +144,13 @@ export function weekRefs(log: TrainingLog): WeekRef[] {
 		const key = `${blockId}/${start}`;
 		const existing = derived.get(key);
 		if (existing !== undefined) {
-			if (!existing.weekIds.includes(session.weekId)) existing.weekIds.push(session.weekId);
+			if (session.weekId !== null && !existing.weekIds.includes(session.weekId)) existing.weekIds.push(session.weekId);
 			continue;
 		}
 		const name = log.programs.find((program) => program.id === blockId)?.name ?? blockId;
-		derived.set(key, { key, blockId, blockName: name, weekId: session.weekId, start, end: addDays(start, 6), weekIds: [session.weekId] });
+		derived.set(key, { key, blockId, blockName: name, weekId: "", start, end: addDays(start, 6), weekIds: session.weekId === null ? [] : [session.weekId] });
 	}
-	const extra = [...derived.values()].map(({ weekIds: ids, ...week }) => ({ ...week, weekId: ids.join(" · ") }));
+	const extra = [...derived.values()].map(({ weekIds: ids, ...week }) => ({ ...week, weekId: ids.length === 0 ? "unlabeled" : ids.join(" · ") }));
 	return [...planned, ...extra].toSorted((a, b) => a.start.localeCompare(b.start) || a.key.localeCompare(b.key));
 }
 
@@ -158,16 +158,17 @@ export function currentWeek(weeks: WeekRef[], today: string): WeekRef | null {
 	return weeks.findLast((week) => week.start <= today) ?? weeks[0] ?? null;
 }
 
-function repoDay(session: RepoSession, blockId: string): ScheduleDay {
+function repoDay(session: RepoSession, ref: WeekRef): ScheduleDay {
 	return {
-		weekId: session.weekId,
-		dayId: session.dayId,
+		weekId: session.weekId ?? ref.weekId,
+		dayId: session.dayId ?? session.path,
 		kind: session.kind,
 		title: session.title,
 		date: session.date,
 		plan: [],
 		exercises: [],
-		blockId,
+		blockId: ref.blockId,
+		modality: session.modality,
 		planned: false,
 		state: "logged",
 		repoStatus: session.status,
@@ -190,13 +191,13 @@ export function buildWeek(log: TrainingLog, app: AppSession[], ref: WeekRef): Sc
 	});
 	const used = new Set<string>();
 	const days: ScheduleDay[] = planned.map((day) => {
-		const repo = inWeek.find((session) => !used.has(session.path) && session.dayId === day.dayId) ?? null;
+		const repo = inWeek.find((session) => !used.has(session.path) && session.blockId === ref.blockId && session.weekId === day.weekId && session.dayId === day.dayId) ?? null;
 		if (repo !== null) used.add(repo.path);
 		const session = mine.find((candidate) => candidate.weekId === day.weekId && candidate.dayId === day.dayId) ?? null;
 		const state: DayState = repo !== null ? "logged" : session?.status === "finished" ? "finished" : session !== null ? "open" : "todo";
-		return { ...day, date: repo?.date ?? day.date, blockId: ref.blockId, planned: true, state, repoStatus: repo?.status ?? null, sessionId: session?.id ?? null, repoFile: repo?.path ?? null, logged: repo?.exercises ?? null };
+		return { ...day, date: repo?.date ?? day.date, blockId: ref.blockId, modality: repo?.modality ?? null, planned: true, state, repoStatus: repo?.status ?? null, sessionId: session?.id ?? null, repoFile: repo?.path ?? null, logged: repo?.exercises ?? null };
 	});
-	for (const session of inWeek) if (!used.has(session.path)) days.push(repoDay(session, ref.blockId));
+	for (const session of inWeek) if (!used.has(session.path)) days.push(repoDay(session, ref));
 	return { ...ref, days: days.toSorted((a, b) => a.date.localeCompare(b.date)) };
 }
 

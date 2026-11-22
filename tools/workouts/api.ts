@@ -4,7 +4,7 @@ import { deliverSoon, webhookTarget } from "../../worker/webhooks.ts";
 import { buildLog, checkLog } from "./log.ts";
 import { requireBot } from "../../worker/bot-auth.ts";
 import { buildWeek, currentWeek, findDay, nextDay, pacificToday, trainingLogFrom, weekRefs, type TrainingLog } from "./schedule.ts";
-import { historySummary } from "./history.ts";
+import { historySummary, historyTimeline } from "./history.ts";
 import { readMirror, readSyncState, syncTrainingLog } from "./sync.ts";
 import { createSession, deleteOpenSession, deleteSet, finishSession, getSession, listSessions, putSet, requeue, sessionRow, updateExercise, updateSessionNotes, type SetInput } from "./store.ts";
 import webhook from "./webhook.ts";
@@ -83,6 +83,8 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 		}
 
 		if (method === "GET" && path === "/history/summary") return json(await db(historySummary));
+
+		if (method === "GET" && path === "/history/timeline") return json(await db(async (client) => historyTimeline(client, weekRefs(await trainingLog(client)), pacificToday())));
 
 		if (method === "POST" && path === "/sync") {
 			const bot = await requireBot(request, env, "workouts");

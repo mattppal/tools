@@ -32,7 +32,8 @@ The token is `TRAINING_LOG_TOKEN`, a fine-grained token with read-only Contents 
 
 - Weeks come from `calendar.weeks` in a block file. Blocks without one, such as Blocks A and B, get Monday-start weeks built from their logged sessions, labeled with the sessions' `weekId` (`rebuild`, `deload`).
 - Planned days come from `calendar.weekPattern`. A slot that matches `days[].id` is a lift day. A slot that matches the block's `conditioning` entry is a run, shown with its duration, effort, and format. `rest` slots aren't shown.
-- A repo session fills the planned day with its `blockId`, `weekId`, and `dayId`, or else the one its file name (`YYYY-MM-DD-<x>-w<N>-d<N>`) points to. A session that matches no planned day, such as a deload recovery day, a swapped run, or a rest note, shows as its own day under its `name`.
+- A repo session fills a planned day only when its `blockId`, `weekId`, and `dayId` all equal the slot's. Never guess a slot from the file name or the date. Older sessions may have no ids, so a session needs only a date (from `date` or the file name) to show. A session that matches no planned day, such as a deload recovery day, a swapped run, or a rest note, shows as its own day under its `name`. In a week that has a plan, its line says **Not in the plan**. Blocks A and B have no planned calendar, so their sessions show without that label.
+- Runs follow training-log's contract: `sessions/YYYY-MM-DD-<tag>.json` with `kind: "conditioning"` and `modality` (`pool`, `track`, `z2`, `other`), plus a Markdown mirror. The day line shows the modality in words (Pool, Track, Zone 2, Other).
 - Only lift days can be started in the app. Coach logs runs, so a planned run has no button, and a run whose date has passed without a log says so.
 
 `program.ts` turns a block file into days. The week comes from `calendar.weeks` and the date from `calendar.weekPattern`. Each lift resolves to one prescription:
@@ -50,7 +51,7 @@ A text load, such as `"find a weight"` or `"+42.5"`, is shown as text and never 
 - **Today** shows the first planned day from the current week on that isn't logged in the repo or the app. A missed lift day stays until it's logged, and a run counts only from its date on. It comes with **Start session**, or **Continue logging** if one is open.
 - **Week** opens on the current week, with arrows to every earlier and later week in the mirror. A day's button says what's left to do: **Start session**, **Continue logging**, or **View session**. Days already in training-log have no button and show the logged sets as the repo has them: weight × reps @RIR for lifts, distance and duration for cardio, and **Skipped** for skipped work.
 - Today and Week end with a quiet line, `Synced <sha> · <time>`, plus the last sync error if there is one.
-- **History** lists sessions logged in the app, with the delivery state in plain words. Test sessions start with "Test ·".
+- **History** opens with the last recovery week (how long ago, its dates, block, and week) and the next planned deload. Below it, a bar strip shows every week grouped by block: bar height is sessions logged that week, deload and recovery weeks use `--chart-accent`, this week is outlined, and weeks still ahead are dashed. Each block then lists its dates, week and session counts, goal, and weeks, newest block first. A week row gives its counts in words and opens that week in **Week**. A week is a recovery week when a session in it is `recovery` (see the history tables), its `weekId` says `deload`, or it holds the block's `deloadWeek`. Last comes **Logged in this app**, the sessions logged here with their delivery state in plain words. Test sessions start with "Test ·".
 - **Logging** shows one exercise at a time. Each set has weight and reps fields, an **As written** button, and RIR chips from 0 to 6. Every change saves at once, and a failed save shows **Retry**. The bottom bar moves between exercises. **Review** opens the right panel, where Matt adds a session note, finishes, or discards the session.
 
 No status dots or status pills anywhere. State is said in plain words, or left to the button label.
@@ -62,6 +63,7 @@ All routes are under `/api/tools/workouts`.
 | Route | Does |
 | --- | --- |
 | `GET /program?week=<blockId>/<weekId>` | `{ today, weeks, currentWeek, week, next, sync, webhookReady }` from the mirror. Without `week`, the current week. |
+| `GET /history/timeline` | `{ today, currentWeek, blocks, lastRecovery, nextDeload }`. Blocks from `history_blocks`, weeks from the same week refs as `/program`, and per-week counts from `history_sessions` |
 | `GET /history/summary` | Session counts by kind and block, recovery sessions, exercises with session count and last date, and PR count, all from the history tables |
 | `POST /sync` | Bots only, through `requireBot`. Runs one sync now. `?force=1` skips the ETag check. Returns `{ result, sync }`, or 502 when the run fails. The bot sends both Access headers, its bearer token, and an explicit `User-Agent`. A 302 means the Access headers are wrong, a 401 the bearer token, and a 403 with error 1010 a blocked default User-Agent. |
 | `GET /sessions` | The latest 100 sessions with their delivery state |

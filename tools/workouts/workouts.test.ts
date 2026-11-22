@@ -11,7 +11,7 @@ import { buildWeek, currentWeek, findDay as findIn, nextDay, parseRepoSession, t
 import { BLOB_BATCH, readMirror, readSyncState, syncTrainingLog, type Fetcher, type MirroredFile } from "./sync.ts";
 import { createSession, finishSession, getSession, putSet, requeue, sessionRow, updateExercise } from "./store.ts";
 import webhook from "./webhook.ts";
-import { historySummary } from "./history.ts";
+import { historySummary, timeline } from "./history.ts";
 
 const BLOCK = {
 	id: "build-block-c",
@@ -92,24 +92,28 @@ describe("program", () => {
 		expect(findDay(program, "w7", "day-1")?.exercises[2]?.sets).toBe(2);
 	});
 
-	test("matches repo sessions by blockId, or by file name and date", () => {
+	test("matches a repo session to a planned day only on blockId, weekId and dayId, and shows the rest unmatched", () => {
 		const log = trainingLogFrom([{ path: "program/block-c.json", content: BLOCK }], [
 			session("sessions/2026-11-21-bc-w4-d4.json", { blockId: "build-block-c", weekId: "w4", dayId: "day-4" }),
 			session("sessions/2026-11-16-bc-w4-d1.json"),
-			session("sessions/2026-11-18-bc-w4-run.json"),
+			session("sessions/2026-11-18-run.json", { dayId: "cond-easy-cardio", kind: "conditioning", modality: "z2", name: "Easy run" }),
 			session("sessions/2026-10-01-bb-w4-d2.json"),
 		]);
 		const w4 = weekRefs(log).find((week) => week.weekId === "w4");
 		if (w4 === undefined) throw new Error("missing w4");
 		const days = buildWeek(log, [], w4).days;
-		expect(days.map((day) => [day.dayId, day.state, day.repoFile])).toEqual([
-			["day-1", "logged", "sessions/2026-11-16-bc-w4-d1.json"],
-			["cond-easy-cardio", "todo", null],
-			["day-2", "todo", null],
-			["day-3", "todo", null],
-			["day-4", "logged", "sessions/2026-11-21-bc-w4-d4.json"],
+		expect(days.map((day) => [day.dayId, day.planned, day.state, day.repoFile])).toEqual([
+			["day-1", true, "todo", null],
+			["sessions/2026-11-16-bc-w4-d1.json", false, "logged", "sessions/2026-11-16-bc-w4-d1.json"],
+			["cond-easy-cardio", true, "todo", null],
+			["day-2", true, "todo", null],
+			["cond-easy-cardio", false, "logged", "sessions/2026-11-18-run.json"],
+			["day-3", true, "todo", null],
+			["day-4", true, "logged", "sessions/2026-11-21-bc-w4-d4.json"],
 		]);
-		expect(days[4]?.logged).toEqual([{ name: "Bench Press", summary: "235 × 6 @2" }]);
+		expect(days[1]).toMatchObject({ weekId: "w4", title: "2026-11-16-bc-w4-d1" });
+		expect(days[4]).toMatchObject({ title: "Easy run", modality: "z2" });
+		expect(days[6]?.logged).toEqual([{ name: "Bench Press", summary: "235 × 6 @2" }]);
 	});
 
 	test("shows runs on their planned slot and logged days the plan doesn't list", () => {
@@ -172,7 +176,7 @@ describe("program", () => {
 	});
 
 	test("today's session is the first day not logged in the repo or the app", () => {
-		const log = trainingLogFrom([{ path: "program/block-c.json", content: BLOCK }], ["d1", "d2", "d3", "d4"].map((day, index) => session(`sessions/2026-11-${16 + index}-bc-w4-${day}.json`)));
+		const log = trainingLogFrom([{ path: "program/block-c.json", content: BLOCK }], ["d1", "d2", "d3", "d4"].map((day, index) => session(`sessions/2026-11-${16 + index}-bc-w4-${day}.json`, { blockId: "build-block-c", weekId: "w4", dayId: `day-${index + 1}` })));
 		const weeks = weekRefs(log);
 		expect(nextDay(log, [], weeks, "2026-11-22")).toMatchObject({ blockId: "build-block-c", weekId: "w5", dayId: "day-1" });
 		const monday = [{ id: "s0", blockId: "build-block-c", weekId: "w5", dayId: "day-1", status: "finished" as const, test: false }];
@@ -409,6 +413,31 @@ describe("training-log sync", () => {
 		await syncTrainingLog(client, syncEnv, { fetcher });
 		expect(await historySummary(client)).toMatchObject({ sessions: 2, recoverySessions: 0 });
 		expect((await pg.query("select 1 from workouts.history_sets where path = 'sessions/2026-10-22-deload.json'")).rows).toEqual([]);
+	});
+
+	test("builds the blocks timeline with the last recovery week and the next deload", () => {
+		const blocks = [
+			{ block_id: "b", name: "Block B", goal: "build", starts: "2026-09-07", ends: "2026-10-25", deload_start: null, source_path: "program/block-b.json" },
+			{ block_id: "c", name: "Block C", goal: null, starts: "2026-10-26", ends: "2026-12-13", deload_start: "2026-12-07", source_path: "program/block-c.json" },
+		];
+		const week = (key: string, blockId: string, weekId: string, start: string, end: string) => ({ key, blockId, blockName: blockId === "b" ? "Block B" : "Block C", weekId, start, end });
+		const weeks = [week("b/2026-10-12", "b", "rebuild · hold", "2026-10-12", "2026-10-18"), week("b/2026-10-19", "b", "deload", "2026-10-19", "2026-10-25"), week("c/w4", "c", "w4", "2026-11-16", "2026-11-22"), week("c/w7", "c", "w7", "2026-12-07", "2026-12-13")];
+		const sessions = [
+			{ block_id: "b", session_date: "2026-10-13", kind: "lift", status: "completed", recovery: false },
+			{ block_id: "b", session_date: "2026-10-22", kind: "lift", status: "completed", recovery: true },
+			{ block_id: "c", session_date: "2026-11-17", kind: "lift", status: "completed", recovery: false },
+			{ block_id: "c", session_date: "2026-11-18", kind: "conditioning", status: "skipped", recovery: false },
+		];
+		const result = timeline(blocks, sessions, weeks, "2026-11-22");
+		expect(result.currentWeek).toBe("c/w4");
+		expect(result.lastRecovery).toMatchObject({ key: "b/2026-10-19", start: "2026-10-19", weeks: 4, logged: true });
+		expect(result.nextDeload).toMatchObject({ key: "c/w7", start: "2026-12-07", weeks: 3, logged: false });
+		expect(result.blocks.map((block) => [block.blockId, block.sessions, block.weeks.length])).toEqual([
+			["b", 2, 2],
+			["c", 2, 2],
+		]);
+		expect(result.blocks[1]?.weeks[0]).toMatchObject({ done: 1, skipped: 1, lift: 1, conditioning: 0, deload: false });
+		expect(result.blocks[1]?.weeks[1]).toMatchObject({ done: 0, deload: true });
 	});
 
 	test("records a failure without touching the mirror", async () => {

@@ -1,9 +1,11 @@
 import type { SetRow } from "./log.ts";
+import type { HistoryTimeline, TimelineBlock, TimelineMark, TimelineWeek } from "./history.ts";
 import type { PrescribedExercise } from "./program.ts";
 import type { ScheduleDay, ScheduleWeek, WeekRef } from "./schedule.ts";
 import type { SessionDetail, SessionSummary } from "./store.ts";
 import type { SyncState } from "./sync.ts";
 
+export type { HistoryTimeline, TimelineBlock, TimelineMark, TimelineWeek };
 export type { PrescribedExercise, ScheduleDay, ScheduleWeek, SessionDetail, SessionSummary, SetRow, SyncState, WeekRef };
 
 export type ProgramResponse = { today: string; weeks: WeekRef[]; currentWeek: string | null; week: ScheduleWeek | null; next: ScheduleDay | null; sync: SyncState; webhookReady: boolean };
@@ -39,6 +41,7 @@ export type SetDraft = { weight: number | null; unit: "lb" | "kg" | null; reps: 
 export const api = {
 	program: (week?: string) => call<ProgramResponse>(week === undefined ? "/program" : `/program?week=${encodeURIComponent(week)}`),
 	sessions: () => call<{ sessions: SessionSummary[] }>("/sessions"),
+	timeline: () => call<HistoryTimeline>("/history/timeline"),
 	session: (id: string) => call<{ session: SessionDetail }>(`/sessions/${id}`),
 	start: (blockId: string, weekId: string, dayId: string) => call<{ session: SessionDetail }>("/sessions", { method: "POST", body: JSON.stringify({ blockId, weekId, dayId }) }),
 	putSet: (id: string, position: number, index: number, set: SetDraft) => call<{ ok: true }>(`/sessions/${id}/sets/${position}/${index}`, { method: "PUT", body: JSON.stringify(set) }),

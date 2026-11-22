@@ -1,5 +1,6 @@
 import type { Database } from "../../worker/db.ts";
 import { addDays, parseProgram } from "./program.ts";
+import { monday, type WeekRef } from "./schedule.ts";
 import type { MirroredFile } from "./sync.ts";
 
 export const EXERCISE_ALIASES: Record<string, string> = {
@@ -213,6 +214,68 @@ export async function rebuildHistory(db: Database): Promise<HistoryRows> {
 	);
 	await insertRows(db, "history_prs", { exercise_key: "text", reps: "integer", record_date: "date", weight: "numeric", unit: "text", type: "text", workout_key: "text", notes: "text" }, history.prs);
 	return history;
+}
+
+export type TimelineWeek = WeekRef & { done: number; skipped: number; lift: number; conditioning: number; recovery: boolean; deload: boolean };
+export type TimelineBlock = { blockId: string; name: string; goal: string | null; starts: string; ends: string; sessions: number; weeks: TimelineWeek[] };
+export type TimelineMark = { key: string; blockName: string; weekId: string; start: string; end: string; weeks: number; logged: boolean };
+export type HistoryTimeline = { today: string; currentWeek: string | null; blocks: TimelineBlock[]; lastRecovery: TimelineMark | null; nextDeload: TimelineMark | null };
+export type TimelineSession = { block_id: string | null; session_date: string; kind: string; status: string | null; recovery: boolean };
+
+const WEEK_MS = 7 * 86_400_000;
+
+function weeksBetween(from: string, to: string): number {
+	return Math.round(Math.abs(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / WEEK_MS);
+}
+
+function mark(week: TimelineWeek, today: string): TimelineMark {
+	return { key: week.key, blockName: week.blockName, weekId: week.weekId, start: week.start, end: week.end, weeks: weeksBetween(week.start, monday(today)), logged: week.recovery };
+}
+
+export function timeline(blocks: BlockRow[], sessions: TimelineSession[], weeks: WeekRef[], today: string): HistoryTimeline {
+	const rows = blocks.map((block) => {
+		const own = weeks.filter((week) => week.blockId === block.block_id);
+		const timelineWeeks = own.map((week): TimelineWeek => {
+			const inWeek = sessions.filter((session) => session.block_id === block.block_id && week.start <= session.session_date && session.session_date <= week.end);
+			const done = inWeek.filter((session) => session.status !== "skipped" && session.kind !== "rest");
+			return {
+				...week,
+				done: done.length,
+				skipped: inWeek.length - done.length,
+				lift: done.filter((session) => session.kind === "lift").length,
+				conditioning: done.filter((session) => session.kind === "conditioning").length,
+				recovery: inWeek.some((session) => session.recovery),
+				deload: /\bdeload\b/i.test(week.weekId) || (block.deload_start !== null && week.start <= block.deload_start && block.deload_start <= week.end),
+			};
+		});
+		return {
+			blockId: block.block_id,
+			name: block.name,
+			goal: block.goal,
+			starts: block.starts,
+			ends: block.ends ?? own.at(-1)?.end ?? block.starts,
+			sessions: sessions.filter((session) => session.block_id === block.block_id).length,
+			weeks: timelineWeeks,
+		};
+	});
+	const all = rows.flatMap((block) => block.weeks);
+	const last = all.findLast((week) => (week.recovery || week.deload) && week.start <= today);
+	const next = all.find((week) => week.deload && week.start > today);
+	return {
+		today,
+		currentWeek: weeks.findLast((week) => week.start <= today)?.key ?? null,
+		blocks: rows,
+		lastRecovery: last === undefined ? null : mark(last, today),
+		nextDeload: next === undefined ? null : mark(next, today),
+	};
+}
+
+export async function historyTimeline(db: Database, weeks: WeekRef[], today: string): Promise<HistoryTimeline> {
+	const blocks = await db.query<BlockRow>(
+		"select block_id, name, goal, to_char(starts, 'YYYY-MM-DD') starts, to_char(ends, 'YYYY-MM-DD') ends, to_char(deload_start, 'YYYY-MM-DD') deload_start, source_path from workouts.history_blocks order by starts",
+	);
+	const sessions = await db.query<TimelineSession>("select block_id, to_char(session_date, 'YYYY-MM-DD') session_date, kind, status, recovery from workouts.history_sessions order by session_date");
+	return timeline(blocks.rows, sessions.rows, weeks, today);
 }
 
 export type HistorySummary = {
