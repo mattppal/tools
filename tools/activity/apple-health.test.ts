@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { activityApi } from "./api.ts";
-import { parseDate } from "./apple-health.ts";
+import { MAX_BODY_BYTES, parseDate } from "./apple-health.ts";
 import debug from "./debug.ts";
 
 const pg = new PGlite();
@@ -58,6 +58,9 @@ test("a metrics push stores sleep stages and samples by source, and drops what W
 		received: { sleep: 16, samples: 6, workouts: 0 },
 		changed: { sleep: 16, samples: 6, workouts: 0 },
 		skipped: { withings: 2, invalid: 1 },
+		metrics: ["heart_rate", "heart_rate_variability", "respiratory_rate", "resting_heart_rate", "sleep_analysis"],
+		days: 0,
+		warnings: [],
 	});
 	const sources = await rows("select source, count(*)::int as n from activity.apple_health_sleep group by source order by source");
 	expect(sources).toEqual([
@@ -91,7 +94,14 @@ test("pushing the same export again changes nothing, and an edited segment chang
 
 test("a workouts push keeps Apple Watch workouts in metric units without the route, skips Withings', and flags overlap with a Withings workout", async () => {
 	const response = await post(await sample("workouts"));
-	expect(await response.json()).toEqual({ received: { sleep: 0, samples: 0, workouts: 1 }, changed: { sleep: 0, samples: 0, workouts: 1 }, skipped: { withings: 1, invalid: 0 } });
+	expect(await response.json()).toEqual({
+		received: { sleep: 0, samples: 0, workouts: 1 },
+		changed: { sleep: 0, samples: 0, workouts: 1 },
+		skipped: { withings: 1, invalid: 0 },
+		metrics: [],
+		days: 0,
+		warnings: [],
+	});
 	const [stored] = await rows("select data from activity.apple_health_workouts");
 	expect(Object.keys(stored?.["data"] as object)).not.toContain("route");
 	expect(Object.keys(stored?.["data"] as object)).toContain("heartRateData");
@@ -119,15 +129,21 @@ test("a workouts push keeps Apple Watch workouts in metric units without the rou
 	]);
 });
 
-test("summarized sleep is refused with the setting to change, and nothing is written", async () => {
+test("summarized sleep is kept as a sample with a warning, and the rest of the push still lands", async () => {
 	const response = await post(await sample("summarized-sleep"));
-	expect(response.status).toBe(422);
-	expect(((await response.json()) as { error: string }).error).toContain("Turn Summarize Data off");
-	expect(await rows("select * from activity.apple_health_pushes")).toEqual([]);
+	expect(response.status).toBe(200);
+	const counts = (await response.json()) as { received: unknown; warnings: string[] };
+	expect(counts.received).toEqual({ sleep: 0, samples: 1, workouts: 0 });
+	expect(counts.warnings).toEqual([expect.stringContaining("Turn Summarize Data off")]);
+	const [stored] = await rows("select metric, qty, extra from activity.apple_health_samples");
+	expect(stored).toMatchObject({ metric: "sleep_analysis", qty: null, extra: expect.objectContaining({ totalSleep: 7.5 }) });
+	expect(await rows("select * from activity.apple_health_sleep")).toEqual([]);
+	const debugRows = await debug({ env: {} as Env, db });
+	expect(debugRows.find((row) => row.label === "Apple Health: Tools sleep")?.value).toContain("Turn Summarize Data off");
 });
 
 test("a body that isn't Health Auto Export JSON is a 422", async () => {
-	for (const body of ["not json", "{}", '{"data":{"metrics":"x"}}']) {
+	for (const body of ["not json", "{}", '{"data":{"metrics":[{"name":"step_count","data":[{"qty":1']) {
 		const response = await post(body);
 		expect(response.status).toBe(422);
 	}
@@ -137,7 +153,7 @@ test("Settings shows each automation's last push", async () => {
 	await post(await sample("metrics"));
 	const debugRows = await debug({ env: {} as Env, db });
 	expect(debugRows.find((row) => row.label === "Apple Health: Tools sleep")?.value).toMatch(
-		/^Last push \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\. 16 sleep segments, 6 samples, 0 workouts; 22 new or changed\. Skipped 2 from Withings, 1 unreadable\.$/,
+		/^Last push \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\. 16 sleep segments, 6 samples from 5 metrics, 0 workouts; 22 new or changed\. Skipped 2 from Withings, 1 unreadable\.$/,
 	);
 });
 
@@ -177,4 +193,100 @@ test("dates keep the phone's offset and local date", () => {
 	expect(parseDate("2026-11-21 06:12:44 +0530")?.ms).toBe(Date.parse("2026-11-21T00:42:44Z"));
 	expect(parseDate("2026-11-21T06:12:44")).toBeNull();
 	expect(parseDate(1_800_000_000)).toBeNull();
+});
+
+test("every metric is stored whatever its shape or key order, by source and time, with its other fields kept", async () => {
+	const response = await post(await sample("all-metrics"));
+	expect(await response.json()).toEqual({
+		received: { sleep: 0, samples: 19, workouts: 0 },
+		changed: { sleep: 0, samples: 19, workouts: 0 },
+		skipped: { withings: 2, invalid: 1 },
+		metrics: [
+			"a_metric_from_ios_28",
+			"active_energy",
+			"apple_sleeping_wrist_temperature",
+			"basal_energy_burned",
+			"blood_glucose",
+			"blood_pressure",
+			"handwashing",
+			"heart_rate_variability",
+			"sexual_activity",
+			"step_count",
+			"walking_running_distance",
+		],
+		days: 2,
+		warnings: [],
+	});
+	const stored = await rows(
+		"select metric, source, qty::float8 as qty, ended_at::text as ended, units, extra from activity.apple_health_samples where metric not in ('step_count', 'walking_running_distance', 'active_energy', 'basal_energy_burned') order by metric",
+	);
+	expect(stored).toEqual([
+		{ metric: "a_metric_from_ios_28", source: "Matt’s iPhone", qty: 3, ended: null, units: "count", extra: null },
+		{ metric: "apple_sleeping_wrist_temperature", source: "Matt’s Apple Watch", qty: -0.21, ended: null, units: "degC", extra: null },
+		{ metric: "blood_glucose", source: 'Lingo "CGM"', qty: 92, ended: null, units: "mg/dL", extra: { mealTime: "Before Meal" } },
+		{ metric: "blood_pressure", source: "Health", qty: null, ended: null, units: "mmHg", extra: { systolic: 121, diastolic: 79 } },
+		{ metric: "handwashing", source: "Matt’s Apple Watch", qty: 25, ended: "2026-11-21 20:00:25+00", units: "s", extra: { value: "Completed" } },
+		{ metric: "heart_rate_variability", source: "Matt’s Apple Watch", qty: 41.3, ended: null, units: "ms", extra: { heartbeats: [{ t: 0, bpm: 51 }, { t: 1.18, bpm: 50 }] } },
+		{ metric: "sexual_activity", source: "Health", qty: null, ended: null, units: "count", extra: { "Protection Used": 1, Unspecified: 0, "Protection Not Used": 0 } },
+	]);
+	const again = (await (await post(await sample("all-metrics"))).json()) as { changed: unknown };
+	expect(again.changed).toEqual({ sleep: 0, samples: 0, workouts: 0 });
+});
+
+test("daily steps take the one Apple source with the most steps each local day, and fill only days Withings has no steps for", async () => {
+	await post(await sample("all-metrics"));
+	const days = await rows(
+		"select day::text as day, steps, active_kcal::float8 as active, total_kcal::float8 as total, distance_m::float8 as distance, device, raw from activity.days where source = 'apple_health' order by day",
+	);
+	expect(days).toEqual([
+		{ day: "2026-11-20", steps: 5580, active: 319.5, total: 2049.5, distance: 3800, device: "Matt’s iPhone", raw: { steps: { "Matt’s iPhone": 5580, "Matt’s Apple Watch": 5212 } } },
+		{ day: "2026-11-21", steps: 2100, active: null, total: null, distance: null, device: "Matt’s Apple Watch", raw: { steps: { "Matt’s Apple Watch": 2100 } } },
+	]);
+	expect(await rows("select day::text as day, source, steps from activity.daily_activity order by day")).toEqual([
+		{ day: "2026-11-20", source: "apple_health", steps: 5580 },
+		{ day: "2026-11-21", source: "apple_health", steps: 2100 },
+	]);
+	await pg.query(
+		"insert into activity.days (day, source, steps, active_kcal, updated_by) values ('2026-11-20', 'withings', 4100, 350, 'withings'), ('2026-11-21', 'withings', 0, 0, 'withings')",
+	);
+	expect(await rows("select day::text as day, source, steps from activity.daily_activity order by day")).toEqual([
+		{ day: "2026-11-20", source: "withings", steps: 4100 },
+		{ day: "2026-11-21", source: "apple_health", steps: 2100 },
+	]);
+	const later = JSON.stringify({
+		data: { metrics: [{ name: "step_count", units: "count", data: [{ qty: 400, date: "2026-11-21 18:00:00 -0800", source: "Matt’s Apple Watch" }] }] },
+	});
+	await post(later);
+	expect(await rows("select steps from activity.days where source = 'apple_health' and day = '2026-11-21'")).toEqual([{ steps: 2500 }]);
+});
+
+test("a body streamed one byte at a time stores the same rows as one chunk", async () => {
+	const body = new TextEncoder().encode(await sample("all-metrics"));
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const byte of body) controller.enqueue(new Uint8Array([byte]));
+			controller.close();
+		},
+	});
+	const request = new Request("https://tools.mattpalmer.io/api/tools/activity/apple-health", {
+		method: "POST",
+		headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", "automation-name": "Tools sleep" },
+		body: stream,
+	});
+	const response = await api(request, { env, ctx, path: "/apple-health", db, caller: { kind: "local" } });
+	expect(((await response.json()) as { received: unknown }).received).toEqual({ sleep: 0, samples: 19, workouts: 0 });
+	expect(await rows("select count(*)::int as n from activity.apple_health_samples")).toEqual([{ n: 19 }]);
+});
+
+test("a body over the size limit is a 413 that says to batch, before anything is read", async () => {
+	const response = await api(
+		new Request("https://tools.mattpalmer.io/api/tools/activity/apple-health", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", "content-length": String(MAX_BODY_BYTES + 1) },
+			body: "{}",
+		}),
+		{ env, ctx, path: "/apple-health", db, caller: { kind: "local" } },
+	);
+	expect(response.status).toBe(413);
+	expect(((await response.json()) as { error: string }).error).toContain("Batch Requests");
 });

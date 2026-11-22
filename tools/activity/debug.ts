@@ -52,9 +52,12 @@ async function withingsRows(env: Env, db: WithDb): Promise<DebugRow[]> {
 async function appleHealthRows(db: WithDb): Promise<DebugRow[]> {
 	const pushes = await db((client) => listPushes(client));
 	if (pushes.length === 0) return [{ label: "Apple Health", value: "No pushes yet. Set up Health Auto Export from tools/activity/SKILL.md." }];
-	return pushes.map(({ automation, receivedAt, counts: { received, changed, skipped } }) => ({
+	return pushes.map(({ automation, receivedAt, counts: { received, changed, skipped, metrics = [], warnings = [] } }) => ({
 		label: `Apple Health: ${automation}`,
-		value: `Last push ${utc(receivedAt)}. ${received.sleep} sleep segments, ${received.samples} samples, ${received.workouts} workouts; ${changed.sleep + changed.samples + changed.workouts} new or changed. Skipped ${skipped.withings} from Withings, ${skipped.invalid} unreadable.`,
+		value: [
+			`Last push ${utc(receivedAt)}. ${received.sleep} sleep segments, ${received.samples} samples from ${metrics.length} metrics, ${received.workouts} workouts; ${changed.sleep + changed.samples + changed.workouts} new or changed. Skipped ${skipped.withings} from Withings, ${skipped.invalid} unreadable.`,
+			...warnings,
+		].join(" "),
 	}));
 }
 

@@ -1,6 +1,6 @@
 ---
 name: tool-activity
-description: "Daily steps, active calories, distance, and heart rate pulled from Withings into activity.days, Withings weigh-ins into nutrition.weigh_ins, and Withings workouts, sleep, body measures, and intraday steps and heart rate into activity tables, with daily_health as the per-day view for TDEE. Also takes Apple Health pushes from the Health Auto Export iOS app (sleep stages, resting HR, HRV, workouts) into apple_health_* tables. No page of its own; the Withings and Apple Health status is under Settings. Covers the Withings OAuth connect and callback routes, token storage, the sync cron, the backfill, and the Apple Health ingest route. Use when changing tools/activity/ or anything that reads daily activity."
+description: "Daily steps, active calories, distance, and heart rate pulled from Withings into activity.days, Withings weigh-ins into nutrition.weigh_ins, and Withings workouts, sleep, body measures, and intraday steps and heart rate into activity tables, with daily_health as the per-day view for TDEE. Also takes Apple Health pushes from the Health Auto Export iOS app (every health metric, sleep stages, workouts) into apple_health_* tables, and fills activity.days from Apple Health steps on days Withings has none. No page of its own; the Withings and Apple Health status is under Settings. Covers the Withings OAuth connect and callback routes, token storage, the sync cron, the backfill, and the Apple Health ingest route. Use when changing tools/activity/ or anything that reads daily activity."
 ---
 
 # Activity
@@ -59,13 +59,27 @@ Health Auto Export on Matt's iPhone posts JSON, export version 2, to `POST /api/
 
 The body is `{"data":{"metrics":[...],"workouts":[...]}}` in the shapes of Health Auto Export's help center (Export Format, Health Metrics and Workouts). `samples/` holds one push of each kind, and the tests post them.
 
-- `sleep_analysis` must arrive as stage segments, which is what Summarize Data off sends. A summarized night has no stages and no per-source segments, so the route answers 422 with the setting to change and writes nothing.
+- Every metric is stored, including ones tools has never seen; there's no list of known metrics. Health Auto Export writes keys in any order, so `name` and `units` often come after `data`.
+- `sleep_analysis` stage segments go to `apple_health_sleep`. A summarized night (Summarize Data on) has no stages, so it is stored as an `apple_health_samples` row with its totals in `extra`, and the response and Settings carry a warning to turn Summarize Data off.
+- Every other reading goes to `apple_health_samples`: `qty`, heart rate's `Min`, `Avg` and `Max`, `ended_at` when the reading spans time, and every other field (blood pressure's `systolic` and `diastolic`, `mealTime`, `value`, HRV beat readings) in `extra`. A reading without a date, or with neither a value nor other fields, is counted as invalid.
 - Each segment is stored by `(source, started_at, stage)`, each other sample by `(metric, source, measured_at)`, each workout by Health Auto Export's `id`. Pushing the same export again changes nothing, so overlapping date ranges and batched requests are safe.
 - Anything whose source names Withings or Health Mate is dropped and counted under `skipped.withings`, because the Withings sync already has it. A missing source is stored as `Apple Health`.
 - Workouts are converted to kcal and metres, and `route` is dropped. The rest of the workout is kept in `data`.
-- Each push records the `automation-name` and `session-id` headers in `apple_health_pushes`. Settings shows one row per automation with its last push and counts.
+- Each push records the `automation-name` and `session-id` headers in `apple_health_pushes`. Settings shows one row per automation with its last push, counts, number of metrics, and any warning.
 
-The response is `{ received, changed, skipped }`. `received` and `changed` count `sleep`, `samples` and `workouts`; `skipped` counts `withings` and `invalid` (no date, no value, or an unknown stage).
+The response is `{ received, changed, skipped, metrics, days, warnings }`. `received` and `changed` count `sleep`, `samples` and `workouts`; `skipped` counts `withings` and `invalid`; `metrics` lists the metric names in the push; `days` is how many local days of steps it recomputed.
+
+Size limits. A Worker has 128 MB of memory and Cloudflare caps request bodies at 100 MB on this zone, so the route never holds a whole body:
+- `hae-scanner.ts` reads the body as a stream and emits one sample at a time. Rows are written 2,000 at a time.
+- Samples that arrive before their metric's `name` and `units` wait as raw JSON text, up to 8 million characters. A body over 40 MiB (`MAX_BODY_BYTES`, checked against `content-length` and while streaming) or past that queue answers 413, telling Matt to turn on Batch Requests or upload a shorter range. Rows written before the 413 stay; re-sending is safe.
+- Measured in Node with V8: a 40 MB body of 270,000 samples takes about 2 s of CPU and peaks near 52 MB of heap. In local `wrangler dev` against Postgres it finished in 4.5 s.
+
+## Steps from Apple Health
+
+A push with `step_count`, `walking_running_distance`, `active_energy` or `basal_energy_burned` recomputes those local days from everything stored, so a day split across batched requests comes out whole:
+- Steps are summed per source per local day (the reading's own UTC offset). The day takes the single Apple source with the most steps, usually the iPhone or the Watch, never their sum, because both count the same walking. `raw.steps` keeps every source's total.
+- `distance_m` comes from that same source; `active_kcal` from the source with the most active energy, and `total_kcal` from that source's active plus basal energy.
+- The row is `activity.days` with source `apple_health`. `daily_activity` then keeps one source per day: Withings when it has more than 0 steps, otherwise Apple Health, otherwise manual. Withings steps in this account are themselves HealthKit data relayed by Health Mate, so a day never counts both.
 
 ## Nights
 
@@ -105,7 +119,7 @@ Schema `activity`, from `migrations/`. Other tools read it through the functions
 | Table or view | Holds |
 | --- | --- |
 | `days` | Key `(day, source)`. `source` is `withings`, `apple_health`, or `manual`. `steps`, `active_kcal`, `total_kcal`, `distance_m`, `elevation_m`, `soft_s`, `moderate_s`, `intense_s`, `hr_avg`, `hr_min`, `hr_max`, `hr_zone_0_s` to `hr_zone_3_s`, `device`, `raw`, `updated_by`, `updated_at`. |
-| `daily_activity` | One row per day, preferring Withings, then Apple Health, then manual. Read this, not `days`. |
+| `daily_activity` | One row per day: the first source with more than 0 steps of Withings, Apple Health, then manual. Read this, not `days`. |
 | `withings` | The connection: user id, scope, encrypted tokens, expiry, backfill cursor and offset, the `getmeas` cursor (`meas_lastupdate`, `meas_pending_lastupdate`, `meas_offset`), last syncs, last error, and the claim. |
 | `withings_streams` | Cursor state per feed (`measures`, `workouts`, `sleep`, `intraday`), with `synced_at` and `done_at`. |
 | `withings_measures` | Key `(grpid, type)`. Every real body measure, `value = value * 10^unit`. `weight_kg`, fat, muscle, bone, hydration, BP, pulse, SpO2, temperature, PWV, and so on. |
@@ -115,7 +129,7 @@ Schema `activity`, from `migrations/`. Other tools read it through the functions
 | `withings_workout_links` | See Workout links. |
 | `daily_health` | One row per day: steps and kcal from `daily_activity`, the day's HR, `resting_hr` (the lowest HR of the day's longest sleep), sleep totals, and Withings workout count, kcal, and seconds. Read this for the TDEE model. |
 | `apple_health_sleep` | Key `(source, started_at, stage)`. One Apple Health sleep segment: `stage` (`in_bed`, `asleep`, `awake`, `core`, `deep`, `rem`, `unspecified`), `ended_at`, and the phone's `utc_offset_min`. |
-| `apple_health_samples` | Key `(metric, source, measured_at)`. One reading of any other metric, by Health Auto Export's snake_case name: `qty`, or `min`, `avg` and `max` for heart rate, plus `units` and `utc_offset_min`. |
+| `apple_health_samples` | Key `(metric, source, measured_at)`. One reading of any other metric, by Health Auto Export's snake_case name: `qty`, or `min`, `avg` and `max` for heart rate, plus `units`, `utc_offset_min`, `ended_at` for readings that span time, and the reading's other fields in `extra`. |
 | `apple_health_workouts` | Key Health Auto Export's workout `id`. Name, source, local date, start and end, `duration_s`, active and total kcal, `distance_m`, `elevation_m`, HR avg, min and max, location, and the workout without its route in `data`. |
 | `apple_health_pushes` | Key `automation`. The last push from each Health Auto Export automation: time, `session_id`, and the response counts. |
 | `withings_weighins` | Every kept Withings weigh-in: `grpid`, `measured_ts`, `local_date`, `local_time`, `weight_kg`, `weight_lb`, `fat_pct`, `fat_mass_lb`, `fat_source`, `attrib`, `model`. |
@@ -124,4 +138,4 @@ This tool writes `nutrition.weigh_ins` rows with source `withings`. Nutrition's 
 
 ## Tests
 
-`apple-health.test.ts` posts the samples in `samples/` through the route: bearer checks, sources and Withings drops, an unchanged re-push writing nothing, unit conversion and Withings overlap on workouts, the 422 for summarized sleep, the Settings row, date offsets, and the night `/nights` builds from the sample. `nights.test.ts` covers the night rules: the Withings fallback, source ranking, a mid-night wake against a nap, a source without stages, and which source's vitals win. `bun test tools/activity` also runs the routes and the sync against PGlite with a fake Withings: the bare callback ping, a forged and an expired state, a state from another browser, encrypted storage, the 7-day pull and the windowed backfill down to the floor, refresh-token rotation, a rejected token, an unchanged re-sync writing nothing, the weight parity rules, resumable `getmeas` paging, the EMA trend, the workouts, sleep, and measures feeds with an idempotent re-sync, a failing feed that leaves the others running, intraday bucketing across DST and the empty-run stop, and the workout link rules. One more test rebuilds the raw weigh-ins in tinkabot's 30-day sample and checks that `daily`, the trend rows, and the summary match it exactly. The sample is Matt's real weight data and this repo is public, so the sample stays in the Project store and the test skips when the file is missing, as it is in CI.
+`apple-health.test.ts` posts the samples in `samples/` through the route: bearer checks, sources and Withings drops, an unchanged re-push writing nothing, unit conversion and Withings overlap on workouts, summarized sleep kept with a warning, the Settings row, date offsets, the night `/nights` builds from the sample, every metric shape in `hae-all-metrics.json` with keys in Health Auto Export's real order, the daily steps rule, a body streamed one byte at a time, and the 413. `nights.test.ts` covers the night rules: the Withings fallback, source ranking, a mid-night wake against a nap, a source without stages, and which source's vitals win. `bun test tools/activity` also runs the routes and the sync against PGlite with a fake Withings: the bare callback ping, a forged and an expired state, a state from another browser, encrypted storage, the 7-day pull and the windowed backfill down to the floor, refresh-token rotation, a rejected token, an unchanged re-sync writing nothing, the weight parity rules, resumable `getmeas` paging, the EMA trend, the workouts, sleep, and measures feeds with an idempotent re-sync, a failing feed that leaves the others running, intraday bucketing across DST and the empty-run stop, and the workout link rules. One more test rebuilds the raw weigh-ins in tinkabot's 30-day sample and checks that `daily`, the trend rows, and the summary match it exactly. The sample is Matt's real weight data and this repo is public, so the sample stays in the Project store and the test skips when the file is missing, as it is in CI.
