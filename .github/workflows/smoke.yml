@@ -1,6 +1,8 @@
 name: smoke
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -38,6 +40,6 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           TARGET: ${{ inputs.target || 'https://tools.mattpalmer.io' }}
-          SHA: ${{ inputs.sha }}
+          SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
         run: |
-          if [ -n "$SHA" ]; then bun run smoke --target "$TARGET" --sha "$SHA" --wait 300; else bun run smoke --target "$TARGET"; fi
+          if [ -n "$SHA" ]; then bun run smoke --target "$TARGET" --sha "$SHA" --wait 600; else bun run smoke --target "$TARGET"; fi
