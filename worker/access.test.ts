@@ -89,7 +89,7 @@ test("refuses missing, forged, expired and misaddressed tokens", async () => {
 test("only the exact public routes skip Access", async () => {
 	const check = gate();
 	expect(await status(check(call("/api/withings/callback?code=x&state=y")))).toBe(200);
-	expect(await status(check(call("/api/withings/callback", { method: "POST" })))).toBe(403);
+	expect(await status(check(call("/api/withings/callback", { method: "PUT" })))).toBe(403);
 	expect(await status(check(call("/api/withings//callback")))).toBe(403);
 	expect(await status(check(call("/api/withings/callback/x")))).toBe(403);
 	expect(await status(check(call("/api/withings/connect")))).toBe(403);

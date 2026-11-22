@@ -15,7 +15,7 @@ export const ACCESS: AccessConfig = {
 		"coach-bot": "e7234384aca5ccf0fe162d8a112c76b5.access",
 		"nutrition-bot": "46f516f5dd0738abfa72def83722f0da.access",
 	},
-	publicRoutes: ["GET /api/withings/callback", "HEAD /api/withings/callback"],
+	publicRoutes: ["GET /api/withings/callback", "HEAD /api/withings/callback", "POST /api/withings/callback"],
 };
 
 type Jwk = JsonWebKey & { kid?: string };
