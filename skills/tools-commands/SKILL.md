@@ -45,7 +45,7 @@ The `env.DB` binding is Hyperdrive in front of the PlanetScale Postgres database
 
 `bun run dev` starts with no setup. By default it connects to `postgresql://postgres:postgres@127.0.0.1:5432/postgres`, so a local Postgres with that password just works. Without one, the app still runs and `/api/health` reports the database as down.
 
-For real data, run `bun run dev:db` once. It needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`, creates a 7-day role on the `preview` branch, and writes the connection string to `.env` (gitignored). To use another database, copy `.env.example` to `.env` and edit it. Never point local dev at `main`.
+For real data, run `bun run dev:db` once. It needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`, creates a 7-day read-and-write role (no DDL) on the `preview` branch, and writes the connection string to `.env` (gitignored). To use another database, copy `.env.example` to `.env` and edit it. Never point local dev at `main`.
 
 `GET /api/health` runs `select now()` through the binding and returns `latencyMs`, `connectMs`, `queryMs`, and `migrations` (`pending`, `changed`, `unknown` against the bundled files). It answers 503 with the error, or when a migration is pending or changed.
 
@@ -64,4 +64,4 @@ Each PlanetScale branch allows 25 connections. Postgres reserves 3 for superuser
 | Dashboard and ad hoc queries | 2 | 2 |
 | Spare for Hyperdrive going over its limit | 6 | 4 |
 
-Hyperdrive keeps about 5 idle connections warm at rest, which is normal. If you create a PlanetScale role for testing, name it `agent-<task>` with a TTL of one day or less, connect on port 5432, and end its leftover idle sessions with `pg_terminate_backend`. `docs/database.md` has the query that shows who holds connections.
+Hyperdrive keeps about 5 idle connections warm at rest, which is normal. Create PlanetScale roles only with `createRole` in `scripts/planetscale.ts`, never with `inherited_roles: ["postgres"]` by hand. The Roles section of `docs/database.md` has the recipe. If you create one for testing, name it `agent-<task>`, use the `read` kind unless you must write, give it a TTL of one day or less, connect on port 5432, and end its leftover idle sessions with `pg_terminate_backend`. `docs/database.md` has the query that shows who holds connections.

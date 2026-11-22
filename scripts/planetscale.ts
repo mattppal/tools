@@ -1,7 +1,17 @@
 const ORG = "mattppalmer";
 const DATABASE = "tools";
 
+const MIGRATE_MAX_TTL_SECONDS = 60 * 60;
+
 export type Branch = "main" | "preview";
+export type RoleKind = "app" | "read" | "migrate";
+
+export const ROLE_GRANTS: Readonly<Record<RoleKind, readonly string[]>> = {
+	app: ["pg_read_all_data", "pg_write_all_data"],
+	read: ["pg_read_all_data"],
+	migrate: ["postgres"],
+};
+
 export type Role = { id: string; username: string; password: string; access_host_url: string; database_name: string };
 
 function credentials(): string {
@@ -15,18 +25,28 @@ function rolesUrl(branch: Branch): string {
 	return `https://api.planetscale.com/v1/organizations/${ORG}/databases/${DATABASE}/branches/${branch}/roles`;
 }
 
-export async function createRole(branch: Branch, name: string, ttlSeconds: number): Promise<Role> {
+export function roleRequest(name: string, kind: RoleKind, ttlSeconds: number): { name: string; inherited_roles: readonly string[]; ttl: number } {
+	if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0) throw new Error(`${name}: a role needs a positive TTL`);
+	if (kind === "migrate" && ttlSeconds > MIGRATE_MAX_TTL_SECONDS) throw new Error(`${name}: a migrate role lives at most ${MIGRATE_MAX_TTL_SECONDS} seconds`);
+	return { name, inherited_roles: ROLE_GRANTS[kind], ttl: ttlSeconds };
+}
+
+export async function createRole(branch: Branch, name: string, kind: RoleKind, ttlSeconds: number): Promise<Role> {
 	const response = await fetch(rolesUrl(branch), {
 		method: "POST",
 		headers: { authorization: credentials(), "content-type": "application/json" },
-		body: JSON.stringify({ name, inherited_roles: ["postgres"], ttl: ttlSeconds }),
+		body: JSON.stringify(roleRequest(name, kind, ttlSeconds)),
 	});
 	if (!response.ok) throw new Error(`PlanetScale refused a role on ${branch} (${response.status}): ${await response.text()}`);
 	return (await response.json()) as Role;
 }
 
 export async function deleteRole(branch: Branch, role: Role): Promise<void> {
-	const response = await fetch(`${rolesUrl(branch)}/${role.id}`, { method: "DELETE", headers: { authorization: credentials() } });
+	const response = await fetch(`${rolesUrl(branch)}/${role.id}`, {
+		method: "DELETE",
+		headers: { authorization: credentials(), "content-type": "application/json" },
+		body: JSON.stringify({ successor: "postgres" }),
+	});
 	if (!response.ok && response.status !== 404) throw new Error(`PlanetScale could not delete role ${role.username} on ${branch} (${response.status}): ${await response.text()}. It expires on its own; delete it in the dashboard to be sure.`);
 }
 

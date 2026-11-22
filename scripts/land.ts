@@ -52,7 +52,7 @@ if (migrations.length > 0) {
 	for (const branch of ["preview", "main"] as const) {
 		let role: Role;
 		try {
-			role = await createRole(branch, `land-${pr.number}-${Date.now()}`, ROLE_TTL_SECONDS);
+			role = await createRole(branch, `land-${pr.number}-${Date.now()}`, "migrate", ROLE_TTL_SECONDS);
 		} catch (error) {
 			stop(`${error instanceof Error ? error.message : error} PR #${pr.number} changes migrations, which land applies to preview and main before pushing.`);
 		}

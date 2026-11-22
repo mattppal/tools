@@ -55,7 +55,7 @@ tools/<slug>/migrations/0001-create-items.sql
 tools/<slug>/migrations/0002-add-done.sql
 ```
 
-`bun run migrate` applies pending files in order. It runs each file in one transaction as the `postgres` role, with `search_path` set to the tool's schema, and records it in `<schema>._migrations`. Running as `postgres` makes every role that inherits it, including Hyperdrive's `tools-app`, able to use the tables.
+`bun run migrate` applies pending files in order. It runs each file in one transaction as the `postgres` role, with `search_path` set to the tool's schema, and records it in `<schema>._migrations`. Hyperdrive's `tools-app-rw` role reads and writes every table through `pg_read_all_data` and `pg_write_all_data`, so a migration needs no `grant`.
 
 - Never edit or delete an applied file. The runner stops on a changed checksum or a missing file. Add a new migration instead.
 - Don't put `begin` or `commit` in a file. Statements that can't run in a transaction, such as `create index concurrently`, are not supported.
@@ -73,7 +73,7 @@ tools/<slug>/migrations/0002-add-done.sql
 - The runner leaves migrations it doesn't know about alone and names them. They come from a land that stopped after migrating but before main moved, or from a branch migrated before this rule existed. A changed checksum still stops it.
 - `/api/health` compares the bundled migration files with each schema's `_migrations`. It answers 503 with `migrations.pending` or `migrations.changed` when the deployed code expects a migration the database doesn't have.
 
-To apply main's migrations by hand, pass a connection string for a role that inherits `postgres`:
+To apply main's migrations by hand, pass a connection string for a `migrate` role (see Roles), and delete the role when you're done:
 
 ```bash
 CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB="postgresql://...@us-west-3.pg.psdb.cloud:5432/postgres?sslmode=verify-full" bun run migrate
@@ -81,9 +81,27 @@ CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB="postgresql://...@us-west-3.pg.
 
 ## Local development
 
-`bun run dev` reads `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB` from `.env`. Without it, the binding's `localConnectionString` points at a local Postgres on `127.0.0.1:5432` as user `postgres` with password `postgres`, and `/api/health` reports the database as down if none is running. `bun run dev:db` creates a 7-day role on the `preview` branch and writes its connection string to `.env`. Never point local dev at `main`.
+`bun run dev` reads `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB` from `.env`. Without it, the binding's `localConnectionString` points at a local Postgres on `127.0.0.1:5432` as user `postgres` with password `postgres`, and `/api/health` reports the database as down if none is running. `bun run dev:db` creates a 7-day read-and-write role (no DDL) on the `preview` branch and writes its connection string to `.env`. Never point local dev at `main`.
 
 Local dev has no pool. Each API request opens one direct connection and closes it after the response.
+
+## Roles
+
+Create PlanetScale roles only through `createRole` in `scripts/planetscale.ts`. `scripts/planetscale.test.ts` fails when any other file calls PlanetScale's roles API. Each kind inherits only what it needs:
+
+| Kind | Inherits | Who uses it | TTL |
+| --- | --- | --- | --- |
+| `app` | `pg_read_all_data`, `pg_write_all_data` | Hyperdrive's `tools-app-rw` on each branch, `bun run dev:db` | none for Hyperdrive, 7 days for dev |
+| `read` | `pg_read_all_data` | Agents checking data | 1 day or less |
+| `migrate` | `postgres` | `bun run land` (15 minutes, deleted afterwards), migrating by hand | 1 hour at most |
+
+An `app` role can't create, alter, drop or truncate anything, own an object, or `set role postgres`. Never give Hyperdrive, local dev or an agent's check a role that inherits `postgres`. To make one by hand in the PlanetScale dashboard, pick the same inherited roles and a TTL. When you're done with a role, delete it with `postgres` as the successor (`deleteRole` does), so nothing it owns is orphaned.
+
+To rotate Hyperdrive's password:
+1. Create a new `app` role and test it.
+2. Set it with `bunx wrangler hyperdrive update <id> --origin-user=<username> --origin-password=<password>`, or with the API.
+3. Confirm that `pg_stat_activity` shows Hyperdrive under the new user and that `/api/health` returns 200.
+4. Delete the old role.
 
 ## Connection budget
 
@@ -112,4 +130,4 @@ group by 1, 2, 3
 order by 4 desc;
 ```
 
-`application_name = 'Cloudflare Hyperdrive'` marks Hyperdrive pools. `pscale_admin` and `pscale_exporter` belong to PlanetScale. Match a `pscale_api_<id>` user to its role name in the branch's role list in PlanetScale. Agents that need their own role name it `agent-<task>` with a TTL of one day or less, so their sessions are easy to spot and end with `pg_terminate_backend(pid)`. Connect on port 5432. PlanetScale's PgBouncer on port 6432 keeps an idle server connection for each role for minutes after the client leaves.
+`application_name = 'Cloudflare Hyperdrive'` marks Hyperdrive pools. `pscale_admin` and `pscale_exporter` belong to PlanetScale. Match a `pscale_api_<id>` user to its role name in the branch's role list in PlanetScale. Agents that need their own role name it `agent-<task>`, use the `read` kind unless they must write, and give it a TTL of one day or less, so their sessions are easy to spot and end with `pg_terminate_backend(pid)`. Connect on port 5432. PlanetScale's PgBouncer on port 6432 keeps an idle server connection for each role for minutes after the client leaves.
