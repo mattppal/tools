@@ -1,0 +1,20 @@
+:focus {
+	outline: none;
+}
+
+:is(a[href], button, summary):focus-visible,
+label:has(> input:is([type="checkbox"], [type="radio"]):focus-visible) {
+	--text-3: var(--text-2);
+	--chrome-text-3: var(--chrome-text-2);
+	background-color: var(--focus-fill, var(--focus-bg)) !important;
+	transition-property: none !important;
+}
+
+:is(a[href], button, summary, input, textarea, select, [role="slider"], [role="tab"]):focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: 2px;
+}
+
+:is(input, textarea, select):focus-visible {
+	--field-bg: var(--field-focus);
+}

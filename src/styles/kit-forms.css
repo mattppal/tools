@@ -1,0 +1,9 @@
+@theme inline reference {
+	--animate-pulse: kit-pulse 1600ms var(--ease-in-out) infinite;
+
+	@keyframes kit-pulse {
+		50% {
+			opacity: 0.5;
+		}
+	}
+}

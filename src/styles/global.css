@@ -1,0 +1,47 @@
+@import "./tokens.css";
+@import "./hairline.css";
+@import "./focus.css";
+@import "./scrollbars.css";
+@import "./kit.css";
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--chrome-bg);
+	color: var(--text-1);
+	font-family: var(--font-ui);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: var(--weight-body);
+	-webkit-font-smoothing: antialiased;
+	-webkit-tap-highlight-color: transparent;
+	overscroll-behavior: none;
+}
+
+@layer base {
+	a {
+		color: var(--brand-text);
+	}
+
+	img,
+	svg {
+		display: block;
+	}
+}
+
+:root[data-theme-switching] *,
+:root[data-theme-switching] ::before,
+:root[data-theme-switching] ::after {
+	transition-property: none !important;
+}
