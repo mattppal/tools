@@ -7,11 +7,13 @@ const USAGE = `Usage:
   bun run notify --list [--app nutrition|workouts|tools] [--thread <id>] [--mint]
 
 <for> is liaison (the default), nutrition, coach, fog, tinkabot or all; all goes to every bot. Without --body-file the markdown body is read from stdin.
-Sends the tools-coordinator Access service token, from TOOLS_COORDINATOR_CLIENT_ID and TOOLS_COORDINATOR_CLIENT_SECRET. When those are unset, --mint rotates that token's secret with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and uses it for this run only. TOOLS_URL defaults to https://tools.mattpalmer.io.`;
+Sends the tools-coordinator Access service token, from TOOLS_COORDINATOR_CLIENT_ID and TOOLS_COORDINATOR_CLIENT_SECRET. When those are unset, --mint rotates that token's secret with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and uses it for this run only, waiting up to 30 seconds while Access answers 302 until the new secret reaches it. TOOLS_URL defaults to https://tools.mattpalmer.io.`;
 
 const ATTEMPTS = 3;
 const RETRY_MS = 2_000;
 const MINT_GRACE_MS = 60 * 60_000;
+const MINT_POLL_MS = 2_000;
+const MINT_PROPAGATION_MS = 30_000;
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
 export type NotifyArgs = { list: false; notice: Record<string, unknown>; dryRun: boolean; mint: boolean } | { list: true; query: URLSearchParams; mint: boolean };
@@ -106,15 +108,21 @@ function headers({ clientId, clientSecret }: Credentials): Record<string, string
 	};
 }
 
-async function request(url: string, init: RequestInit): Promise<Response> {
-	for (let attempt = 1; ; attempt++) {
+export async function request(url: string, init: RequestInit, minted: boolean, fetcher: Fetch = fetch, sleep: (ms: number) => Promise<void> = Bun.sleep): Promise<Response> {
+	for (let attempt = 1, waited = 0; ; attempt++) {
 		try {
-			const response = await fetch(url, { ...init, redirect: "manual" });
+			const response = await fetcher(url, { ...init, redirect: "manual" });
+			if (minted && response.status === 302 && waited < MINT_PROPAGATION_MS) {
+				await sleep(MINT_POLL_MS);
+				waited += MINT_POLL_MS;
+				attempt--;
+				continue;
+			}
 			if ((response.status < 500 && response.status !== 429) || attempt === ATTEMPTS) return response;
 		} catch (error) {
 			if (attempt === ATTEMPTS) throw error;
 		}
-		await Bun.sleep(RETRY_MS * attempt);
+		await sleep(RETRY_MS * attempt);
 	}
 }
 
@@ -129,10 +137,11 @@ async function main(): Promise<void> {
 		console.log(JSON.stringify(args.notice, null, 2));
 		return;
 	}
+	const minted = args.mint && !(process.env["TOOLS_COORDINATOR_CLIENT_ID"] && process.env["TOOLS_COORDINATOR_CLIENT_SECRET"]);
 	const sent = headers(await credentials(process.env, args.mint));
 	const response = args.list
-		? await request(`${base}/api/tools/liaison/deliveries?${args.query}`, { headers: sent })
-		: await request(`${base}/api/tools/liaison/notices`, { method: "POST", headers: sent, body: JSON.stringify(args.notice) });
+		? await request(`${base}/api/tools/liaison/deliveries?${args.query}`, { headers: sent }, minted)
+		: await request(`${base}/api/tools/liaison/notices`, { method: "POST", headers: sent, body: JSON.stringify(args.notice) }, minted);
 	const text = await response.text();
 	console.log(`HTTP ${response.status}`);
 	console.log(text);

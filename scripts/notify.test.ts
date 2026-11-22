@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { noticeRequest } from "../tools/liaison/notices.ts";
-import { credentials, mintCredentials, parseNotify } from "./notify.ts";
+import { credentials, mintCredentials, parseNotify, request } from "./notify.ts";
 
 const COORDINATOR = "9f5386b746c91cbc0774e9f806a081fa.access";
 const CF = { CLOUDFLARE_API_TOKEN: "cf-api", CLOUDFLARE_ACCOUNT_ID: "acct" };
@@ -47,6 +47,39 @@ test("--mint stops when the coordinator token is missing or Cloudflare refuses",
 	await expect(mintCredentials(CF, fakeCloudflare({ "GET /client/v4/accounts/acct/access/service_tokens": [] }).fetcher)).rejects.toThrow("No Access service token named tools-coordinator");
 	const refused = fakeCloudflare({ "GET /client/v4/accounts/acct/access/service_tokens": [{ id: "coordinator-id", client_id: COORDINATOR }] });
 	await expect(mintCredentials(CF, refused.fetcher)).rejects.toThrow("Cloudflare API POST /accounts/acct/access/service_tokens/coordinator-id/rotate answered HTTP 404: not found");
+});
+
+function answers(...statuses: number[]) {
+	const seen: number[] = [];
+	const slept: number[] = [];
+	const fetcher = async () => {
+		const status = statuses[Math.min(seen.length, statuses.length - 1)] ?? 200;
+		seen.push(status);
+		return new Response(null, { status });
+	};
+	const sleep = async (ms: number) => {
+		slept.push(ms);
+	};
+	return { seen, slept, fetcher, sleep };
+}
+
+test("a minted secret waits out Access's 302 until the new secret propagates", async () => {
+	const run = answers(302, 302, 201);
+	expect((await request("https://tools.test/x", {}, true, run.fetcher, run.sleep)).status).toBe(201);
+	expect(run.seen).toEqual([302, 302, 201]);
+	expect(run.slept).toEqual([2_000, 2_000]);
+});
+
+test("a minted secret still stopped by Access after 30 seconds returns the 302", async () => {
+	const run = answers(302);
+	expect((await request("https://tools.test/x", {}, true, run.fetcher, run.sleep)).status).toBe(302);
+	expect(run.slept.reduce((sum, ms) => sum + ms, 0)).toBe(30_000);
+});
+
+test("a stored secret gets no propagation wait, so a 302 returns at once", async () => {
+	const run = answers(302);
+	expect((await request("https://tools.test/x", {}, false, run.fetcher, run.sleep)).status).toBe(302);
+	expect(run.slept).toEqual([]);
 });
 
 test("parses --mint for sends and lists", () => {
