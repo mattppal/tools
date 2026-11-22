@@ -14,7 +14,7 @@ Read `skills/emil-design-eng/SKILL.md` before UI work.
 - The look is poaster's Hairline preset. Its values (space, type, radius, elevation, 1px `--border-width`, no shadows) live only in `src/styles/presets/hairline.json`. `bun run hairline` generates `src/styles/hairline.css` from it, and `bun run build` fails when they drift. To change one of those tokens, edit the JSON and regenerate; don't redefine them in `tokens.css` or a module. To adopt a newer poaster preset, copy poaster's `src/web/ui/kit-gallery/presets/hairline.json` over ours and run `bun run hairline`.
 - Tailwind utilities map to the same tokens (`bg-chrome`, `text-muted-foreground`, `h-control-md`). CSS modules are fine; poaster uses both.
 - Icons come from `src/shell/icons.tsx` (Hugeicons). Add a glyph there to use a new one.
-- No status dots and no status pills, at any width. Don't show state with a colored dot, a light, or a tinted badge. When state matters, say it in plain words in the surrounding text style, like the home page's database line. Often the action already says it (Start, Continue, View), and then the state needs no label at all.
+- No status dots and no status pills, at any width. Don't show state with a colored dot, a light, or a tinted badge. When state matters, say it in plain words in the surrounding text style, like the home page's database line. Often the action already says it (Start, Continue, View), and then the state needs no label at all. `bun run check:style` fails the build on any small, fully rounded element.
 
 ## Edges
 

@@ -5,7 +5,7 @@ const target = "src/styles/hairline.css";
 
 const preset: { name: string; tokens: Record<string, string> } = JSON.parse(readFileSync(source, "utf8"));
 const lines = Object.entries(preset.tokens).map(([name, value]) => `\t${name}: ${value};`);
-const css = `/* Generated from ${source} by \`bun run hairline\`. Edit the JSON, not this file. */\n:root {\n${lines.join("\n")}\n}\n`;
+const css = `:root {\n${lines.join("\n")}\n}\n`;
 
 if (process.argv.includes("--check")) {
 	let current = "";

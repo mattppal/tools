@@ -11,7 +11,7 @@ This repo is one Cloudflare Worker that serves a homepage and a directory of too
 
 1. Work in poteto-mode. Read `skills/poteto-mode/SKILL.md` and follow it. Workers read `skills/poteto-mode/worker.md`.
 2. For any UI work, also read `skills/emil-design-eng/SKILL.md`.
-3. Code follows `skills/no-comments/SKILL.md`.
+3. Code follows `skills/no-comments/SKILL.md`. `bun run check:style` fails the build on any comment in `src/`, `worker/`, `tools/` or `scripts/`.
 4. Prose (skills, docs, PR text, commit messages) follows `skills/unslop/SKILL.md`.
 
 ## Which skill next
