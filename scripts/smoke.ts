@@ -60,7 +60,7 @@ export async function smoke({ target, token, unlisted, sha, allowPending = false
 		if (sha !== null) record("build sha", deployed === sha, `deployed ${deployed.slice(0, 7)}, expected ${sha.slice(0, 7)}`);
 	}
 
-	const health = await expectStatus("health", "/api/health", 200);
+	const health = await expectStatus("health", "/api/health", allowPending ? [200, 503] : 200);
 	if (health !== null) {
 		const body = (await health.json().catch(() => null)) as { ok?: boolean; db?: { error?: string }; migrations?: { pending: string[]; changed: string[] } } | null;
 		const migrations = body?.migrations;
