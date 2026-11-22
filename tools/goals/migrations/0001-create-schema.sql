@@ -11,7 +11,7 @@ create table goals (
 	horizon text not null check (horizon in ('year', 'quarter')),
 	quarter smallint check (quarter between 1 and 4),
 	area text not null check (area in ('fitness', 'relationships', 'career', 'content', 'finance', 'life-quality', 'systems', 'inner')),
-	title text not null check (title = btrim(title) and length(title) between 1 and 200),
+	title text not null check (title = regexp_replace(btrim(title), '\s+', ' ', 'g') and length(title) between 1 and 200),
 	description text not null default '',
 	metric text,
 	target text,

@@ -25,7 +25,7 @@ const goalFields = z.strictObject({
 	horizon: z.enum(HORIZONS),
 	quarter: quarter.nullable().optional().describe("1 to 4 when horizon is quarter. Null or absent when horizon is year"),
 	area,
-	title: text.max(200),
+	title: text.max(200).describe("Stored trimmed with each run of whitespace collapsed to one space. Case is kept"),
 	description: z.string().max(4000).optional(),
 	metric: z.string().max(200).nullable().optional(),
 	target: z.string().max(200).nullable().optional(),

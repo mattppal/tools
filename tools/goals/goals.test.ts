@@ -123,7 +123,7 @@ test("bulk_import twice changes nothing the second time", async () => {
 		years: [{ year: 2097, north_star: "Steadier" }],
 		goals: args.goals.map((goal) => ({ ...goal, title: `  ${goal.title.toUpperCase().replaceAll(" ", "   ")} `, parent_title: goal.parent_title?.toLowerCase() })),
 	});
-	expect(third).toMatchObject({ created: 0, updated: 2, unchanged: 0, years: { created: 0, updated: 1, unchanged: 0 } });
+	expect(third).toMatchObject({ created: 0, updated: 0, unchanged: 2, years: { created: 0, updated: 1, unchanged: 0 } });
 	const year = await ok<YearView>("get_year", { year: 2097 });
 	const parent = year.goals.find((goal) => goal.horizon === "year");
 	expect({ count: year.goals.length, parentStatus: parent?.status, child: year.goals.find((goal) => goal.horizon === "quarter")?.parentId }).toEqual({ count: 2, parentStatus: "achieved", child: parent?.id ?? "" });
@@ -204,8 +204,8 @@ test("an id update can't take another goal's natural key or change the year", as
 	const { goal: other } = await ok<{ goal: Goal }>("upsert_goal", { year: 2085, horizon: "year", area: "inner", title: "Read 30 books" });
 	expect(await rejected("upsert_goal", { id: goal.id, title: "  read  30 BOOKS " })).toBe(`Natural key collides with goal ${other.id}`);
 	expect(await rejected("upsert_goal", { id: goal.id, year: 2084 })).toBe(`Goal ${goal.id} is in 2085; year can't change`);
-	const same = await ok<{ goal: Goal; created: boolean }>("upsert_goal", { year: 2085, horizon: "year", area: "inner", title: " journal   DAILY", description: "Morning pages" });
-	expect({ id: same.goal.id, created: same.created }).toEqual({ id: goal.id, created: false });
+	const same = await ok<{ goal: Goal; created: boolean }>("upsert_goal", { year: 2085, horizon: "year", area: "inner", title: " journal \t  DAILY", description: "Morning pages" });
+	expect({ id: same.goal.id, created: same.created, title: same.goal.title }).toEqual({ id: goal.id, created: false, title: "journal DAILY" });
 });
 
 test("set_north_star needs 1 to 500 characters, and clear: true removes it", async () => {

@@ -51,8 +51,8 @@ Rules:
 
 - Status is never inferred. A new goal starts at `unknown`. Only `set_status`, `bulk_import` with an explicit `status`, and Matt's check-in form change it. Each check-in records the goal's status at that moment as `statusAtCheckin`.
 - There is no delete. Retire a goal with `set_status` `dropped`.
-- The natural key is year, horizon, quarter and title. Titles compare after trimming, collapsing runs of whitespace to one space, and lowercasing. An `id` update that would take another goal's key is rejected with `Natural key collides with goal <id>`.
-- A parent is a year goal in the same year with no parent of its own, so goals nest one level and never cycle. Anything else is rejected with `Parent <id> is not a year goal in <year>`.
+- The natural key is year, horizon, quarter and title. Titles are stored trimmed with each run of whitespace collapsed to one space, case kept, and compare lowercased. An `id` update that would take another goal's key is rejected with `Natural key collides with goal <id>`.
+- A parent is a year goal in the same year with no parent of its own, so goals nest one level and never cycle. Quarter goals attach to top-level year goals only. Anything else is rejected with `Parent <id> is not a year goal in <year>`.
 - `add_checkin` and `set_status` need a `client_key` (1 to 100 characters), unique per goal. The same key with the same content returns the first check-in and writes nothing. The same key with different content is rejected with `client_key <k> already used with different content`.
 
 Inputs are snake_case and strict: an argument name a tool doesn't list, at any depth, fails the call with `MCP error -32602` and `Unrecognized key`. Outputs are camelCase. The contract with every shape is `docs/goals-contract.md` in the Project store.

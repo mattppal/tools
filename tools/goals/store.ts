@@ -143,6 +143,7 @@ async function writeGoal(client: Database, existing: Goal | null, changes: Parti
 	const horizon = changes.horizon ?? base?.horizon;
 	const quarter = changes.quarter !== undefined ? changes.quarter : horizon === "year" ? null : (base?.quarter ?? null);
 	const next = { ...NEW_GOAL, ...base, ...stripUndefined(changes), quarter } as Fields;
+	next.title = next.title.trim().replace(/\s+/g, " ");
 	if ((next.horizon === "quarter") !== (next.quarter !== null)) throw new Rejected("A quarter goal needs quarter 1-4, and a year goal has no quarter");
 	if (existing !== null && base !== null && FIELDS.every((field) => next[field] === base[field])) return { goal: existing, result: "unchanged" };
 	await checkParent(client, existing, next);
