@@ -1,4 +1,5 @@
 import { accessGate, type Caller } from "./access.ts";
+import { noticeCronFailure } from "./cron-alerts.ts";
 import { type WithDb, withRequestDb } from "./db.ts";
 import { debugReport } from "./debug.ts";
 import { bundledMigrations, checkMigrations, type MigrationDrift } from "./migrations.ts";
@@ -93,18 +94,22 @@ export default {
 	},
 	async scheduled(_controller, env, ctx): Promise<void> {
 		await withRequestDb(env.DB, ctx, async (withDb) => {
+			const failed = async (source: string, error: unknown) => {
+				console.error(`${source} failed`, error);
+				await noticeCronFailure(withDb, source, error).catch((noticeError: unknown) => console.error(`Could not queue a liaison notice for ${source}`, noticeError));
+			};
 			for (const webhook of WEBHOOKS.values()) {
 				try {
 					await deliverDue(withDb, webhook, env);
 				} catch (error) {
-					console.error(`Webhook retries for ${webhook.table} failed`, error);
+					await failed(`Webhook retries for ${webhook.table}`, error);
 				}
 			}
 			for (const [slug, cron] of CRONS) {
 				try {
 					await cron({ env, ctx, db: withDb });
 				} catch (error) {
-					console.error(`Tool cron ${slug} failed`, error);
+					await failed(`Tool cron ${slug}`, error);
 				}
 			}
 		});

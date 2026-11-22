@@ -40,6 +40,7 @@ Workouts and Nutrition are the working examples. Copy from the file that already
 | `index.tsx` | yes | Default-exported React component. Loaded lazily. Render `ToolLayout` at the top. |
 | `SKILL.md` | yes | The tool's skill. `name: tool-<slug>`. The build fails without it. |
 | `api.ts` | no | `export default defineToolApi(handler)`. Served at `/api/tools/<slug>/*`. |
+| `cron.ts` | no | `export default defineToolCron(async ({ env, ctx, db }) => ...)`. Runs every minute from the Worker's scheduled handler. Throw when the job fails, rather than logging and returning. The handler logs the error and queues one liaison notice per failing source per UTC hour (`worker/cron-alerts.ts`). |
 | `debug.ts` | no | `export default defineToolDebug(async ({ env, db }) => rows)`. Rows show under the tool in the Debug section of `/settings`. |
 | `*.module.css` | no | Styles, using the tokens in `src/styles/tokens.css`. |
 
@@ -68,7 +69,7 @@ const mcp = toolMcp({
 		defineMcpTool({
 			name: "get_item",
 			description: "One item by id.",
-			input: z.object({ id: z.number().int() }),
+			input: z.strictObject({ id: z.number().int() }),
 			readOnly: true,
 			run: async ({ id }, { db, bot }) => db(async (client) => (await client.query("select * from my_tool.items where id = $1", [id])).rows[0]),
 		}),
@@ -77,6 +78,8 @@ const mcp = toolMcp({
 
 export default defineToolApi((request, context) => (context.path === "/mcp" ? mcp(request, context) : Response.json({ error: "Not found" }, { status: 404 })));
 ```
+
+Build every input, and every object inside it, with `z.strictObject`. An argument name the tool doesn't know then fails the call, where `z.object` would drop it silently. `worker/mcp.test.ts` fails on any open object in any tool's `tools/list`.
 
 The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to send the bot an error it can act on. Any other error is logged, and the bot sees `Internal error`.
 

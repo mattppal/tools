@@ -67,6 +67,8 @@ Schema `liaison`, table `deliveries`: the shared delivery columns plus `app`, `e
 
 ## Tests
 
+The Worker also sends notices itself. When a webhook retry run or a tool's `cron.ts` throws, `worker/cron-alerts.ts` queues `{ for: "liaison", label: "action needed", subject: "tools: <source> is failing" }`. The `noticeId` is derived from the source and the UTC hour, so each failing source gets at most one notice an hour. Later failures in that hour only reach the Worker logs.
+
 `bun test ./tools/liaison` covers auth, the envelope, labels and lines, test subjects, threading, `noticeId` retries, and a cron retry. `tools/nutrition/store.test.ts` and `tools/workouts/workouts.test.ts` check that each event reaches both paths under one `deliveryId`.
 
 ## Live tests
