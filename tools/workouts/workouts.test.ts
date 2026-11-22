@@ -454,7 +454,7 @@ describe("training-log sync", () => {
 			{ block_id: "c", session_date: "2026-11-17", kind: "lift", status: "completed", recovery: false },
 			{ block_id: "c", session_date: "2026-11-18", kind: "conditioning", status: "skipped", recovery: false },
 		];
-		const result = timeline(blocks, sessions, weeks, "2026-11-22");
+		const result = timeline(blocks, sessions, weeks, "2026-11-22", { "c/w4": 5, "c/w7": 4 });
 		expect(result.currentWeek).toBe("c/w4");
 		expect(result.lastRecovery).toMatchObject({ key: "b/2026-10-19", start: "2026-10-19", weeks: 4, logged: true });
 		expect(result.nextDeload).toMatchObject({ key: "c/w7", start: "2026-12-07", weeks: 3, logged: false });
@@ -462,8 +462,9 @@ describe("training-log sync", () => {
 			["b", 2, 2],
 			["c", 2, 2],
 		]);
-		expect(result.blocks[1]?.weeks[0]).toMatchObject({ done: 1, skipped: 1, lift: 1, conditioning: 0, deload: false });
-		expect(result.blocks[1]?.weeks[1]).toMatchObject({ done: 0, deload: true });
+		expect(result.blocks[1]?.weeks[0]).toMatchObject({ planned: 5, done: 1, skipped: 1, lift: 1, conditioning: 0, deload: false });
+		expect(result.blocks[1]?.weeks[1]).toMatchObject({ planned: 4, done: 0, deload: true });
+		expect(result.blocks[0]?.weeks[0]?.planned).toBe(0);
 	});
 
 	test("picks the top set, volume, and run effort from the sets as logged", () => {

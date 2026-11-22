@@ -97,7 +97,15 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 
 		if (method === "GET" && path === "/history/summary") return json(await db(historySummary));
 
-		if (method === "GET" && path === "/history/timeline") return json(await db(async (client) => historyTimeline(client, weekRefs(await trainingLog(client)), pacificToday())));
+		if (method === "GET" && path === "/history/timeline")
+			return json(
+				await db(async (client) => {
+					const log = await trainingLog(client);
+					const weeks = weekRefs(log);
+					const planned = Object.fromEntries(weeks.map((week) => [week.key, buildWeek(log, [], week).days.filter((day) => day.planned).length]));
+					return historyTimeline(client, weeks, pacificToday(), planned);
+				}),
+			);
 
 		if (method === "POST" && path === "/sync") {
 			const bot = await requireBot(request, env, "workouts");

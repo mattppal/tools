@@ -216,7 +216,7 @@ export async function rebuildHistory(db: Database): Promise<HistoryRows> {
 	return history;
 }
 
-export type TimelineWeek = WeekRef & { done: number; skipped: number; lift: number; conditioning: number; recovery: boolean; deload: boolean };
+export type TimelineWeek = WeekRef & { planned: number; done: number; skipped: number; lift: number; conditioning: number; recovery: boolean; deload: boolean };
 export type TimelineBlock = { blockId: string; name: string; goal: string | null; starts: string; ends: string; sessions: number; weeks: TimelineWeek[] };
 export type TimelineMark = { key: string; blockName: string; weekId: string; start: string; end: string; weeks: number; logged: boolean };
 export type HistoryTimeline = { today: string; currentWeek: string | null; blocks: TimelineBlock[]; lastRecovery: TimelineMark | null; nextDeload: TimelineMark | null };
@@ -232,7 +232,7 @@ function mark(week: TimelineWeek, today: string): TimelineMark {
 	return { key: week.key, blockName: week.blockName, weekId: week.weekId, start: week.start, end: week.end, weeks: weeksBetween(week.start, monday(today)), logged: week.recovery };
 }
 
-export function timeline(blocks: BlockRow[], sessions: TimelineSession[], weeks: WeekRef[], today: string): HistoryTimeline {
+export function timeline(blocks: BlockRow[], sessions: TimelineSession[], weeks: WeekRef[], today: string, planned: Record<string, number> = {}): HistoryTimeline {
 	const rows = blocks.map((block) => {
 		const own = weeks.filter((week) => week.blockId === block.block_id);
 		const timelineWeeks = own.map((week): TimelineWeek => {
@@ -240,6 +240,7 @@ export function timeline(blocks: BlockRow[], sessions: TimelineSession[], weeks:
 			const done = inWeek.filter((session) => session.status !== "skipped" && session.kind !== "rest");
 			return {
 				...week,
+				planned: planned[week.key] ?? 0,
 				done: done.length,
 				skipped: inWeek.length - done.length,
 				lift: done.filter((session) => session.kind === "lift").length,
@@ -270,12 +271,12 @@ export function timeline(blocks: BlockRow[], sessions: TimelineSession[], weeks:
 	};
 }
 
-export async function historyTimeline(db: Database, weeks: WeekRef[], today: string): Promise<HistoryTimeline> {
+export async function historyTimeline(db: Database, weeks: WeekRef[], today: string, planned: Record<string, number> = {}): Promise<HistoryTimeline> {
 	const blocks = await db.query<BlockRow>(
 		"select block_id, name, goal, to_char(starts, 'YYYY-MM-DD') starts, to_char(ends, 'YYYY-MM-DD') ends, to_char(deload_start, 'YYYY-MM-DD') deload_start, source_path from workouts.history_blocks order by starts",
 	);
 	const sessions = await db.query<TimelineSession>("select block_id, to_char(session_date, 'YYYY-MM-DD') session_date, kind, status, recovery from workouts.history_sessions order by session_date");
-	return timeline(blocks.rows, sessions.rows, weeks, today);
+	return timeline(blocks.rows, sessions.rows, weeks, today, planned);
 }
 
 export type HistorySummary = {

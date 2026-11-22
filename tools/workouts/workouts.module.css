@@ -601,41 +601,44 @@
 }
 
 .strip {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	margin: 0;
+	position: relative;
+	margin-top: var(--space-1);
+	padding-top: var(--space-3);
+	border-top: var(--border-width) solid var(--line);
 }
 
 .stripBlocks {
 	display: flex;
-	gap: var(--space-2);
+	gap: var(--space-3);
 }
 
 .stripBlock {
 	display: flex;
 	flex-basis: 0;
 	flex-direction: column;
-	gap: var(--space-1);
+	gap: var(--space-2);
 	min-width: 0;
 }
 
 .stripBars {
 	display: flex;
 	gap: 2px;
-	align-items: flex-end;
-	height: 56px;
+	align-items: stretch;
+	height: 64px;
 	border-bottom: var(--border-width) solid var(--line);
 }
 
 .stripWeek {
-	position: relative;
 	display: flex;
 	flex: 1;
 	align-items: flex-end;
-	height: 100%;
 	min-width: 0;
-	border-radius: 2px 2px 0 0;
+	padding: 0 1px;
+	border: 0;
+	border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+	background: transparent;
+	cursor: pointer;
+	transition: background-color var(--duration-hover) ease;
 }
 
 .stripFill {
@@ -643,43 +646,113 @@
 	height: max(var(--fill), 2px);
 	border-radius: 2px 2px 0 0;
 	background: var(--text-3);
+	transition: background-color var(--duration-hover) ease;
 }
 
 .stripWeek[data-recovery] .stripFill {
 	background: var(--chart-accent);
 }
 
-.stripWeek[data-ahead] {
-	outline: var(--border-width) dashed var(--line);
+.stripWeek[data-ahead] .stripFill {
+	background: transparent;
+	outline: var(--border-width) dashed var(--line-strong);
 	outline-offset: -1px;
 }
 
-.stripWeek[data-ahead] .stripFill {
-	height: 0;
-}
-
-.stripWeek[data-ahead][data-recovery] {
+.stripWeek[data-ahead][data-recovery] .stripFill {
 	outline-color: var(--chart-accent);
 }
 
-.stripWeek[data-current] {
-	outline: var(--border-width) solid var(--text-2);
-	outline-offset: 1px;
+.stripWeek[data-current] .stripFill {
+	box-shadow: 0 0 0 1.5px var(--raised-bg), 0 0 0 2.5px var(--text-2);
+}
+
+.stripWeek[data-active] {
+	background: var(--focus-bg);
+}
+
+.stripWeek[data-active] .stripFill {
+	background: var(--text-2);
+}
+
+.stripWeek[data-active][data-recovery] .stripFill {
+	background: color-mix(in oklab, var(--chart-accent) 80%, var(--text-1));
+}
+
+.stripWeek[data-active][data-ahead] .stripFill {
+	background: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.stripWeek:hover {
+		background: var(--focus-bg);
+	}
 }
 
 .stripLabel {
-	overflow: hidden;
 	color: var(--text-3);
 	font-size: var(--text-xs);
 	line-height: var(--leading-xs);
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	text-wrap: balance;
+	transition: color var(--duration-hover) ease;
+}
+
+.stripBlock[data-active] .stripLabel {
+	color: var(--text-1);
+}
+
+.stripTip {
+	position: absolute;
+	bottom: calc(100% - var(--space-2));
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	width: max-content;
+	max-width: min(240px, 100%);
+	padding: var(--space-2) var(--space-3);
+	border: var(--border-width) solid var(--border-color);
+	border-radius: var(--radius-md);
+	background: var(--float-bg);
+	color: var(--text-2);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+	transform: translateX(-50%);
+	animation: tipIn var(--duration-popover) var(--ease-out);
+}
+
+@keyframes tipIn {
+	from {
+		opacity: 0;
+		transform: translateX(-50%) translateY(2px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.stripTip {
+		animation: none;
+	}
+}
+
+.stripTipBlock {
+	color: var(--text-3);
+}
+
+.stripTipTitle {
+	color: var(--text-1);
+	font-weight: var(--weight-ui);
 }
 
 .block {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-1);
+	gap: var(--space-2);
+}
+
+.block + .block {
+	margin-top: var(--space-3);
 }
 
 .blockHead {
