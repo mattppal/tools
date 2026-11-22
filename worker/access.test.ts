@@ -79,7 +79,7 @@ test("the production allowlist is exactly the registry's Access clients", () => 
 		"9ae32c65cfb73a1cf83b0196b682ba65.access": "apple-health",
 		"acfc8c269c4412bc69e52f3f59d9d965.access": "gtd",
 	});
-	expect(Object.values(BOTS).map((bot) => bot.serviceToken)).toEqual(["nutrition-bot", "coach-bot", "tools-coordinator", "tools-agent-verify", "apple-health-export", "gtd-bot"]);
+	expect(Object.values(BOTS).map((bot) => bot.serviceToken)).toEqual(["nutrition-bot", "coach-bot", "tools-coordinator", "tools-agent-verify", "apple-health-export", "gtd-bot", "prints-review", "prints-bridge"]);
 });
 
 test("refuses a valid Access token for an identity off the allowlist", async () => {
@@ -172,9 +172,19 @@ const APP_ROUTES = [
 	["activity", "POST /apple-health"],
 	["liaison", "GET /deliveries"],
 	["liaison", "POST /notices"],
+	["x-posts", "GET /feed"],
+	["x-posts", "GET /review"],
+	["x-posts", "POST /decisions"],
+	["x-posts", "POST /jobs/claim"],
+	["x-posts", "POST /jobs/ack"],
+	["x-posts", "GET /posts"],
+	["x-posts", "GET /status"],
+	["x-posts", "POST /decide"],
+	["x-posts", "POST /jobs/requeue"],
+	["x-posts", "PUT /blocklist"],
 ] as const;
 
-const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && route.startsWith("GET ") && route !== "GET /withings/connect").map(([tool, route]) => `${tool} ${route}`);
+const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && tool !== "x-posts" && route.startsWith("GET ") && route !== "GET /withings/connect").map(([tool, route]) => `${tool} ${route}`);
 
 const REACHABLE: Record<string, readonly string[]> = {
 	nutrition: [...APP_ROUTES.filter(([tool, route]) => tool === "nutrition" && (route.startsWith("GET ") || route === "POST /mcp")).map(([tool, route]) => `${tool} ${route}`), "activity GET /days", "activity GET /weights", "activity GET /health"],
@@ -183,6 +193,8 @@ const REACHABLE: Record<string, readonly string[]> = {
 	smoke: [...SMOKE_READS, "nutrition POST /mcp"],
 	"apple-health": ["activity POST /apple-health"],
 	gtd: [],
+	"prints-review": ["x-posts GET /feed", "x-posts GET /review", "x-posts POST /decisions"],
+	"prints-bridge": ["x-posts POST /jobs/claim", "x-posts POST /jobs/ack"],
 };
 
 test("a bot identity reaches only its scopes, on app routes as well as bot routes", () => {

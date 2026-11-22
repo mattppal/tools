@@ -24,6 +24,9 @@ const ROUTES = [
 	["activity", "POST /apple-health"],
 	["goals", "GET /goals"],
 	["notes", "GET /"],
+	["x-posts", "GET /feed"],
+	["x-posts", "POST /jobs/ack"],
+	["x-posts", "GET /posts"],
 ] as const;
 
 const GRANTS: Record<BotName, readonly string[]> = {
@@ -33,6 +36,8 @@ const GRANTS: Record<BotName, readonly string[]> = {
 	smoke: ["nutrition POST /mcp", "activity GET /days", "activity GET /weights", "activity GET /health", "activity GET /workouts", "activity GET /sleep", "activity GET /measures", "activity GET /intraday"],
 	"apple-health": ["activity POST /apple-health"],
 	gtd: ["goals GET /goals"],
+	"prints-review": ["x-posts GET /feed"],
+	"prints-bridge": ["x-posts POST /jobs/ack"],
 };
 
 let logged: BotAuthLine[] = [];

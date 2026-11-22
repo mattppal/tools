@@ -1,0 +1,150 @@
+.page {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	max-width: 720px;
+	padding-top: var(--space-3);
+	padding-bottom: var(--space-7);
+}
+
+.filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.postRow,
+.jobRow {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.postRow:hover,
+	.jobRow:hover {
+		background: var(--hover-bg);
+	}
+}
+
+.meta {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+}
+
+.meta a {
+	color: var(--text-2);
+	font-weight: var(--weight-ui);
+	text-decoration: none;
+}
+
+.text {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.clean {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+	overflow-wrap: anywhere;
+}
+
+.actions {
+	display: flex;
+	gap: var(--space-2);
+	padding-top: var(--space-1);
+}
+
+.muted {
+	margin: 0;
+	color: var(--text-3);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+}
+
+.error {
+	margin: 0;
+	color: var(--danger);
+	font-size: var(--text-sm);
+}
+
+.details {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.detailRow {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.detailRow dt {
+	font-size: var(--text-xs);
+	color: var(--text-3);
+}
+
+.detailRow dd {
+	margin: 0;
+	font-size: var(--text-sm);
+	overflow-wrap: anywhere;
+}
+
+.textarea {
+	width: 100%;
+	padding: var(--space-2);
+	border: var(--border-width) solid var(--border-color);
+	border-radius: var(--radius-control);
+	background: var(--field-bg);
+	color: var(--text-1);
+	font: inherit;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	resize: vertical;
+}
+
+.empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-7) 0;
+	color: var(--text-3);
+	text-align: center;
+}
+
+.empty p {
+	margin: 0;
+}
+
+.loading {
+	height: 240px;
+	border-radius: var(--radius-lg);
+	background: var(--sunken-bg);
+}
+
+@media (max-width: 767px) {
+	.textarea {
+		font-size: 16px;
+	}
+}
