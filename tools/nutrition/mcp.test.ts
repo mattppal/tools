@@ -2,11 +2,12 @@ import { PGlite } from "@electric-sql/pglite";
 import { expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Caller } from "../../worker/access.ts";
 import type { Database, WithDb } from "../../worker/db.ts";
 import api from "./api.ts";
 
 const pg = new PGlite();
-for (const slug of ["nutrition", "activity"]) {
+for (const slug of ["nutrition", "activity", "liaison"]) {
 	const dir = join(import.meta.dirname, "..", slug, "migrations");
 	const files = await Promise.all((await readdir(dir)).toSorted().map((name) => readFile(join(dir, name), "utf-8")));
 	await pg.exec(`create schema ${slug}; set search_path to ${slug}; ${files.join(";\n")}; set search_path to public;`);
@@ -21,24 +22,26 @@ const db: WithDb = (work) => work(client);
 
 const TOKEN = "nutrition-bot-token";
 const env = { BOT_TOKEN_NUTRITION: TOKEN, BOT_TOKEN_COACH: "coach-bot-token" } as Env;
+const SMOKE: Caller = { kind: "bot", bot: "smoke" };
 const HEADERS = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", accept: "application/json, text/event-stream" };
 const skill = await readFile(join(import.meta.dirname, "SKILL.md"), "utf-8");
 
 type Day = { date: string; closed: boolean; entries: { clientKey: string | null; qty: number }[]; checkIn: { bodyweightLb: number | null } };
 type CallResult = { isError?: boolean; content: { text: string }[]; structuredContent?: Record<string, unknown> };
 
-async function post(body: unknown, headers: Record<string, string> = HEADERS, method = "POST"): Promise<Response> {
+async function post(body: unknown, headers: Record<string, string> = HEADERS, method = "POST", caller: Caller = { kind: "local" }): Promise<Response> {
 	return await api(new Request("https://tools.test/api/tools/nutrition/mcp", { method, headers, body: method === "POST" ? JSON.stringify(body) : undefined }), {
 		env,
 		ctx: { waitUntil() {} } as never,
 		path: "/mcp",
 		db,
-		caller: { kind: "local" },
+		caller,
 	});
 }
 
-async function call(name: string, args: Record<string, unknown>): Promise<CallResult> {
-	const response = await post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+async function call(name: string, args: Record<string, unknown>, caller?: Caller): Promise<CallResult> {
+	const headers = caller === undefined ? HEADERS : { "content-type": HEADERS["content-type"], accept: HEADERS.accept };
+	const response = await post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, headers, "POST", caller);
 	expect(response.status).toBe(200);
 	return ((await response.json()) as { result: CallResult }).result;
 }
@@ -116,4 +119,40 @@ test("transport errors are HTTP statuses the bot can tell apart", async () => {
 		textBody: (await post(list, { ...HEADERS, "content-type": "text/plain" })).status,
 	};
 	expect(statuses).toEqual({ noBearer: 401, coachToken: 403, get: 405, noAccept: 406, textBody: 415 });
+});
+
+async function rowsOn(date: string): Promise<number> {
+	const { rows } = await pg.query<{ n: number }>(
+		"select (select count(*) from nutrition.days where day = $1) + (select count(*) from nutrition.food_entries where day = $1) + (select count(*) from nutrition.weigh_ins where measured_on = $1) as n",
+		[date],
+	);
+	return Number(rows[0]?.n);
+}
+
+test("the smoke identity works only on test days and cleans up after itself", async () => {
+	const listed = (await (await post({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { "content-type": HEADERS["content-type"], accept: HEADERS.accept }, "POST", SMOKE)).json()) as { result: { tools: { name: string }[] } };
+	expect(listed.result.tools.map((tool) => tool.name).toSorted()).toEqual(["discard_test_day", "get_phase_summary", "log_food", "update_day", "update_targets"]);
+	expect((await call("discard_test_day", { date: "2099-03-01" })).content[0]?.text).toContain("Tool discard_test_day not found");
+
+	for (const [name, args] of [
+		["update_day", {}],
+		["update_day", { date: "2026-11-22", bodyweight_lb: 180 }],
+		["log_food", { date: "2098-12-31", add: [yogurt] }],
+		["get_phase_summary", {}],
+	] as const) {
+		const refused = await call(name, args, SMOKE);
+		expect({ name, args, isError: refused.isError, text: refused.content[0]?.text }).toEqual({ name, args, isError: true, text: expect.stringContaining("The smoke identity only works on test days, 2099-01-01 or later") });
+	}
+	const targets = await call("update_targets", { effective_from: "2099-03-01", kcal: { min: 1, max: 2 }, protein_g: { min: 1, max: 2 }, fat_g: { min: 1, max: 2 }, carbs_g: { min: 1, max: 2 }, change: "smoke" }, SMOKE);
+	expect(targets.content[0]?.text).toBe("The smoke identity can't call update_targets: it changes more than one test day.");
+	expect(await rowsOn("2026-11-22")).toBe(0);
+	expect((await pg.query("select 1 from nutrition.plan_versions where effective_from = '2099-03-01'")).rows).toEqual([]);
+
+	await call("log_food", { date: "2099-03-01", add: [{ ...yogurt, client_key: "smoke:1" }] }, SMOKE);
+	await call("update_day", { date: "2099-03-01", bodyweight_lb: 180, closed: true }, SMOKE);
+	expect(await rowsOn("2099-03-01")).toBe(3);
+	const discarded = await call("discard_test_day", { date: "2099-03-01" }, SMOKE);
+	expect(discarded.structuredContent).toEqual({ date: "2099-03-01", liaisonDeliveries: 0, deliveries: 0, entries: 1, weighIns: 1, days: 1 });
+	expect(await rowsOn("2099-03-01")).toBe(0);
+	expect((await call("discard_test_day", { date: "2026-11-22" }, SMOKE)).content[0]?.text).toContain("only works on test days");
 });

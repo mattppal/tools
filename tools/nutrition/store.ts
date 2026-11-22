@@ -471,3 +471,19 @@ export async function getSteps(client: Database): Promise<StepsRow[]> {
 		target: numOrNull(row["target"]),
 	}));
 }
+
+export const TEST_DAYS_FROM = "2099-01-01";
+
+export type Discarded = { date: string; liaisonDeliveries: number; deliveries: number; entries: number; weighIns: number; days: number };
+
+export async function discardTestDay(client: Database, date: string): Promise<Discarded> {
+	if (date < TEST_DAYS_FROM) throw new Rejected(`Only test days (${TEST_DAYS_FROM} or later) can be discarded, not ${date}.`);
+	return transaction(client, async () => {
+		const liaison = await client.query("delete from liaison.deliveries where delivery_id in (select delivery_id from nutrition.deliveries where day = $1)", [date]);
+		const deliveries = await client.query("delete from nutrition.deliveries where day = $1", [date]);
+		const entries = await client.query("delete from nutrition.food_entries where day = $1", [date]);
+		const weighIns = await client.query("delete from nutrition.weigh_ins where measured_on = $1", [date]);
+		const days = await client.query("delete from nutrition.days where day = $1", [date]);
+		return { date, liaisonDeliveries: liaison.rowCount ?? 0, deliveries: deliveries.rowCount ?? 0, entries: entries.rowCount ?? 0, weighIns: weighIns.rowCount ?? 0, days: days.rowCount ?? 0 };
+	});
+}

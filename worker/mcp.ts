@@ -12,6 +12,7 @@ export type McpTool<Input extends z.ZodObject = z.ZodObject> = {
 	description: string;
 	input: Input;
 	readOnly?: boolean;
+	bots?: readonly BotName[];
 	run: (args: z.infer<Input>, context: McpToolContext) => Promise<unknown>;
 };
 
@@ -31,18 +32,22 @@ function failure(message: string): CallToolResult {
 	return { content: [{ type: "text", text: message }], isError: true };
 }
 
-export function toolMcp({ name, tools }: { name: string; tools: readonly McpTool[] }) {
+export type McpScope = (bot: BotName, tool: McpTool, args: Record<string, unknown>) => string | null;
+
+export function toolMcp({ name, tools, scope = () => null }: { name: string; tools: readonly McpTool[]; scope?: McpScope }) {
 	return async (request: Request, context: ToolApiContext): Promise<Response> => {
 		if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405, headers: { allow: "POST" } });
 		const bot = await requireBot(request, context, name);
 		if (bot instanceof Response) return bot;
 
 		const server = new McpServer({ name: `tools-${name}`, version: "1.0.0" });
-		for (const tool of tools) {
+		for (const tool of tools.filter((candidate) => candidate.bots === undefined || candidate.bots.includes(bot))) {
 			server.registerTool(
 				tool.name,
 				{ description: tool.description, inputSchema: tool.input, annotations: { readOnlyHint: tool.readOnly ?? false } },
 				async (args: unknown) => {
+					const refused = scope(bot, tool, args as Record<string, unknown>);
+					if (refused !== null) return failure(refused);
 					try {
 						return result(await tool.run(args as z.infer<typeof tool.input>, { ...context, bot }));
 					} catch (error) {

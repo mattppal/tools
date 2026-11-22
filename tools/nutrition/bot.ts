@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { defineMcpTool, McpToolError, toolMcp } from "../../worker/mcp.ts";
+import { defineMcpTool, type McpScope, McpToolError, toolMcp } from "../../worker/mcp.ts";
 import { today } from "./dates.ts";
 import { dayUpdate, foodChanges, isoDate, targetsInput } from "./schemas.ts";
-import { addTargets, changeFood, getDay, getPhase, Rejected, updateDay } from "./store.ts";
+import { addTargets, changeFood, discardTestDay, getDay, getPhase, Rejected, TEST_DAYS_FROM, updateDay } from "./store.ts";
 
 const date = isoDate.optional().describe("Defaults to today in Matt's time zone");
 
@@ -15,8 +15,17 @@ async function asTool<T>(work: () => Promise<T>): Promise<T> {
 	}
 }
 
+const testDaysOnly: McpScope = (bot, tool, args) => {
+	if (bot !== "smoke") return null;
+	if (!("date" in tool.input.shape)) return `The smoke identity can't call ${tool.name}: it changes more than one test day.`;
+	const day = args["date"];
+	if (typeof day !== "string" || day < TEST_DAYS_FROM) return `The smoke identity only works on test days, ${TEST_DAYS_FROM} or later. Send a date on or after ${TEST_DAYS_FROM}${typeof day === "string" ? `, not ${day}` : ""}.`;
+	return null;
+};
+
 export const nutritionMcp = toolMcp({
 	name: "nutrition",
+	scope: testDaysOnly,
 	tools: [
 		defineMcpTool({
 			name: "log_food",
@@ -49,6 +58,13 @@ export const nutritionMcp = toolMcp({
 					const on = day ?? today();
 					return { phase: await getPhase(client, on), day: await getDay(client, on) };
 				}),
+		}),
+		defineMcpTool({
+			name: "discard_test_day",
+			description: `Delete everything on one test day (${TEST_DAYS_FROM} or later): its deliveries, food entries, weigh-ins, and the day itself. Only the smoke bot sees this tool.`,
+			input: z.strictObject({ date: isoDate }),
+			bots: ["smoke"],
+			run: ({ date: day }, { db }) => asTool(() => db((client) => discardTestDay(client, day))),
 		}),
 	],
 });
