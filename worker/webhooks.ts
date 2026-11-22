@@ -11,6 +11,7 @@ const BACKOFF_MINUTES = [1, 2, 4, 8, 16, 32, 60] as const;
 const CLAIM_MINUTES = 5;
 const BATCH_SIZE = 20;
 const SEND_TIMEOUT_MS = 10_000;
+const ERROR_DETAIL_CHARS = 200;
 
 export function defineWebhook(webhook: Webhook): Webhook {
 	return webhook;
@@ -28,8 +29,12 @@ export async function sendWebhook(target: WebhookTarget, deliveryId: string, pay
 			body: JSON.stringify(payload),
 			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
 		});
-		await response.body?.cancel();
-		return { status: response.status, error: response.ok ? null : `HTTP ${response.status}` };
+		if (response.ok) {
+			await response.body?.cancel();
+			return { status: response.status, error: null };
+		}
+		const detail = (await response.text().catch(() => "")).replaceAll(target.authorization, "[key]").replace(/\s+/g, " ").trim().slice(0, ERROR_DETAIL_CHARS);
+		return { status: response.status, error: detail === "" ? `HTTP ${response.status}` : `HTTP ${response.status}: ${detail}` };
 	} catch (error) {
 		return { status: null, error: error instanceof Error ? error.message : String(error) };
 	}

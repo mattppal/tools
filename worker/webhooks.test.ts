@@ -18,11 +18,12 @@ const db: WithDb = (work) => work({ query: (text: string, values?: unknown[]) =>
 
 const received: { authorization: string | null; delivery: string | null; body: unknown }[] = [];
 let respondWith = 200;
+let respondBody: string | null = null;
 const server = Bun.serve({
 	port: 0,
 	async fetch(request) {
 		received.push({ authorization: request.headers.get("authorization"), delivery: request.headers.get("x-test-delivery"), body: await request.json() });
-		return new Response(null, { status: respondWith });
+		return new Response(respondBody, { status: respondWith });
 	},
 });
 afterAll(() => server.stop(true));
@@ -45,6 +46,7 @@ async function row() {
 beforeEach(async () => {
 	received.length = 0;
 	respondWith = 200;
+	respondBody = null;
 	await pg.exec("delete from hooks.deliveries");
 	await pg.query("insert into hooks.deliveries (delivery_id, payload, next_attempt_at) values ($1, $2, now() + interval '1 minute')", [ID, { event: "test", deliveryId: ID }]);
 });
@@ -77,6 +79,15 @@ test("retries a failed delivery with the same delivery id until a 2xx", async ()
 	await pg.exec("update hooks.deliveries set next_attempt_at = now()");
 	expect(await deliverDue(db, webhook, env)).toBe(0);
 	expect(received).toHaveLength(3);
+});
+
+test("keeps the start of a rejection body with the key masked", async () => {
+	respondWith = 401;
+	respondBody = `{"error":"invalid key",\n "got":"${KEY}"}`;
+	await deliverDue(db, webhook, env, [ID]);
+	expect(await row()).toMatchObject({ last_status: 401 });
+	const { last_error } = (await pg.query<{ last_error: string }>("select last_error from hooks.deliveries where delivery_id = $1", [ID])).rows[0] ?? { last_error: "" };
+	expect(last_error).toBe('HTTP 401: {"error":"invalid key", "got":"[key]"}');
 });
 
 test("waits without a target", async () => {
