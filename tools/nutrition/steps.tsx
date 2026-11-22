@@ -6,9 +6,9 @@ import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import { today } from "./dates.ts";
 import { type Bucket, type Bucketing, bucketDays, GROUPINGS, type Grouping, parseGrouping, snapRange } from "./groups.ts";
 import styles from "./nutrition.module.css";
-import { AverageControls, averageTrend, type Column, longDate, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, seriesColumns, type SummaryItem, useSeriesRange } from "./series.tsx";
+import { AverageControls, averageTrend, type Column, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, seriesColumns, type SummaryItem, useSeriesRange } from "./series.tsx";
 import type { StepsRow } from "./types.ts";
-import { useJson, VIEWS, whole } from "./ui.tsx";
+import { dayLabel, useJson, VIEWS, whole } from "./ui.tsx";
 import { changeTone, type DateRange, inRange, previousRange, type SeriesRow, toneStrength, withChanges } from "./weights.ts";
 
 const STEP_TICK = 2000;
@@ -31,11 +31,7 @@ const plural = (count: number, word: string) => `${whole(count)} ${count === 1 ?
 function stepsDetail(targets: Map<string, number | null>) {
 	return (row: SeriesRow): string[] => {
 		const target = targets.get(row.date) ?? null;
-		return [
-			longDate(row.date),
-			`${whole(row.value)} steps`,
-			target === null ? "No target that day" : row.value >= target ? `Met the ${whole(target)} target` : `${whole(target - row.value)} short of ${whole(target)}`,
-		];
+		return [`Steps · ${dayLabel(row.date)}`, target === null ? whole(row.value) : `${whole(row.value)} of ${whole(target)}`];
 	};
 }
 
@@ -58,8 +54,6 @@ function bucketLabel(bucket: Bucket, bucketing: Bucketing, long: boolean): strin
 	}
 }
 
-const bucketAverage = (bucket: Bucket) => `${whole(bucket.value)} avg \u00b7 ${plural(bucket.days, "day")}`;
-
 function bucketSeries(bucketing: Bucketing): SeriesStyle<Bucket> {
 	return {
 		...STEPS,
@@ -67,9 +61,9 @@ function bucketSeries(bucketing: Bucketing): SeriesStyle<Bucket> {
 		unit: "steps a day",
 		label: (bucket) => bucketLabel(bucket, bucketing, false),
 		detail: (bucket) => [
-			`${bucketLabel(bucket, bucketing, true)}${bucket.partial ? " \u00b7 partial" : ""}`,
-			bucketAverage(bucket),
-			...(bucket.targeted === 0 ? [] : [`At target ${whole(bucket.met)} of ${plural(bucket.targeted, "day")}`]),
+			`Steps · ${bucketLabel(bucket, bucketing, true)}`,
+			`${whole(bucket.value)} a day`,
+			...(bucket.targeted === 0 ? [] : [`${whole(bucket.met)} of ${plural(bucket.targeted, "day")} at target`]),
 		],
 	};
 }

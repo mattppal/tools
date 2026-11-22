@@ -29,27 +29,10 @@
 	--fill: var(--change-bad);
 }
 
-.barTop {
-	display: flex;
-	justify-content: space-between;
-	gap: var(--space-2);
+.barLabel {
 	font-size: var(--text-xs);
 	line-height: var(--leading-xs);
-}
-
-.barLabel {
 	color: var(--text-2);
-}
-
-.barStatus {
-	color: var(--text-3);
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
-}
-
-.bar[data-status="in"] .barStatus,
-.bar[data-status="over"] .barStatus {
-	color: var(--fill);
 }
 
 .barValue {

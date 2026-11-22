@@ -72,15 +72,8 @@ function RecoveryCard({ data, onOpenWeek }: { data: HistoryTimeline; onOpenWeek:
 type StripWeek = TimelineWeek & { label: string; blockName: string };
 type Active = { key: string; via: "hover" | "focus" | "touch" };
 
-function loggedWords(week: TimelineWeek, ahead: boolean): string {
-	if (ahead && week.done === 0) return week.planned > 0 ? `${plural(week.planned, "session")} planned` : "Nothing planned yet";
-	if (week.planned === 0) return `${plural(week.done, "session")} logged`;
-	return week.done <= week.planned ? `${week.done} of ${week.planned} logged` : `${week.done} logged, ${week.planned} planned`;
-}
-
-function tipWords(week: StripWeek, data: HistoryTimeline): string[] {
-	const ahead = week.start > data.today;
-	return [loggedWords(week, ahead), week.deload ? "Deload week" : week.recovery ? "Recovery week" : null, week.key === data.currentWeek ? "This week" : ahead ? "Ahead" : null].filter((part) => part !== null);
+function sessionsValue(week: TimelineWeek): string {
+	return week.planned === 0 ? plural(week.done, "session") : `${week.done} of ${plural(week.planned, "session")}`;
 }
 
 function Strip({ data, onOpenWeek }: { data: HistoryTimeline; onOpenWeek: (key: string) => void }) {
@@ -143,7 +136,7 @@ function Strip({ data, onOpenWeek }: { data: HistoryTimeline; onOpenWeek: (key: 
 										type="button"
 										tabIndex={week.key === rover ? 0 : -1}
 										className={styles.stripWeek}
-										aria-label={`${week.blockName}, ${week.label}, ${formatRange(week.start, week.end)}: ${tipWords(week, data).join(", ")}`}
+										aria-label={`${week.blockName}, ${week.label}, ${formatRange(week.start, week.end)}: ${sessionsValue(week)}`}
 										data-ahead={ahead ? "" : undefined}
 										data-recovery={week.deload || week.recovery ? "" : undefined}
 										data-current={week.key === data.currentWeek ? "" : undefined}
@@ -186,8 +179,7 @@ function Strip({ data, onOpenWeek }: { data: HistoryTimeline; onOpenWeek: (key: 
 					<span className={styles.stripTipTitle}>
 						{shown.label} · {formatRange(shown.start, shown.end)}
 					</span>
-					<span>{tipWords(shown, data).join(" · ")}</span>
-					{active?.via === "touch" ? <span className={styles.stripTipBlock}>Tap again to open</span> : null}
+					<span>{sessionsValue(shown)}</span>
 				</div>
 			)}
 		</div>

@@ -62,40 +62,19 @@ function goTo(date: string) {
 	navigate(date === today() ? "/nutrition" : `/nutrition?date=${date}`);
 }
 
-function dayState(day: DayView): string {
-	return [day.closed ? "Closed" : "Open", day.estimated ? "estimated totals" : null].filter(Boolean).join(", ");
-}
-
-function stepsTip(day: DayView, steps: number): (string | null)[] {
-	const target = day.targets?.stepsTarget ?? null;
-	return [
-		`Steps · ${dayLabel(day.date)}`,
-		`${whole(steps)} steps`,
-		target === null ? "No steps target in the plan" : steps < target ? `${whole(target - steps)} short of ${whole(target)}` : `${whole(steps - target)} over the ${whole(target)} target`,
-	];
+function stepsValue(steps: number, target: number | null): string {
+	return target === null ? whole(steps) : `${whole(steps)} of ${whole(target)}`;
 }
 
 function StepsLine({ day }: { day: DayView }) {
 	const { steps } = day.checkIn;
 	if (steps === null) return null;
 	const target = day.targets?.stepsTarget ?? null;
-	const text = target === null ? `${whole(steps)} steps` : `${whole(steps)} steps · ${steps < target ? `${whole(target - steps)} to go` : "target met"}`;
 	return (
-		<Inspect className={styles.barFootnote} tip={<TipLines lines={stepsTip(day, steps)} />}>
-			{text}
+		<Inspect className={styles.barFootnote} tip={<TipLines lines={[`Steps · ${dayLabel(day.date)}`, stepsValue(steps, target)]} />}>
+			{stepsValue(steps, target)} steps
 		</Inspect>
 	);
-}
-
-function macroTip(day: DayView, label: string, unit: string, progress: MacroProgress): (string | null)[] {
-	const { total, min, max, status } = progress;
-	const suffix = unit === "" ? "" : ` ${unit}`;
-	return [
-		`${label} · ${dayLabel(day.date)}`,
-		`${whole(total)} of ${whole(min)}–${whole(max)}${suffix}`,
-		status === "under" ? `${whole(min - total)}${suffix} to the low end` : status === "over" ? `${whole(total - max)}${suffix} over the top` : `In range, ${whole(max - total)}${suffix} below the top`,
-		dayState(day),
-	];
 }
 
 type BarProps = { day: DayView; label: string; unit: string; progress: MacroProgress; children?: ReactNode };
@@ -105,14 +84,11 @@ function Bar({ day, label, unit, progress, children }: BarProps) {
 	const scale = Math.max(max * 1.15, total, 1);
 	const at = (value: number) => Math.min(value / scale, 1);
 	const suffix = unit === "" ? "" : ` ${unit}`;
-	const text = status === "under" ? `${whole(min - total)}${suffix} to go` : status === "over" ? `+${whole(total - max)}${suffix} over` : "in range";
+	const value = `${whole(total)} of ${whole(min)}–${whole(max)}${suffix}`;
 	return (
 		<div className={styles.bar} data-status={status}>
-			<Inspect className={styles.barInspect} tip={<TipLines lines={macroTip(day, label, unit, progress)} />}>
-				<div className={styles.barTop}>
-					<span className={styles.barLabel}>{label}</span>
-					<span className={styles.barStatus}>{text}</span>
-				</div>
+			<Inspect className={styles.barInspect} tip={<TipLines lines={[`${label} · ${dayLabel(day.date)}`, value]} />}>
+				<div className={styles.barLabel}>{label}</div>
 				<div className={styles.barValue}>
 					{whole(total)}
 					<span className={styles.barTarget}>
@@ -121,7 +97,7 @@ function Bar({ day, label, unit, progress, children }: BarProps) {
 						{suffix}
 					</span>
 				</div>
-				<div className={styles.track} role="meter" aria-label={`${label}, ${text}`} aria-valuemin={0} aria-valuemax={max} aria-valuenow={total}>
+				<div className={styles.track} role="meter" aria-label={`${label}, ${value}`} aria-valuemin={0} aria-valuemax={max} aria-valuenow={total}>
 					<div className={styles.band} style={{ left: `${at(min) * 100}%`, width: `${(at(max) - at(min)) * 100}%` }} />
 					<div className={styles.fill} style={{ transform: `scaleX(${at(total)})` }} />
 				</div>
@@ -160,9 +136,9 @@ function DaySummary({ day }: { day: DayView }) {
 					))}
 				</div>
 			)}
-			{checkIn.length === 0 && day.checkIn.notes === "" && !day.closed && !day.estimated ? null : (
+			{checkIn.length === 0 && day.checkIn.notes === "" ? null : (
 				<p className={styles.checkIn}>
-					{[day.closed ? "Closed" : null, day.estimated ? "Estimated totals" : null, ...checkIn].filter(Boolean).join(" · ")}
+					{checkIn.join(" · ")}
 					{day.checkIn.notes === "" ? null : <span className={styles.checkInNotes}>{day.checkIn.notes}</span>}
 				</p>
 			)}

@@ -5,7 +5,7 @@ import { Link } from "../../src/router.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
 import { Inspect, TipLines } from "./inspect.tsx";
-import { type HistoryDay, PARTIAL_DAY_SHARE, type Range } from "./types.ts";
+import type { HistoryDay, Range } from "./types.ts";
 import { dayLabel, useJson, VIEWS, whole } from "./ui.tsx";
 
 const FILTERS = [
@@ -40,7 +40,6 @@ function dayMeta(day: HistoryDay): string {
 	const parts = [day.entries === 0 ? "Check-in only" : `${day.entries} ${day.entries === 1 ? "entry" : "entries"}`];
 	if (day.partial) parts.push("Partial");
 	if (day.steps !== null) parts.push(`${whole(day.steps)} steps`);
-	if (!day.closed) parts.push("Open");
 	return parts.join(" · ");
 }
 
@@ -50,21 +49,11 @@ function kcalStatus(kcal: number, range: Range): Status {
 	return kcal < range.min ? "under" : kcal > range.max ? "over" : "in";
 }
 
-function kcalTip(day: HistoryDay, range: Range): (string | null)[] {
-	const status = kcalStatus(day.kcal, range);
-	return [
-		dayLabel(day.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" }),
-		`${whole(day.kcal)} of ${whole(range.min)}–${whole(range.max)} kcal`,
-		status === "under" ? `${whole(range.min - day.kcal)} under the low end` : status === "over" ? `${whole(day.kcal - range.max)} over the top` : "In range",
-		day.partial ? `Partial, under ${PARTIAL_DAY_SHARE * 100}% of target, so averages skip it` : day.closed ? "Logged and closed" : "Open",
-	];
-}
-
 function DayMeter({ day, range }: { day: HistoryDay; range: Range }) {
 	const scale = Math.max(range.max * 1.15, day.kcal, 1);
 	const at = (value: number) => Math.min(value / scale, 1);
 	return (
-		<Inspect className={styles.dayMeter} data-status={kcalStatus(day.kcal, range)} tip={<TipLines lines={kcalTip(day, range)} />}>
+		<Inspect className={styles.dayMeter} data-status={kcalStatus(day.kcal, range)} tip={<TipLines lines={[`Kcal · ${dayLabel(day.date)}`, `${whole(day.kcal)} of ${whole(range.min)}–${whole(range.max)}`]} />}>
 			<div className={styles.track} role="meter" aria-label={`${whole(day.kcal)} of ${whole(range.min)} to ${whole(range.max)} kcal`} aria-valuemin={0} aria-valuemax={range.max} aria-valuenow={day.kcal}>
 				<div className={styles.band} style={{ left: `${at(range.min) * 100}%`, width: `${(at(range.max) - at(range.min)) * 100}%` }} />
 				<div className={styles.fill} style={{ transform: `scaleX(${at(day.kcal)})` }} />

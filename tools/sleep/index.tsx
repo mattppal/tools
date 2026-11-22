@@ -245,7 +245,7 @@ function NightsChart({ nights, selected, onSelect }: { nights: Night[]; selected
 					{nights.length > 1 ? <path d={line} className={styles.average} /> : null}
 					{shown === undefined ? null : (
 						<text x={CHART_PAD.left} y={11} className={styles.chartLabel}>
-							{dayLabel(shown.date)}, {duration(shown.asleepS)}
+							Asleep · {dayLabel(shown.date)} · {duration(shown.asleepS)}
 						</text>
 					)}
 					<text x={CHART_PAD.left} y={CHART_HEIGHT - 4} className={styles.axis}>

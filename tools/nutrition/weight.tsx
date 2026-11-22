@@ -58,9 +58,8 @@ function calibrationSpans(spent: ExpenditureView): string {
 	return [...new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to)))].join(", ");
 }
 
-function basisNote(spent: ExpenditureView): string {
-	const margin = spent.plusMinus === null ? "" : `\u00b1 ${whole(spent.plusMinus)} \u00b7 `;
-	return spent.basis === "calibrated" ? `${margin}calibrated on ${calibrationSpans(spent)}` : `${margin}from steps and training`;
+function margin(spent: ExpenditureView): string | undefined {
+	return spent.plusMinus === null ? undefined : `\u00b1 ${whole(spent.plusMinus)}`;
 }
 
 function calibrationSentence(spent: ExpenditureView): string {
@@ -76,9 +75,9 @@ function calibrationSentence(spent: ExpenditureView): string {
 }
 
 function dayDetail(day: ExpenditureView["days"][number]): string {
-	const parts = [day.stepCount === null ? "Steps estimated" : `${whole(day.stepCount)} steps`, ...day.sessions.map((item) => `${capitalized(item.name)} ${whole(item.kcal)}`)];
+	const parts = [day.stepCount === null ? null : `${whole(day.stepCount)} steps`, ...day.sessions.map((item) => `${capitalized(item.name)} ${whole(item.kcal)}`)];
 	if (day.intake !== null) parts.push(`ate ${whole(day.intake)}`);
-	return parts.join(" \u00b7 ");
+	return parts.filter((part) => part !== null).join(" \u00b7 ");
 }
 
 function ExpenditurePanel({ spent }: { spent: ExpenditureView }) {
@@ -94,7 +93,7 @@ function ExpenditurePanel({ spent }: { spent: ExpenditureView }) {
 				<p className={styles.spentValue}>
 					{whole(spent.tdee)} <span className={styles.spentUnit}>kcal a day</span>
 				</p>
-				<p className={styles.spentNote}>{basisNote(spent)}</p>
+				{spent.plusMinus === null ? null : <p className={styles.spentNote}>{margin(spent)}</p>}
 			</div>
 			<p className={styles.spentBasis}>
 				{spent.basis === "calibrated"
@@ -154,10 +153,10 @@ function Summary({ rows, average, phaseKind, spent, onBreakdown }: { rows: Serie
 			: [
 					spent.tdee === null
 						? { label: "Expenditure", value: "No recent weigh-ins" }
-						: { label: "Expenditure", value: `${whole(spent.tdee)} kcal a day`, note: basisNote(spent), onClick: onBreakdown },
+						: { label: "Expenditure", value: `${whole(spent.tdee)} kcal a day`, note: margin(spent), onClick: onBreakdown },
 					...(spent.measured === null
 						? []
-						: [{ label: "Measured", value: `${whole(spent.measured.tdee)} kcal a day`, note: `\u00b1 ${whole(spent.measured.plusMinus)} \u00b7 ${whole(spent.measured.loggedDays)} logged days` }]),
+						: [{ label: "Measured", value: `${whole(spent.measured.tdee)} kcal a day`, note: `\u00b1 ${whole(spent.measured.plusMinus)}` }]),
 					...(spent.avgSteps === null ? [] : [{ label: "Steps", value: `${whole(spent.avgSteps)} a day` }]),
 				];
 	return (
