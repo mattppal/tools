@@ -25,8 +25,8 @@ const env = { BOT_TOKEN_APPLE_HEALTH: TOKEN, BOT_TOKEN_NUTRITION: "nutrition-tok
 const api = activityApi(async () => Response.json({}));
 const ctx = {} as ExecutionContext;
 
-function post(body: string, authorization: string | null = `Bearer ${TOKEN}`, path = "/apple-health"): Promise<Response> {
-	const headers: Record<string, string> = { "content-type": "application/json", "automation-name": "Tools sleep", "session-id": "session-1" };
+function post(body: string, authorization: string | null = `Bearer ${TOKEN}`, path = "/apple-health", aggregation = "Default"): Promise<Response> {
+	const headers: Record<string, string> = { "content-type": "application/json", "automation-name": "Tools sleep", "session-id": "session-1", "automation-aggregation": aggregation };
 	if (authorization !== null) headers["authorization"] = authorization;
 	return Promise.resolve(api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`, { method: "POST", headers, body }), { env, ctx, path, db, caller: { kind: "local" } }));
 }
@@ -291,4 +291,54 @@ test("a body over the size limit is a 413 that says to batch, before anything is
 	);
 	expect(response.status).toBe(413);
 	expect(((await response.json()) as { error: string }).error).toContain("Batch Requests");
+});
+
+const perSecond = (metric: string, units: string, from: string, seconds: number, qty: number) => ({
+	name: metric,
+	units,
+	data: Array.from({ length: seconds }, (_, index) => {
+		const at = new Date(Date.parse(from) + index * 1000 - 8 * 3600_000).toISOString().slice(0, 19).replace("T", " ");
+		return { date: `${at} -0800`, qty };
+	}),
+});
+
+const dailySteps = async () =>
+	rows(`select (measured_at at time zone 'UTC' + make_interval(mins => utc_offset_min))::date::text as day, metric, round(sum(qty), 6)::float8 as total
+		from activity.apple_health_samples group by 1, 2 order by 1, 2`);
+
+test("per-second steps and distance compact into hourly rows with the same daily totals, and hourly summaries replace leftovers", async () => {
+	const seconds = { data: { metrics: [perSecond("step_count", "count", "2026-11-21T07:59:30Z", 90, 0.25), perSecond("walking_running_distance", "km", "2026-11-21T23:59:50Z", 20, 0.001)] } };
+	expect(await (await post(JSON.stringify(seconds))).json()).toMatchObject({ received: { samples: 110 }, changed: { samples: 110 } });
+	const before = await dailySteps();
+	expect(before).toEqual([
+		{ day: "2026-11-20", metric: "step_count", total: 7.5 },
+		{ day: "2026-11-21", metric: "step_count", total: 15 },
+		{ day: "2026-11-21", metric: "walking_running_distance", total: 0.02 },
+	]);
+	const daysBefore = await rows("select day::text, source, steps from activity.days order by day, source");
+
+	await pg.exec(`set search_path to activity; ${await readFile(join(migrationsDir, "0006-hourly-step-distance.sql"), "utf-8")}; set search_path to public;`);
+	expect(await dailySteps()).toEqual(before);
+	expect(await rows("select metric, measured_at::text, ended_at::text, round(qty, 6)::float8 as qty from activity.apple_health_samples order by metric, measured_at")).toEqual([
+		{ metric: "step_count", measured_at: "2026-11-21 07:00:00+00", ended_at: "2026-11-21 08:00:00+00", qty: 7.5 },
+		{ metric: "step_count", measured_at: "2026-11-21 08:00:00+00", ended_at: "2026-11-21 09:00:00+00", qty: 15 },
+		{ metric: "walking_running_distance", measured_at: "2026-11-21 23:00:00+00", ended_at: "2026-11-22 00:00:00+00", qty: 0.01 },
+		{ metric: "walking_running_distance", measured_at: "2026-11-22 00:00:00+00", ended_at: "2026-11-22 01:00:00+00", qty: 0.01 },
+	]);
+	expect(await rows("select day::text, source, steps from activity.days order by day, source")).toEqual(daysBefore);
+
+	await post(JSON.stringify(seconds));
+	expect(await rows("select count(*)::int as n from activity.apple_health_samples")).toEqual([{ n: 4 }]);
+
+	const hourly = { data: { metrics: [{ name: "step_count", units: "count", data: [{ date: "2026-11-21 00:00:00 -0800", qty: 40 }] }] } };
+	await post(JSON.stringify({ data: { metrics: [perSecond("step_count", "count", "2026-11-21T08:10:00Z", 5, 1)] } }));
+	expect(await (await post(JSON.stringify(hourly), `Bearer ${TOKEN}`, "/apple-health", "hours")).json()).toMatchObject({ changed: { samples: 1 } });
+	expect(await rows("select measured_at::text, ended_at::text, qty::float8 from activity.apple_health_samples where metric = 'step_count' order by measured_at")).toEqual([
+		{ measured_at: "2026-11-21 07:00:00+00", ended_at: "2026-11-21 08:00:00+00", qty: 7.5 },
+		{ measured_at: "2026-11-21 08:00:00+00", ended_at: "2026-11-21 09:00:00+00", qty: 40 },
+	]);
+	expect(await rows("select day::text, steps from activity.days where source = 'apple_health' order by day")).toEqual([
+		{ day: "2026-11-20", steps: 8 },
+		{ day: "2026-11-21", steps: 40 },
+	]);
 });

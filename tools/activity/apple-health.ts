@@ -14,6 +14,7 @@ const MAX_PENDING_CHARS = 8_000_000;
 const DAY_METRICS = new Set(["step_count", "walking_running_distance", "active_energy", "basal_energy_burned"]);
 const BASE_KEYS = new Set(["date", "start", "end", "startDate", "endDate", "qty", "Min", "Avg", "Max", "source"]);
 export const TOO_LARGE = "This request is too large for one Worker call. Turn on Batch Requests in Health Auto Export, or upload a shorter date range.";
+const HOURLY = /hour/i;
 const SUMMARIZED_SLEEP = "Sleep arrived summarized, so the Sleep page has no stages for it. Turn Summarize Data off in the Health Metrics automation.";
 const DATE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)? ?([+-])(\d{2}):?(\d{2})$/;
 const METRES: Record<string, number> = { m: 1, km: 1000, mi: 1609.344, yd: 0.9144, ft: 0.3048 };
@@ -115,7 +116,7 @@ function parseWorkout(item: Item, source: string): WorkoutRow | null {
 	};
 }
 
-function sampleRow(metric: string, units: string | null, source: string, item: Item): SampleRow | null {
+function sampleRow(metric: string, units: string | null, source: string, item: Item, hourly: boolean): SampleRow | null {
 	const at = parseDate(item["date"] ?? item["start"] ?? item["startDate"]);
 	if (at === null) return null;
 	const end = parseDate(item["end"] ?? item["endDate"]);
@@ -126,7 +127,7 @@ function sampleRow(metric: string, units: string | null, source: string, item: I
 		metric,
 		source,
 		measured: at.iso,
-		ended: end === null || end.ms === at.ms ? null : end.iso,
+		ended: hourly ? new Date(at.ms + 3600_000).toISOString() : end === null || end.ms === at.ms ? null : end.iso,
 		offset_min: at.offsetMin,
 		units,
 		...row,
@@ -142,15 +143,30 @@ const SLEEP_SQL = `insert into activity.apple_health_sleep (source, stage, start
 	on conflict (source, started_at, stage) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, updated_at = now()
 	where (activity.apple_health_sleep.ended_at, activity.apple_health_sleep.utc_offset_min) is distinct from (excluded.ended_at, excluded.utc_offset_min)`;
 
+const SAMPLE_RECORDS = `jsonb_to_recordset($1::jsonb) as r (metric text, source text, measured text, ended text, offset_min integer, units text, qty numeric, min numeric,
+		avg numeric, max numeric, extra jsonb)`;
+
+const HOUR_SUMMARY = (measured: string, ended: string) => `(${ended} = ${measured} + interval '1 hour' and date_trunc('hour', ${measured}, 'UTC') = ${measured})`;
+
 const SAMPLES_SQL = `insert into activity.apple_health_samples (metric, source, measured_at, ended_at, utc_offset_min, units, qty, min, avg, max, extra)
 	select r.metric, r.source, r.measured::timestamptz, r.ended::timestamptz, r.offset_min, r.units, r.qty, r.min, r.avg, r.max, r.extra
-	from jsonb_to_recordset($1::jsonb) as r (metric text, source text, measured text, ended text, offset_min integer, units text, qty numeric, min numeric,
-		avg numeric, max numeric, extra jsonb)
+	from ${SAMPLE_RECORDS}
+	where ${HOUR_SUMMARY("r.measured::timestamptz", "r.ended::timestamptz")} or not exists (
+		select 1 from activity.apple_health_samples s
+		where s.metric = r.metric and s.source in (r.source, '${UNKNOWN_SOURCE}') and s.measured_at = date_trunc('hour', r.measured::timestamptz, 'UTC')
+			and ${HOUR_SUMMARY("s.measured_at", "s.ended_at")})
 	on conflict (metric, source, measured_at) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, units = excluded.units,
 		qty = excluded.qty, min = excluded.min, avg = excluded.avg, max = excluded.max, extra = excluded.extra, updated_at = now()
 	where (activity.apple_health_samples.ended_at, activity.apple_health_samples.utc_offset_min, activity.apple_health_samples.units, activity.apple_health_samples.qty,
 		activity.apple_health_samples.min, activity.apple_health_samples.avg, activity.apple_health_samples.max, activity.apple_health_samples.extra)
 		is distinct from (excluded.ended_at, excluded.utc_offset_min, excluded.units, excluded.qty, excluded.min, excluded.avg, excluded.max, excluded.extra)`;
+
+const SUPERSEDED_SQL = `delete from activity.apple_health_samples s
+	using ${SAMPLE_RECORDS}
+	where ${HOUR_SUMMARY("r.measured::timestamptz", "r.ended::timestamptz")}
+		and s.metric = r.metric and s.source in (r.source, '${UNKNOWN_SOURCE}')
+		and s.measured_at >= r.measured::timestamptz and s.measured_at < r.ended::timestamptz
+		and not (s.source = r.source and s.measured_at = r.measured::timestamptz)`;
 
 const WORKOUTS_SQL = `insert into activity.apple_health_workouts (id, name, source, local_date, started_at, ended_at, duration_s, active_kcal, total_kcal, distance_m, elevation_m,
 		hr_avg, hr_min, hr_max, location, data)
@@ -210,7 +226,10 @@ class Ingest {
 	readonly changed: Tally = { sleep: 0, samples: 0, workouts: 0 };
 	readonly skipped: Skipped = { withings: 0, invalid: 0 };
 
-	constructor(private client: Database) {}
+	constructor(
+		private client: Database,
+		private hourly: boolean,
+	) {}
 
 	async take(events: HaeEvent[]): Promise<void> {
 		for (const event of events) {
@@ -283,7 +302,7 @@ class Ingest {
 			return;
 		}
 		if (name === "sleep_analysis") this.warnings.add(SUMMARIZED_SLEEP);
-		const row = sampleRow(name, units, source, item);
+		const row = sampleRow(name, units, source, item, this.hourly);
 		if (row === null) {
 			this.skipped.invalid++;
 			return;
@@ -310,7 +329,13 @@ class Ingest {
 
 	async flush(): Promise<void> {
 		this.changed.sleep += await this.write(SLEEP_SQL, this.sleep);
-		this.changed.samples += await this.write(SAMPLES_SQL, this.samples);
+		if (this.hourly && this.samples.size > 0) {
+			const records = JSON.stringify([...this.samples.values()]);
+			const { rowCount } = await this.client.query(SAMPLES_SQL, [records]);
+			await this.client.query(SUPERSEDED_SQL, [records]);
+			this.samples.clear();
+			this.changed.samples += rowCount ?? 0;
+		} else this.changed.samples += await this.write(SAMPLES_SQL, this.samples);
 		this.changed.workouts += await this.write(WORKOUTS_SQL, this.workouts);
 	}
 
@@ -344,7 +369,9 @@ class Ingest {
 	}
 }
 
-async function recordPush(client: Database, push: { automation: string; sessionId: string | null }, counts: IngestCounts): Promise<void> {
+export type Push = { automation: string; sessionId: string | null; aggregation: string | null };
+
+async function recordPush(client: Database, push: Push, counts: IngestCounts): Promise<void> {
 	await client.query(
 		`insert into activity.apple_health_pushes (automation, session_id, counts) values ($1, $2, $3)
 		on conflict (automation) do update set received_at = now(), session_id = excluded.session_id, counts = excluded.counts`,
@@ -355,10 +382,10 @@ async function recordPush(client: Database, push: { automation: string; sessionI
 export async function ingestAppleHealth(
 	client: Database,
 	body: ReadableStream<Uint8Array>,
-	push: { automation: string; sessionId: string | null },
+	push: Push,
 ): Promise<IngestResult> {
 	const scanner = new HaeScanner();
-	const ingest = new Ingest(client);
+	const ingest = new Ingest(client, HOURLY.test(push.aggregation ?? ""));
 	const decoder = new TextDecoder();
 	let bytes = 0;
 	try {

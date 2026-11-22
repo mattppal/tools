@@ -114,7 +114,7 @@ export function activityApi(fetcher: Fetch = fetch) {
 			if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return Response.json({ error: TOO_LARGE }, { status: 413, headers: NO_STORE });
 			const body = request.body;
 			if (body === null) return Response.json({ error: "Empty body" }, { status: 422, headers: NO_STORE });
-			const push = { automation: request.headers.get("automation-name") ?? "Health Auto Export", sessionId: request.headers.get("session-id") };
+			const push = { automation: request.headers.get("automation-name") ?? "Health Auto Export", sessionId: request.headers.get("session-id"), aggregation: request.headers.get("automation-aggregation") };
 			const result = await db((client) => ingestAppleHealth(client, body, push));
 			return result.ok ? Response.json(result.counts, { headers: NO_STORE }) : Response.json({ error: result.error }, { status: result.status, headers: NO_STORE });
 		}
