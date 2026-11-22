@@ -53,13 +53,13 @@ export const BOTS = {
 	},
 	"prints-review": {
 		serviceToken: "prints-review",
-		clientId: null,
+		clientId: "d0acd83d5a6ab3a29010e0c14b492dca.access",
 		bearer: null,
 		tools: { "x-posts": ["GET /feed", "GET /review", "POST /decisions"] },
 	},
 	"prints-bridge": {
 		serviceToken: "prints-bridge",
-		clientId: null,
+		clientId: "e794aceb6214e9dade024072a3322e0e.access",
 		bearer: null,
 		tools: { "x-posts": ["POST /jobs/claim", "POST /jobs/ack"] },
 	},
