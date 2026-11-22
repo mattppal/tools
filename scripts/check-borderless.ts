@@ -15,21 +15,30 @@ const INLINE_SHADOW = /\b(boxShadow|textShadow|box-shadow|text-shadow)\b|drop-sh
 const STYLE_TOKEN = /^--(border-width|border-color|shadow-(surface|raised|overlay)|focus-ring)$/;
 const EDGE_COLOR = /^(var\(--border-color\)|transparent)$/;
 const TOKEN_SHADOW = /^var\(--shadow-(surface|raised|overlay)\)$/;
+const ROW = /(^|[\s>+~])(tr|td|th|li|thead|tbody|tfoot)(?![\w-])|\.[\w-]*(row|Row|line|Line|entry|Entry|entries|Entries)(?![\w-])/;
+const TABLE_PART = /(^|[\s>+~.#:[\]])(tr|td|th|thead|tbody|tfoot)(?![\w-])/;
+const HORIZONTAL = /^border-(top|bottom|block)/;
+const ROW_CLASS = /(?<=["'`\s])(divide-[\w[\]()-]+|border-[tby](-[\w[\]()-]+)?)(?=["'`\s])/;
 
-type Declaration = { property: string; value: string; offset: number };
+type Declaration = { selector: string; property: string; value: string; offset: number };
 
 function declarations(source: string): Declaration[] {
 	const found: Declaration[] = [];
+	const selectors: string[] = [];
 	let start = 0;
 	for (let index = 0; index < source.length; index++) {
 		const char = source[index];
-		if (char === "{") start = index + 1;
-		else if (char === "}" || char === ";") {
+		if (char === "{") {
+			selectors.push(source.slice(start, index).trim());
+			start = index + 1;
+		} else if (char === "}" || char === ";") {
 			const text = source.slice(start, index);
 			const colon = text.indexOf(":");
 			if (colon !== -1 && !text.trim().startsWith("@")) {
-				found.push({ property: text.slice(0, colon).trim().toLowerCase(), value: text.slice(colon + 1).trim(), offset: start + text.length - text.trimStart().length });
+				const selector = selectors.findLast((block) => !block.startsWith("@")) ?? "";
+				found.push({ selector, property: text.slice(0, colon).trim().toLowerCase(), value: text.slice(colon + 1).trim(), offset: start + text.length - text.trimStart().length });
 			}
+			if (char === "}") selectors.pop();
 			start = index + 1;
 		}
 	}
@@ -48,9 +57,19 @@ function tokenBorder(property: string, value: string): boolean {
 	return width === "var(--border-width)" && style === "solid" && EDGE_COLOR.test(color.join(" "));
 }
 
-function reason({ property, value }: Declaration, file: string): string | null {
+function rowSelector(selector: string, property: string): boolean {
+	const pattern = HORIZONTAL.test(property) ? ROW : TABLE_PART;
+	return selector.split(",").some((part) => pattern.test(part.trim().split(/\s*[\s>+~]\s*/).at(-1) ?? ""));
+}
+
+function drawsLine(value: string): boolean {
+	return !NO_BORDER.test(value) && !/\btransparent\b/.test(value);
+}
+
+function reason({ selector, property, value }: Declaration, file: string): string | null {
 	if (STYLE_TOKEN.test(property)) return file === TOKENS ? null : `a style token set outside ${TOKENS}`;
 	if (BORDER.test(property) && PANES.has(file)) return NO_BORDER.test(value) || value === "transparent" ? null : "a pane edge border; the sidebar, main pane and Details panel separate by shade only";
+	if (BORDER.test(property) && rowSelector(selector, property) && drawsLine(value)) return `a row divider on "${selector}"; separate rows with spacing and the hover fill`;
 	if (BORDER.test(property)) return NO_BORDER.test(value) || tokenBorder(property, value) ? null : "a border that doesn't read the style tokens";
 	if (SHADOW.test(property)) return NO_SHADOW.test(value) || TOKEN_SHADOW.test(value) ? null : "a shadow that doesn't read the style tokens";
 	if (/drop-shadow\(/.test(value)) return "a shadow";
@@ -64,7 +83,11 @@ export function findings(file: string, source: string): string[] {
 			return found === null ? [] : [`${file}:${lineAt(source, declaration.offset)} uses ${found} in "${declaration.property}: ${declaration.value}"`];
 		});
 	}
-	return source.split("\n").flatMap((line, index) => (INLINE_SHADOW.test(line) ? [`${file}:${index + 1} uses a shadow in "${line.trim()}"`] : []));
+	return source.split("\n").flatMap((line, index) => {
+		if (INLINE_SHADOW.test(line)) return [`${file}:${index + 1} uses a shadow in "${line.trim()}"`];
+		const divider = ROW_CLASS.exec(line);
+		return divider === null ? [] : [`${file}:${index + 1} uses a row divider class "${divider[0]}"; separate rows with spacing and the hover fill`];
+	});
 }
 
 if (import.meta.main) {
@@ -72,7 +95,7 @@ if (import.meta.main) {
 	const found = files.sort().flatMap((file) => findings(file, readFileSync(resolve(ROOT, file), "utf8")));
 	if (found.length > 0) {
 		console.error(found.join("\n"));
-		console.error(`\n${found.length} borders or shadows found. A border reads the style tokens: border: var(--border-width) solid var(--border-color), or an edge-* utility from src/styles/kit.css. A shadow reads var(--shadow-surface|raised|overlay). Only ${TOKENS}, generated from src/styles/presets/hairline.json, sets them; they ship as Hairline, 1px var(--line) with no shadows and no focus ring. The shell's panes in ${[...PANES].join(" and ")} take no border at all.`);
+		console.error(`\n${found.length} borders or shadows found. A border reads the style tokens: border: var(--border-width) solid var(--border-color), or an edge-* utility from src/styles/kit.css. A shadow reads var(--shadow-surface|raised|overlay). Only ${TOKENS}, generated from src/styles/presets/hairline.json, sets them; they ship as Hairline, 1px var(--line) with no shadows and no focus ring. The shell's panes in ${[...PANES].join(" and ")} take no border at all, and table rows and list rows take no dividers.`);
 		process.exit(1);
 	}
 	console.log(`Borderless check passed: ${files.length} files.`);

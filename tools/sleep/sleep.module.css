@@ -179,7 +179,8 @@
 
 .table {
 	width: 100%;
-	border-collapse: collapse;
+	border-collapse: separate;
+	border-spacing: 0;
 	font-size: var(--text-sm);
 	line-height: var(--leading-sm);
 	font-variant-numeric: tabular-nums;
@@ -195,7 +196,6 @@
 .table th,
 .table td {
 	padding: var(--space-2);
-	border-bottom: var(--border-width) solid var(--border-color);
 	text-align: right;
 }
 
@@ -206,6 +206,26 @@
 
 .table td {
 	color: var(--text-2);
+}
+
+.table tbody td:first-child {
+	border-start-start-radius: var(--radius-sm);
+	border-end-start-radius: var(--radius-sm);
+}
+
+.table tbody td:last-child {
+	border-start-end-radius: var(--radius-sm);
+	border-end-end-radius: var(--radius-sm);
+}
+
+.table tbody td {
+	transition: background-color var(--duration-hover) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.table tbody tr:not([data-selected]):hover td {
+		background: var(--hover-bg);
+	}
 }
 
 .table tr[data-selected] td {

@@ -132,13 +132,8 @@
 	gap: var(--space-3);
 	justify-content: space-between;
 	padding: var(--space-2) 0;
-	border-top: var(--border-width) solid var(--border-color);
 	font-size: var(--text-sm);
 	line-height: var(--leading-sm);
-}
-
-.exerciseLine:first-child {
-	border-top: 0;
 }
 
 .exerciseName {
@@ -237,16 +232,24 @@
 	display: flex;
 	gap: var(--space-3);
 	align-items: center;
-	width: 100%;
+	width: calc(100% + 2 * var(--space-2));
 	min-height: var(--hit);
-	padding: var(--space-2) 0;
+	margin-inline: calc(-1 * var(--space-2));
+	padding: var(--space-2);
 	border: 0;
-	border-bottom: var(--border-width) solid var(--border-color);
+	border-radius: var(--radius-md);
 	background: transparent;
 	color: var(--text-3);
 	font: inherit;
 	text-align: left;
 	cursor: pointer;
+	transition: background-color var(--duration-hover) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.historyRow:hover {
+		background: var(--hover-bg);
+	}
 }
 
 .historyMain {
@@ -499,7 +502,6 @@
 	display: flex;
 	flex-direction: column;
 	padding: var(--space-2) 0;
-	border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .reviewList .exerciseRx {
