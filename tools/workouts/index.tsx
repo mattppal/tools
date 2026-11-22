@@ -4,7 +4,8 @@ import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { cn } from "../../src/kit/utils.ts";
 import { Icon } from "../../src/shell/icons.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
-import { api, ApiError, formatAgo, formatDate, formatRange, type HistoryTimeline, type ProgramResponse, type ScheduleDay, type SessionSummary, type SyncState } from "./client.ts";
+import { api, ApiError, formatAgo, formatDate, formatRange, modalityWords, type HistoryTimeline, type ProgramResponse, type ScheduleDay, type SessionSummary, type SyncState } from "./client.ts";
+import { ExerciseIndex, ExerciseScreen } from "./exercises-view.tsx";
 import { Timeline } from "./history-view.tsx";
 import { formatLoad, formatVolume } from "./program.ts";
 import { deliveryWords, SessionScreen } from "./session.tsx";
@@ -14,20 +15,25 @@ type Tab = "today" | "week" | "history";
 
 type Load<T> = { status: "loading" } | { status: "error"; error: ApiError } | { status: "ready"; data: T };
 
+const HISTORY_VIEWS: { id: "blocks" | "exercises"; label: string }[] = [
+	{ id: "blocks", label: "Blocks" },
+	{ id: "exercises", label: "Exercises" },
+];
+
 const TABS: { id: Tab; label: string }[] = [
 	{ id: "today", label: "Today" },
 	{ id: "week", label: "Week" },
 	{ id: "history", label: "History" },
 ];
 
-function readSessionParam(): string | null {
-	return new URLSearchParams(window.location.search).get("session");
+function readParam(name: "session" | "exercise"): string | null {
+	return new URLSearchParams(window.location.search).get(name);
 }
 
-function writeSessionParam(id: string | null) {
+function writeParam(name: "session" | "exercise", value: string | null) {
 	const url = new URL(window.location.href);
-	if (id === null) url.searchParams.delete("session");
-	else url.searchParams.set("session", id);
+	if (value === null) url.searchParams.delete(name);
+	else url.searchParams.set(name, value);
 	window.history.pushState(null, "", url);
 }
 
@@ -57,12 +63,6 @@ function SyncLine({ sync }: { sync: SyncState }) {
 			{sync.lastError === null ? null : ` · last check failed: ${sync.lastError}`}
 		</p>
 	);
-}
-
-const MODALITIES: Record<string, string> = { pool: "Pool", track: "Track", z2: "Zone 2", other: "Other" };
-
-function modalityWords(modality: string): string {
-	return MODALITIES[modality] ?? modality;
 }
 
 function ExerciseList({ day }: { day: ScheduleDay }) {
@@ -171,8 +171,10 @@ function HistoryList({ sessions, onOpen }: { sessions: SessionSummary[]; onOpen:
 }
 
 export default function Workouts() {
-	const [tab, setTab] = useState<Tab>("today");
-	const [sessionId, setSessionId] = useState<string | null>(readSessionParam);
+	const [tab, setTab] = useState<Tab>(() => (readParam("exercise") === null ? "today" : "history"));
+	const [sessionId, setSessionId] = useState<string | null>(() => readParam("session"));
+	const [exerciseKey, setExerciseKey] = useState<string | null>(() => readParam("exercise"));
+	const [historyView, setHistoryView] = useState<"blocks" | "exercises">(() => (readParam("exercise") === null ? "blocks" : "exercises"));
 	const [program, setProgram] = useState<Load<ProgramResponse>>({ status: "loading" });
 	const [history, setHistory] = useState<Load<SessionSummary[]>>({ status: "loading" });
 	const [timeline, setTimeline] = useState<Load<HistoryTimeline>>({ status: "loading" });
@@ -208,7 +210,10 @@ export default function Workouts() {
 	};
 
 	useEffect(() => {
-		const onPop = () => setSessionId(readSessionParam());
+		const onPop = () => {
+			setSessionId(readParam("session"));
+			setExerciseKey(readParam("exercise"));
+		};
 		window.addEventListener("popstate", onPop);
 		return () => window.removeEventListener("popstate", onPop);
 	}, []);
@@ -224,8 +229,13 @@ export default function Workouts() {
 	}, [sessionId, tab, timeline.status, loadTimeline]);
 
 	const open = (id: string | null) => {
-		writeSessionParam(id);
+		writeParam("session", id);
 		setSessionId(id);
+	};
+
+	const openExercise = (key: string | null) => {
+		writeParam("exercise", key);
+		setExerciseKey(key);
 	};
 
 	const start = async (day: ScheduleDay) => {
@@ -242,6 +252,17 @@ export default function Workouts() {
 	};
 
 	if (sessionId !== null) return <SessionScreen id={sessionId} onClose={() => open(null)} />;
+	if (exerciseKey !== null)
+		return (
+			<ExerciseScreen
+				exerciseKey={exerciseKey}
+				onClose={() => {
+					setTab("history");
+					setHistoryView("exercises");
+					openExercise(null);
+				}}
+			/>
+		);
 
 	const data = program.status === "ready" ? program.data : null;
 	const next = data?.next ?? null;
@@ -278,15 +299,28 @@ export default function Workouts() {
 				<div key={tab} className={styles.view}>
 					{tab === "history" ? (
 						<>
-							{timeline.status === "loading" ? (
-								<TodaySkeleton />
-							) : timeline.status === "error" ? (
-								<ReadError error={timeline.error} onRetry={loadTimeline} />
+							<div className={styles.subTabs} role="tablist" aria-label="History views">
+								{HISTORY_VIEWS.map((item) => (
+									<button key={item.id} type="button" role="tab" aria-selected={historyView === item.id} className={styles.subTab} onClick={() => setHistoryView(item.id)}>
+										{item.label}
+									</button>
+								))}
+							</div>
+							{historyView === "exercises" ? (
+								<ExerciseIndex onOpen={openExercise} />
 							) : (
-								<Timeline data={timeline.data} onOpenWeek={openWeek} />
+								<>
+									{timeline.status === "loading" ? (
+										<TodaySkeleton />
+									) : timeline.status === "error" ? (
+										<ReadError error={timeline.error} onRetry={loadTimeline} />
+									) : (
+										<Timeline data={timeline.data} onOpenWeek={openWeek} />
+									)}
+									<h2 className={styles.sectionTitle}>Logged in this app</h2>
+									{history.status === "loading" ? null : history.status === "error" ? <ReadError error={history.error} onRetry={loadHistory} /> : <HistoryList sessions={history.data} onOpen={open} />}
+								</>
 							)}
-							<h2 className={styles.sectionTitle}>Logged in this app</h2>
-							{history.status === "loading" ? null : history.status === "error" ? <ReadError error={history.error} onRetry={loadHistory} /> : <HistoryList sessions={history.data} onOpen={open} />}
 						</>
 					) : program.status === "loading" ? (
 						<TodaySkeleton />

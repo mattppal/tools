@@ -1,10 +1,12 @@
 import type { SetRow } from "./log.ts";
+import type { ExerciseHistory, ExerciseList, ExerciseSession, HistorySet, RunHistory, RunSession } from "./exercises.ts";
 import type { HistoryTimeline, TimelineBlock, TimelineMark, TimelineWeek } from "./history.ts";
 import type { PrescribedExercise } from "./program.ts";
 import type { ScheduleDay, ScheduleWeek, WeekRef } from "./schedule.ts";
 import type { SessionDetail, SessionSummary } from "./store.ts";
 import type { SyncState } from "./sync.ts";
 
+export type { ExerciseHistory, ExerciseList, ExerciseSession, HistorySet, RunHistory, RunSession };
 export type { HistoryTimeline, TimelineBlock, TimelineMark, TimelineWeek };
 export type { PrescribedExercise, ScheduleDay, ScheduleWeek, SessionDetail, SessionSummary, SetRow, SyncState, WeekRef };
 
@@ -42,6 +44,9 @@ export const api = {
 	program: (week?: string) => call<ProgramResponse>(week === undefined ? "/program" : `/program?week=${encodeURIComponent(week)}`),
 	sessions: () => call<{ sessions: SessionSummary[] }>("/sessions"),
 	timeline: () => call<HistoryTimeline>("/history/timeline"),
+	exercises: () => call<ExerciseList>("/history/exercises"),
+	exerciseHistory: (key: string) => call<ExerciseHistory>(`/history/exercises/${encodeURIComponent(key)}`),
+	runs: () => call<RunHistory>("/history/runs"),
 	session: (id: string) => call<{ session: SessionDetail }>(`/sessions/${id}`),
 	start: (blockId: string, weekId: string, dayId: string) => call<{ session: SessionDetail }>("/sessions", { method: "POST", body: JSON.stringify({ blockId, weekId, dayId }) }),
 	putSet: (id: string, position: number, index: number, set: SetDraft) => call<{ ok: true }>(`/sessions/${id}/sets/${position}/${index}`, { method: "PUT", body: JSON.stringify(set) }),
@@ -58,6 +63,12 @@ const DAY = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short",
 
 export function formatDate(date: string): string {
 	return DAY.format(new Date(`${date}T00:00:00Z`));
+}
+
+const MODALITIES: Record<string, string> = { pool: "Pool", track: "Track", z2: "Zone 2", other: "Other" };
+
+export function modalityWords(modality: string): string {
+	return MODALITIES[modality] ?? modality;
 }
 
 const SHORT = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });

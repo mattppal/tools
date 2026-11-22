@@ -12,6 +12,7 @@ import { BLOB_BATCH, readMirror, readSyncState, syncTrainingLog, type Fetcher, t
 import { createSession, finishSession, getSession, putSet, requeue, sessionRow, updateExercise } from "./store.ts";
 import webhook from "./webhook.ts";
 import { historySummary, timeline } from "./history.ts";
+import { prescribedText, runSet, sessionStats, type HistorySet } from "./exercises.ts";
 
 const BLOCK = {
 	id: "build-block-c",
@@ -438,6 +439,18 @@ describe("training-log sync", () => {
 		]);
 		expect(result.blocks[1]?.weeks[0]).toMatchObject({ done: 1, skipped: 1, lift: 1, conditioning: 0, deload: false });
 		expect(result.blocks[1]?.weeks[1]).toMatchObject({ done: 0, deload: true });
+	});
+
+	test("picks the top set, volume, and run effort from the sets as logged", () => {
+		const set = (weight: number | null, reps: number | null, extra: Partial<HistorySet> = {}): HistorySet => ({ type: "working", weight, unit: weight === null ? null : "lb", reps, rir: null, distance: null, distanceUnit: null, durationSeconds: null, notes: null, ...extra });
+		const sets = [set(135, 5, { type: "warmup" }), set(290, 5), set(290, 6), set(300, 0, { notes: "skipped" }), set(95, 10, { unit: "kg" }), set(280, null)];
+		expect(sessionStats(sets, "lb")).toEqual({ top: { weight: 290, unit: "lb", reps: 6 }, volume: 290 * 5 + 290 * 6, topReps: 6 });
+		expect(sessionStats([set(null, 12)], "lb")).toEqual({ top: null, volume: null, topReps: null });
+		const run = runSet([set(null, null, { distance: 775.2, distanceUnit: "m", durationSeconds: 216 }), set(null, null, { distance: 4.57, distanceUnit: "mi", durationSeconds: 2747 }), set(null, null, { durationSeconds: 3000 })]);
+		expect(run).toMatchObject({ distance: 4.57, distanceUnit: "mi" });
+		expect(runSet([set(null, null, { durationSeconds: 2400 })])).toMatchObject({ durationSeconds: 2400 });
+		expect(prescribedText({ unit: "lb", targetRIR: 3, targetReps: 5, targetSets: 4, targetWeight: 315 })).toBe("4 × 5 @3 · 315 lb");
+		expect(prescribedText({ targetRIR: 2, targetSets: 3, targetRepsMax: 15, targetRepsMin: 12 })).toBe("3 × 12–15 @2");
 	});
 
 	test("records a failure without touching the mirror", async () => {

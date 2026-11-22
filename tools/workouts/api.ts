@@ -4,6 +4,7 @@ import { deliverSoon, webhookTarget } from "../../worker/webhooks.ts";
 import { buildLog, checkLog } from "./log.ts";
 import { requireBot } from "../../worker/bot-auth.ts";
 import { buildWeek, currentWeek, findDay, nextDay, pacificToday, trainingLogFrom, weekRefs, type TrainingLog } from "./schedule.ts";
+import { exerciseHistory, exerciseList, runHistory } from "./exercises.ts";
 import { historySummary, historyTimeline } from "./history.ts";
 import { readMirror, readSyncState, syncTrainingLog } from "./sync.ts";
 import { createSession, deleteOpenSession, deleteSet, finishSession, getSession, listSessions, putSet, requeue, sessionRow, updateExercise, updateSessionNotes, type SetInput } from "./store.ts";
@@ -14,6 +15,7 @@ const SESSION = new RegExp(`^/sessions/(${UUID})$`);
 const ACTION = new RegExp(`^/sessions/(${UUID})/(finish|redeliver)$`);
 const EXERCISE = new RegExp(`^/sessions/(${UUID})/exercises/(\\d+)$`);
 const SET = new RegExp(`^/sessions/(${UUID})/sets/(\\d+)/(\\d+)$`);
+const HISTORY_EXERCISE = /^\/history\/exercises\/([^/]+)$/;
 const NOTE_LIMIT = 2000;
 
 class BadRequest extends Error {}
@@ -80,6 +82,16 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 				sync,
 				webhookReady: webhookTarget(webhook, env) !== null,
 			});
+		}
+
+		if (method === "GET" && path === "/history/exercises") return json(await db(exerciseList));
+
+		if (method === "GET" && path === "/history/runs") return json(await db(runHistory));
+
+		const exerciseKey = HISTORY_EXERCISE.exec(path);
+		if (method === "GET" && exerciseKey !== null) {
+			const found = await db((client) => exerciseHistory(client, decodeURIComponent(exerciseKey[1] ?? "")));
+			return found === null ? json({ error: "No history for that exercise" }, 404) : json(found);
 		}
 
 		if (method === "GET" && path === "/history/summary") return json(await db(historySummary));

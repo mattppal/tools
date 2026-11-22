@@ -687,3 +687,90 @@
 	flex-direction: column;
 	gap: 2px;
 }
+
+.subTabs {
+	display: flex;
+	gap: var(--space-1);
+}
+
+.subTab {
+	min-height: var(--control-md);
+	padding: 0 var(--space-3);
+	border: var(--border-width) solid transparent;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-2);
+	font: inherit;
+	font-size: var(--text-sm);
+	cursor: pointer;
+	transition:
+		background-color var(--duration-hover) ease,
+		color var(--duration-hover) ease;
+}
+
+.subTab[aria-selected="true"] {
+	border-color: var(--border-color);
+	background: var(--raised-bg);
+	color: var(--text-1);
+}
+
+.exerciseTitle {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.lineChart {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+}
+
+.chartHead {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-3);
+	align-items: baseline;
+	justify-content: space-between;
+}
+
+.chartBox {
+	width: 100%;
+	min-height: 168px;
+}
+
+.chartBox svg {
+	display: block;
+	overflow: visible;
+	touch-action: pan-y;
+	user-select: none;
+}
+
+.gridLine {
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+.axis {
+	fill: var(--text-3);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
+.trend {
+	fill: none;
+	stroke: var(--chart-accent);
+	stroke-width: 2;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+}
+
+.point {
+	fill: var(--text-3);
+}
+
+.pointShown {
+	fill: var(--text-1);
+}
