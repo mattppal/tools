@@ -5,7 +5,7 @@ import { PRODUCTION, serveLiveProxy } from "./live-proxy.ts";
 import { isToolsOrigin, waitForSha } from "./smoke.ts";
 
 export type Viewport = { name: string; width: number; height: number; mobile: boolean; scheme: "light" | "dark" };
-export type Shot = { name: string; path: string; clicks?: string[] };
+export type Shot = { name: string; path: string; waitFor?: string[]; clicks?: string[] };
 
 export const VIEWPORTS: Viewport[] = [
 	{ name: "desktop", width: 1440, height: 1000, mobile: false, scheme: "light" },
@@ -14,7 +14,7 @@ export const VIEWPORTS: Viewport[] = [
 ];
 
 export const SHOTS: Shot[] = [
-	{ name: "unified-tdee-{viewport}-summary", path: "/nutrition/weight", clicks: ["90 days"] },
+	{ name: "unified-tdee-{viewport}-summary", path: "/nutrition/weight", clicks: ["90 days"], waitFor: ["kcal a day"] },
 	{ name: "unified-tdee-{viewport}-panel", path: "/nutrition/weight", clicks: ["90 days", "kcal a day"] },
 	{ name: "nutrition-steps-{viewport}", path: "/nutrition/steps" },
 	{ name: "nutrition-history-{viewport}", path: "/nutrition/history" },
@@ -33,11 +33,11 @@ export function fileName(shot: Shot, viewport: Viewport): string {
 	return `${shot.name.replace("{viewport}", viewport.name)}.png`;
 }
 
-export function clickScript(text: string): string {
+export function buttonScript(text: string, click: boolean): string {
 	return `(() => {
 		const button = [...document.querySelectorAll("button")].find((candidate) => (candidate.textContent ?? "").includes(${JSON.stringify(text)}));
 		if (button === undefined) return false;
-		if (button.getAttribute("aria-pressed") !== "true") button.click();
+		if (${click} && button.getAttribute("aria-pressed") !== "true") button.click();
 		return true;
 	})()`;
 }
@@ -107,10 +107,18 @@ export async function screenshots({ target, token, out, only }: { target: URL; t
 						if (Date.now() > deadline) throw new Error(`${shot.path} did not finish loading`);
 						await Bun.sleep(150);
 					}
+					const button = async (text: string, click: boolean) => {
+						while (!(await evaluate<boolean>(buttonScript(text, click)))) {
+							if (Date.now() > deadline) throw new Error(`no button with "${text}" on ${shot.path}`);
+							await Bun.sleep(150);
+						}
+					};
 					for (const text of shot.clicks ?? []) {
+						await button(text, true);
 						await Bun.sleep(SETTLE_MS);
-						if (!(await evaluate<boolean>(clickScript(text)))) throw new Error(`no button with "${text}" on ${shot.path}`);
 					}
+					for (const text of shot.waitFor ?? []) await button(text, false);
+					await evaluate("document.fonts.ready.then(() => true)");
 					await Bun.sleep(SETTLE_MS);
 					const capture = await browser.send("Page.captureScreenshot", { format: "png" });
 					await writeFile(join(out, file), Buffer.from(String(capture.result?.["data"]), "base64"));
