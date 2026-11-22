@@ -37,9 +37,24 @@ test("pages, assets and API answers all forbid framing and sniffing", async () =
 	const file = readdirSync(ASSETS).find((name) => name.endsWith(".js"));
 	for (const path of ["/", "/workouts", `/assets/${file}`, "/api/nope", "/sw.js"]) {
 		const { headers } = await get(path);
-		expect({ path, csp: headers.get("content-security-policy") }).toEqual({ path, csp: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" });
+		expect({ path, csp: headers.get("content-security-policy")?.endsWith("frame-ancestors 'none'; object-src 'none'; base-uri 'self'") }).toEqual({ path, csp: true });
 		expect({ path, nosniff: headers.get("x-content-type-options") }).toEqual({ path, nosniff: "nosniff" });
 	}
+});
+
+test("every page carries a fresh script nonce, on each script tag and in a strict script-src", async () => {
+	const seen = new Set<string>();
+	for (const path of ["/", "/index.html", "/workouts", "/nutrition/history"]) {
+		const page = await get(path);
+		const nonce = /^script-src 'self' 'nonce-([A-Za-z0-9+/=]+)';/.exec(page.headers.get("content-security-policy") ?? "")?.[1];
+		expect({ path, nonce: nonce !== undefined }).toEqual({ path, nonce: true });
+		const scripts = page.body.match(/<script\b[^>]*>/g) ?? [];
+		expect(scripts.length).toBeGreaterThan(0);
+		for (const script of scripts) expect({ path, script, nonced: script.includes(`nonce="${nonce}"`) }).toEqual({ path, script, nonced: true });
+		expect({ path, cache: page.cache }).toEqual({ path, cache: "no-store" });
+		seen.add(nonce ?? "");
+	}
+	expect(seen.size).toBe(4);
 });
 
 test("app paths serve the SPA without long-lived caching", async () => {

@@ -9,7 +9,7 @@
 	"routes": [{ "pattern": "tools.mattpalmer.io", "custom_domain": true }],
 	"assets": {
 		"binding": "ASSETS",
-		"run_worker_first": ["/api/*"]
+		"run_worker_first": ["/api/*", "/", "/index.html"]
 	},
 	"hyperdrive": [
 		{

@@ -3,7 +3,7 @@ import { type WithDb, withRequestDb } from "./db.ts";
 import { debugReport } from "./debug.ts";
 import type { ToolApi, ToolCron } from "./tool-api.ts";
 import type { ToolDebug } from "./tool-debug.ts";
-import { withSecurityHeaders } from "./security-headers.ts";
+import { withScriptNonce, withSecurityHeaders } from "./security-headers.ts";
 import { deliverDue, type Webhook } from "./webhooks.ts";
 
 function bySlug<T>(modules: Record<string, { default: T }>): Map<string, T> {
@@ -73,7 +73,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 		return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
 	}
 	if (url.pathname.startsWith("/assets/")) return new Response("Not found", { status: 404 });
-	return env.ASSETS.fetch(new Request(new URL("/", url), request));
+	return withScriptNonce(await env.ASSETS.fetch(new Request(new URL("/", url), request)));
 }
 
 export default {
