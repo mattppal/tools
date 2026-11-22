@@ -6,7 +6,7 @@ import type { Caller } from "../../worker/access.ts";
 import type { Database, WithDb } from "../../worker/db.ts";
 import api, { xPostsApi } from "./api.ts";
 import { type FeedPost, parseFeedRequest, type SinceFeed, type WindowFeed } from "./feed.ts";
-import { runIngest, screenDecision, toPostRows } from "./ingest.ts";
+import { checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
 import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, requeueJob, sweep } from "./queue.ts";
 
 const openApi = xPostsApi({ queueOpen: true });
@@ -142,7 +142,7 @@ test("ingest pages with next_token under since_id, saves since_id only after the
 	expect(x.calls[0]?.searchParams.get("query")).toBe('"mattyp mattyp mattyp" lang:en -is:retweet');
 	const later = await runIngest(db, { fetch: fakeX({}).fetcher, token: "t", now: new Date(NOW.getTime() + 16 * 60_000) });
 	expect(later).toMatchObject({ status: "ok", inserted: 0 });
-	expect(await runIngest(db, { fetch: x.fetcher, token: "t", now: new Date(NOW.getTime() + 17 * 60_000) })).toEqual({ status: "not due" });
+	expect(await runIngest(db, { fetch: x.fetcher, token: "t", now: new Date(NOW.getTime() + 16.5 * 60_000) })).toEqual({ status: "not due" });
 });
 
 test("a failed page keeps next_token and pending_since_id, and the next run resumes there", async () => {
@@ -353,4 +353,21 @@ test("shadow counts report matched, auto-rejected per flag, the addressed rate, 
 	const response = await send("/status", { caller: MATT, open: false });
 	const { shadow } = (await response.json()) as { shadow: Record<string, unknown> };
 	expect(shadow).toEqual({ since: "2026-11-22T20:00:00Z", matched: 4, autoRejected: 2, rejectedByFlag: { injection: 1, phone: 1 }, addressed: 1, addressedRate: 0.25, passedScreen: 2, wouldPrint: 2 });
+});
+
+test("ingest checks every minute while posts arrive and every 5 minutes otherwise, and Check now respects the cooldown and rate limits", async () => {
+	const nextRun = async () => (await pg.query<{ at: Date }>("select next_run_at as at from x_posts.sync_state")).rows[0]?.at.getTime();
+	await runIngest(db, { fetch: fakeX({}).fetcher, token: "t", now: NOW });
+	expect(await nextRun()).toBe(NOW.getTime() + 5 * 60_000);
+	await seed([{}]);
+	const later = new Date(NOW.getTime() + 5 * 60_000);
+	await runIngest(db, { fetch: fakeX({}).fetcher, token: "t", now: later });
+	expect(await nextRun()).toBe(later.getTime() + 60_000);
+	expect(await db((c) => checkNow(c, new Date(later.getTime() + 10_000), 30_000))).toBe(false);
+	const soon = new Date(later.getTime() + 40_000);
+	expect(await db((c) => checkNow(c, soon, 30_000))).toBe(true);
+	expect(await nextRun()).toBe(soon.getTime());
+	await pg.query("insert into x_posts.runs (started_at, finished_at, status) values ($1, $1, 'rate limited')", [soon]);
+	await pg.query("update x_posts.sync_state set next_run_at = $1, last_run_at = $2", [new Date(soon.getTime() + 600_000), soon]);
+	expect(await db((c) => checkNow(c, new Date(soon.getTime() + 60_000), 30_000))).toBe(false);
 });

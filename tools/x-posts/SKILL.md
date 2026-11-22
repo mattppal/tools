@@ -5,13 +5,13 @@ description: "The X posts tool at /x-posts. A log of X posts matching one query,
 
 # X posts
 
-Every 15 minutes the cron reads X recent search for `"mattyp mattyp mattyp" lang:en -is:retweet`, stores each post, and screens it. matty prints' review agent approves, rejects or overflows what passed the screen. Approved posts become print jobs, and a bridge on the Mac Mini claims each job, prints it on the receipt printer, and acks it. tools owns everything except the printing.
+Every 5 minutes, and every minute while posts are arriving, the cron reads X recent search for `"mattyp mattyp mattyp" lang:en -is:retweet`, stores each post, and screens it. matty prints' review agent approves, rejects or overflows what passed the screen. Approved posts become print jobs, and a bridge on the Mac Mini claims each job, prints it on the receipt printer, and acks it. tools owns everything except the printing.
 
 Two switches in `query.ts`: `LIVE_INGEST` (reads X with the Worker secret `X_BEARER_TOKEN`) and `QUEUE_OPEN`. While the queue is closed (shadow mode), ingest and screening run, `POST /decisions` and `POST /jobs/claim` answer 503, no jobs are built, and the sweep marks posts pending for 24 hours as overflow without summarizing them. Open the queue only after Matt OKs the shadow numbers.
 
 ## Ingest
 
-- One run every 15 minutes, claimed atomically through `sync_state.next_run_at`. Up to 10 pages of 100 per run, paging `next_token` under `since_id`. The first page's `newest_id` is held as `pending_since_id`, and `since_id` moves to it only after the last page. A run that stops early keeps `next_token` and resumes it. X refusing a saved token or `since_id` resets it once.
+- One run every 5 minutes, or every minute when a post was ingested in the last 30 minutes, claimed atomically through `sync_state.next_run_at`. Up to 10 pages of 100 per run, paging `next_token` under `since_id`. The first page's `newest_id` is held as `pending_since_id`, and `since_id` moves to it only after the last page. A run that stops early keeps `next_token` and resumes it. X refusing a saved token or `since_id` resets it once.
 - Budget: 12,000 reads a month (posts returned, metrics lookups included). At the budget, or when X answers 402 or a usage-cap 429, reading stops until the 1st and one liaison notice goes out. A rate-limit 429 waits for `x-rate-limit-reset`.
 - After catching up, metrics are refreshed for posts under 48 hours old at 6, 24 and 48 hours of age, up to 300 posts a run, within 80% of the budget. `metricsAt` says when.
 - No success for 24 hours sends one liaison notice. Unauthorized, a bad request, or 3 failed runs in a row throw, and `worker/cron-alerts.ts` reports it.
@@ -55,6 +55,7 @@ Base `/api/tools/x-posts`. Bot routes check the bot with `requireBot`: Matt or a
 | `POST /jobs/claim` | prints-bridge | `{ bridge }`. 200 `{ claimId, claimExpiresAt, job }` for the oldest ready job whose `notBefore` has passed, or 204 with no body. One job is claimed at a time. Both carry `X-Pending-Total`. |
 | `POST /jobs/ack` | prints-bridge | `{ jobId, claimId, result: printed\|failed\|unconfirmed, error? }`. Idempotent on (jobId, claimId): the same result again is 200 `changed: false`; a different result, a stale claim, or an ack after `claimExpiresAt` is 409. |
 | `GET /posts?status=&before=&limit=` | Matt | Posts newest first with raw text. |
+| `POST /check` | Matt | Check now: runs an ingest at once unless one ran in the last 30 seconds, X rate-limited or capped the last 15 minutes, or the month's budget is spent. 503 when ingest is off. |
 | `GET /status` | Matt | Sync, reads, counts, today's cap, recent jobs, blocklist, shadow counts. |
 | `POST /decide` | Matt | Same body and rules as `/decisions`, logged as `matt`. |
 | `POST /jobs/requeue` | Matt | `{ jobId }` of an `unconfirmed` or `failed` job, once. |
@@ -74,7 +75,7 @@ Writes record their actor: `decided_by` (`screen`, `prints-review`, `matt`, `cap
 
 ## UI
 
-`/x-posts` lists posts by status with raw text, the clean text when it differs, flags and reasons as words, and Approve and Reject on pending posts while the queue is open. `/x-posts/queue` lists jobs with Print again on terminal ones. `/x-posts/blocklist` edits the list. The Details panel holds sync, budget, cap and shadow counts.
+`/x-posts` is the live view: matched posts newest first with name, handle, time, raw text, metrics, status, flags and the post link, polled every 10 seconds while the tab is visible, with Check now. `/x-posts/posts` lists posts by status with raw text, the clean text when it differs, flags and reasons as words, and Approve and Reject on pending posts while the queue is open. `/x-posts/queue` lists jobs with Print again on terminal ones. `/x-posts/blocklist` edits the list. The Details panel holds sync, budget, cap and shadow counts.
 
 ## Tables
 

@@ -3,7 +3,8 @@ import { requireBot } from "../../worker/bot-auth.ts";
 import { defineToolApi, type ToolApi } from "../../worker/tool-api.ts";
 import { FeedError, parseFeedRequest, readFeed } from "./feed.ts";
 import { blocklistRequest, listPosts, POST_STATUSES, readStatus, replaceBlocklist } from "./owner.ts";
-import { QUEUE_OPEN } from "./query.ts";
+import { checkNow, runIngest } from "./ingest.ts";
+import { CHECK_NOW_COOLDOWN_MS, LIVE_INGEST, QUEUE_OPEN } from "./query.ts";
 import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue } from "./queue.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -89,6 +90,13 @@ export function xPostsApi({ queueOpen }: { queueOpen: boolean }): ToolApi {
 				case "POST /decide": {
 					const input = await body(request, decisionsRequest);
 					return Response.json(await db((client) => applyDecisions(client, input, "matt", now, queueOpen)), { headers: NO_STORE });
+				}
+				case "POST /check": {
+					const token = context.env.X_BEARER_TOKEN?.trim();
+					if (!LIVE_INGEST || !token) return Response.json({ error: "Ingest is off" }, { status: 503, headers: NO_STORE });
+					await db((client) => checkNow(client, now, CHECK_NOW_COOLDOWN_MS));
+					const result = await runIngest(db, { fetch: (input, init) => fetch(input, init), token, now });
+					return Response.json(result, { headers: NO_STORE });
 				}
 				case "POST /jobs/requeue": {
 					const { jobId } = await body(request, requeueRequest);

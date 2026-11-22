@@ -182,6 +182,7 @@ const APP_ROUTES = [
 	["x-posts", "GET /posts"],
 	["x-posts", "GET /status"],
 	["x-posts", "POST /decide"],
+	["x-posts", "POST /check"],
 	["x-posts", "POST /jobs/requeue"],
 	["x-posts", "PUT /blocklist"],
 ] as const;

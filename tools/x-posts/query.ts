@@ -5,7 +5,13 @@ export const QUEUE_OPEN = false;
 
 export const MONTHLY_READ_BUDGET = 12_000;
 
-export const INTERVAL_MINUTES = 15;
+export const INTERVAL_MINUTES = 5;
+
+export const ACTIVE_INTERVAL_MINUTES = 1;
+
+export const ACTIVE_WINDOW_MINUTES = 30;
+
+export const CHECK_NOW_COOLDOWN_MS = 30_000;
 
 export const PAGES_PER_RUN = 10;
 

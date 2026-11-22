@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
@@ -9,7 +9,8 @@ import styles from "./x-posts.module.css";
 const API = "/api/tools/x-posts";
 
 const SECTIONS: readonly ToolSection[] = [
-	{ path: "/", label: "Posts" },
+	{ path: "/", label: "Live" },
+	{ path: "/posts", label: "Posts" },
 	{ path: "/queue", label: "Queue" },
 	{ path: "/blocklist", label: "Blocklist" },
 ];
@@ -64,6 +65,136 @@ function useLoad<T>(path: string): [Load<T>, () => void] {
 function when(iso: string | null): string {
 	if (iso === null) return "never";
 	return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+}
+
+const LIVE_POLL_MS = 10_000;
+const LIVE_LIMIT = 100;
+
+function ago(iso: string, now: number): string {
+	const seconds = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+	if (seconds < 60) return "just now";
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.round(minutes / 60);
+	return hours < 24 ? `${hours}h ago` : when(iso);
+}
+
+function count(value: number | null, one: string, many: string): string | null {
+	return value === null ? null : `${value.toLocaleString("en-US")} ${value === 1 ? one : many}`;
+}
+
+function useVisibleInterval(callback: () => void, ms: number): void {
+	const saved = useRef(callback);
+	saved.current = callback;
+	useEffect(() => {
+		const tick = () => {
+			if (document.visibilityState === "visible") saved.current();
+		};
+		const timer = setInterval(tick, ms);
+		document.addEventListener("visibilitychange", tick);
+		return () => {
+			clearInterval(timer);
+			document.removeEventListener("visibilitychange", tick);
+		};
+	}, [ms]);
+}
+
+function LivePost({ post, now, fresh }: { post: OwnerPost; now: number; fresh: boolean }) {
+	const metrics = [count(post.metrics.likes, "like", "likes"), count(post.metrics.reposts, "repost", "reposts"), count(post.metrics.replies, "reply", "replies"), count(post.metrics.quotes, "quote", "quotes"), count(post.metrics.impressions, "view", "views")].filter(
+		(part): part is string => part !== null,
+	);
+	const state = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	return (
+		<li className={styles.liveRow} data-fresh={fresh || undefined}>
+			<p className={styles.liveHead}>
+				<span className={styles.liveName}>{post.name || post.handle}</span>
+				<span>@{post.handle}</span>
+				<time dateTime={post.createdAt} title={when(post.createdAt)}>
+					{ago(post.createdAt, now)}
+				</time>
+			</p>
+			<p className={styles.text}>{post.text}</p>
+			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
+			<p className={styles.meta}>
+				{[...metrics, ...state].join(" · ")}
+			</p>
+			<p className={styles.meta}>
+				<a href={post.url} target="_blank" rel="noreferrer">
+					{post.url.replace("https://", "")}
+				</a>
+			</p>
+		</li>
+	);
+}
+
+function LivePage({ checks, status, refreshStatus }: { checks: number; status: Load<Status>; refreshStatus: () => void }) {
+	const [posts, retry] = useLoad<{ posts: OwnerPost[]; nextBefore: string | null }>(`/posts?limit=${LIVE_LIMIT}`);
+	const seen = useRef<Set<string> | null>(null);
+	const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
+	const [now, setNow] = useState(Date.now());
+	useVisibleInterval(() => {
+		retry();
+		setNow(Date.now());
+	}, LIVE_POLL_MS);
+	useVisibleInterval(refreshStatus, 30_000);
+	useEffect(() => {
+		if (checks > 0) retry();
+	}, [checks, retry]);
+	useEffect(() => {
+		if (posts.status !== "ready") return;
+		const ids = posts.data.posts.map((post) => post.id);
+		if (seen.current !== null) {
+			const known = seen.current;
+			setFresh(new Set(ids.filter((id) => !known.has(id))));
+		}
+		seen.current = new Set(ids);
+	}, [posts]);
+	const sync = status.status === "ready" ? status.data.sync : null;
+	return (
+		<>
+			<p className={styles.muted} aria-live="polite">
+				{sync === null
+					? "Watching for new posts."
+					: `X checked ${sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}${sync.nextRunAt === null ? ", next check due now" : `, next check ${when(sync.nextRunAt)}`}. Every minute while posts are arriving, every 5 minutes otherwise.`}
+			</p>
+			{posts.status !== "ready" ? (
+				<LoadState load={posts} retry={retry} />
+			) : posts.data.posts.length === 0 ? (
+				<p className={styles.muted}>No posts yet.</p>
+			) : (
+				<ul className={styles.list}>
+					{posts.data.posts.map((post) => (
+						<LivePost key={post.id} post={post} now={now} fresh={fresh.has(post.id)} />
+					))}
+				</ul>
+			)}
+		</>
+	);
+}
+
+function CheckNow({ onChecked }: { onChecked: () => void }) {
+	const [busy, setBusy] = useState(false);
+	const [note, setNote] = useState<string | null>(null);
+	async function check() {
+		setBusy(true);
+		setNote(null);
+		try {
+			const result = await request<{ status: string; inserted?: number }>("/check", { method: "POST", body: {} });
+			setNote(result.status === "not due" ? "Checked moments ago" : `${result.inserted ?? 0} new`);
+			onChecked();
+		} catch (failure) {
+			setNote(describe(failure));
+		}
+		setBusy(false);
+	}
+	return (
+		<span className={styles.checkNow}>
+			{note === null ? null : <span className={styles.muted}>{note}</span>}
+			<Button size="sm" loading={busy} disabled={busy} onClick={() => void check()}>
+				Check now
+			</Button>
+		</span>
+	);
 }
 
 function LoadState({ load, retry }: { load: Exclude<Load<unknown>, { status: "ready" }>; retry: () => void }) {
@@ -270,11 +401,29 @@ function BlocklistPage({ status, refresh }: { status: Load<Status>; refresh: () 
 export default function XPosts() {
 	const path = useToolPath();
 	const [status, refresh] = useLoad<Status>("/status");
+	const [checks, setChecks] = useState(0);
+	const page =
+		path === "/queue" ? (
+			<QueuePage status={status} refresh={refresh} />
+		) : path === "/blocklist" ? (
+			<BlocklistPage status={status} refresh={refresh} />
+		) : path === "/posts" ? (
+			<PostsPage status={status} refreshStatus={refresh} />
+		) : (
+			<LivePage checks={checks} status={status} refreshStatus={refresh} />
+		);
+	const actions =
+		path === "/" && status.status === "ready" && status.data.live ? (
+			<CheckNow
+				onChecked={() => {
+					refresh();
+					setChecks((count) => count + 1);
+				}}
+			/>
+		) : undefined;
 	return (
-		<ToolLayout title="X posts" sections={SECTIONS} panel={{ label: "Details", content: <Details status={status} /> }}>
-			<div className={styles.page}>
-				{path === "/queue" ? <QueuePage status={status} refresh={refresh} /> : path === "/blocklist" ? <BlocklistPage status={status} refresh={refresh} /> : <PostsPage status={status} refreshStatus={refresh} />}
-			</div>
+		<ToolLayout title="X posts" actions={actions} sections={SECTIONS} panel={{ label: "Details", content: <Details status={status} /> }}>
+			<div className={styles.page}>{page}</div>
 		</ToolLayout>
 	);
 }

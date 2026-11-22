@@ -25,7 +25,9 @@ export type OwnerPost = {
 	decidedBy: string | null;
 	decidedAt: string | null;
 	jobId: string | null;
-	metrics: { likes: number | null; reposts: number | null; replies: number | null; quotes: number | null };
+	metrics: { likes: number | null; reposts: number | null; replies: number | null; quotes: number | null; impressions: number | null };
+	metricsAt: string;
+	ingestedAt: string;
 };
 
 export async function listPosts(client: Database, { status, limit, before }: { status: string | null; limit: number; before: string | null }): Promise<{ posts: OwnerPost[]; nextBefore: string | null }> {
@@ -49,8 +51,11 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			reposts: number | null;
 			replies: number | null;
 			quotes: number | null;
+			impressions: number | null;
+			metrics_at: Date | string;
+			ingested_at: Date | string;
 		}>(
-			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, likes, reposts, replies, quotes
+			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at
 			from x_posts.posts where ($1::text is null or status = $1) and ($2::bigint is null or id < $2::bigint)
 			order by id desc limit $3`,
 			[status, before, limit + 1],
@@ -74,7 +79,9 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			decidedBy: row.decided_by,
 			decidedAt: row.decided_at === null ? null : iso(row.decided_at),
 			jobId: row.job_id,
-			metrics: { likes: row.likes, reposts: row.reposts, replies: row.replies, quotes: row.quotes },
+			metrics: { likes: row.likes, reposts: row.reposts, replies: row.replies, quotes: row.quotes, impressions: row.impressions },
+			metricsAt: iso(row.metrics_at),
+			ingestedAt: iso(row.ingested_at),
 		})),
 		nextBefore: rows.length > limit ? (page.at(-1)?.id ?? null) : null,
 	};

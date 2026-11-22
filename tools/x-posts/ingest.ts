@@ -1,6 +1,6 @@
 import type { Database, WithDb } from "../../worker/db.ts";
 import { queueNotice, Refused } from "../liaison/notices.ts";
-import { INTERVAL_MINUTES, MONTHLY_READ_BUDGET, PAGES_PER_RUN, REFRESH_CALLS_PER_RUN, REFRESH_SHARE, STALE_NOTICE_MS } from "./query.ts";
+import { ACTIVE_INTERVAL_MINUTES, ACTIVE_WINDOW_MINUTES, INTERVAL_MINUTES, MONTHLY_READ_BUDGET, PAGES_PER_RUN, REFRESH_CALLS_PER_RUN, REFRESH_SHARE, STALE_NOTICE_MS } from "./query.ts";
 import { rejectingFlags, SCREEN_VERSION, screen, validHandle } from "./screen.ts";
 import { type Fetch, lookupMetrics, type Rate, searchRecent, type XMetrics, type XPage, XError } from "./x.ts";
 
@@ -88,12 +88,12 @@ async function claim(client: Database, now: Date): Promise<SyncState | null> {
 	const row = (
 		await client.query<StateRow>(
 			`update x_posts.sync_state
-			set next_run_at = $1::timestamptz + make_interval(mins => $2), last_run_at = $1,
+			set next_run_at = $1::timestamptz + make_interval(mins => case when exists (select 1 from x_posts.posts where ingested_at > $1::timestamptz - make_interval(mins => $5::int)) then $4::int else $2::int end), last_run_at = $1,
 				month_reads = case when month = $3 then month_reads else 0 end,
 				month = $3
 			where next_run_at <= $1
 			returning ${STATE_COLUMNS}`,
-			[now, INTERVAL_MINUTES, monthOf(now)],
+			[now, INTERVAL_MINUTES, monthOf(now), ACTIVE_INTERVAL_MINUTES, ACTIVE_WINDOW_MINUTES],
 		)
 	).rows[0];
 	return row === undefined ? null : toState(row);
@@ -320,6 +320,17 @@ async function finish(withDb: WithDb, started: Date, result: Exclude<RunResult, 
 		else if (result.status === "failed") await client.query("update x_posts.sync_state set last_error = $1, failures = failures + 1", [result.error]);
 		else await client.query("update x_posts.sync_state set last_error = $1", [result.error]);
 	});
+}
+
+export async function checkNow(client: Database, now: Date, cooldownMs: number): Promise<boolean> {
+	const result = await client.query(
+		`update x_posts.sync_state set next_run_at = $1
+		where next_run_at > $1 and coalesce(last_run_at, '-infinity') <= $1::timestamptz - make_interval(secs => $2::double precision)
+			and (capped_month is distinct from $3) and month_reads < $4
+			and not exists (select 1 from x_posts.runs where status in ('rate limited', 'usage capped', 'budget') and started_at > $1::timestamptz - interval '15 minutes')`,
+		[now, cooldownMs / 1000, monthOf(now), MONTHLY_READ_BUDGET],
+	);
+	return (result.rowCount ?? 0) > 0;
 }
 
 export async function runIngest(withDb: WithDb, deps: IngestDeps): Promise<RunResult> {
