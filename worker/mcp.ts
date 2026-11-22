@@ -34,7 +34,7 @@ function failure(message: string): CallToolResult {
 export function toolMcp({ name, tools }: { name: string; tools: readonly McpTool[] }) {
 	return async (request: Request, context: ToolApiContext): Promise<Response> => {
 		if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405, headers: { allow: "POST" } });
-		const bot = await requireBot(request, context.env, name);
+		const bot = await requireBot(request, context, name);
 		if (bot instanceof Response) return bot;
 
 		const server = new McpServer({ name: `tools-${name}`, version: "1.0.0" });

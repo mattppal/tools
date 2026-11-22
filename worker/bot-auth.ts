@@ -1,3 +1,5 @@
+import { allows, BOTS, type BotName, type Caller } from "./access.ts";
+
 declare global {
 	interface Env {
 		BOT_TOKEN_NUTRITION?: string;
@@ -7,16 +9,11 @@ declare global {
 	}
 }
 
-type BotSecret = "BOT_TOKEN_NUTRITION" | "BOT_TOKEN_COACH" | "BOT_TOKEN_COORDINATOR" | "BOT_TOKEN_APPLE_HEALTH";
+export type { BotName };
 
-const BOTS = {
-	nutrition: { secret: "BOT_TOKEN_NUTRITION", tools: ["nutrition"] },
-	coach: { secret: "BOT_TOKEN_COACH", tools: ["workouts"] },
-	coordinator: { secret: "BOT_TOKEN_COORDINATOR", tools: ["liaison"] },
-	"apple-health": { secret: "BOT_TOKEN_APPLE_HEALTH", tools: ["activity"] },
-} as const satisfies Record<string, { secret: BotSecret; tools: readonly string[] }>;
+export type BotRequestContext = { env: Env; caller: Caller; path: string };
 
-export type BotName = keyof typeof BOTS;
+export type BotAuthLine = { auth: "bot"; tool: string; route: string; bot: BotName | null; via: "access" | "bearer" | null; access: BotName | null; bearer: BotName | "absent" | "unmatched" };
 
 const BEARER = /^Bearer\s+(\S+)$/i;
 const encoder = new TextEncoder();
@@ -29,18 +26,32 @@ async function sameToken(given: string, expected: string): Promise<boolean> {
 	return difference === 0;
 }
 
+async function bearerBot(request: Request, env: Env): Promise<BotName | "absent" | "unmatched"> {
+	const token = BEARER.exec(request.headers.get("authorization") ?? "")?.[1];
+	if (token === undefined) return "absent";
+	for (const [name, bot] of Object.entries(BOTS) as [BotName, (typeof BOTS)[BotName]][]) {
+		const expected = bot.bearer === null ? undefined : env[bot.bearer];
+		if (expected === undefined || expected === "") continue;
+		if (await sameToken(token, expected)) return name;
+	}
+	return "unmatched";
+}
+
 function unauthorized(): Response {
 	return Response.json({ error: "Unauthorized" }, { status: 401, headers: { "www-authenticate": 'Bearer realm="tools"' } });
 }
 
-export async function requireBot(request: Request, env: Env, tool: string): Promise<BotName | Response> {
-	const token = BEARER.exec(request.headers.get("authorization") ?? "")?.[1];
-	if (token === undefined) return unauthorized();
-	for (const [name, bot] of Object.entries(BOTS) as [BotName, (typeof BOTS)[BotName]][]) {
-		const expected = env[bot.secret];
-		if (expected === undefined || expected === "") continue;
-		if (!(bot.tools as readonly string[]).includes(tool)) continue;
-		if (await sameToken(token, expected)) return name;
-	}
-	return unauthorized();
+export async function requireBot(request: Request, { env, caller, path }: BotRequestContext, tool: string): Promise<BotName | Response> {
+	const route = `${request.method} ${path}`;
+	const access = caller.kind === "bot" ? caller.bot : null;
+	const bearer = await bearerBot(request, env);
+	const byBearer = bearer === "absent" || bearer === "unmatched" ? null : bearer;
+	const via = access !== null && allows(access, tool, route) ? "access" : byBearer !== null && allows(byBearer, tool, route) ? "bearer" : null;
+	const bot = via === "access" ? access : via === "bearer" ? byBearer : null;
+	const line: BotAuthLine = { auth: "bot", tool, route, bot, via, access, bearer };
+	console.log(JSON.stringify(line));
+	if (bot !== null) return bot;
+	const named = access ?? byBearer;
+	if (named === null) return unauthorized();
+	return Response.json({ error: `Forbidden: bot ${named} may not call ${route} on ${tool}` }, { status: 403, headers: { "cache-control": "no-store" } });
 }

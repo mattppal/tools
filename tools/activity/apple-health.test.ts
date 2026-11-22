@@ -28,11 +28,11 @@ const ctx = {} as ExecutionContext;
 function post(body: string, authorization: string | null = `Bearer ${TOKEN}`, path = "/apple-health"): Promise<Response> {
 	const headers: Record<string, string> = { "content-type": "application/json", "automation-name": "Tools sleep", "session-id": "session-1" };
 	if (authorization !== null) headers["authorization"] = authorization;
-	return Promise.resolve(api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`, { method: "POST", headers, body }), { env, ctx, path, db }));
+	return Promise.resolve(api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`, { method: "POST", headers, body }), { env, ctx, path, db, caller: { kind: "local" } }));
 }
 
 async function get(path: string): Promise<Response> {
-	return api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`), { env, ctx, path: path.split("?")[0] ?? path, db });
+	return api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`), { env, ctx, path: path.split("?")[0] ?? path, db, caller: { kind: "local" } });
 }
 
 const rows = async (sql: string) => (await pg.query<Record<string, unknown>>(sql)).rows;
@@ -46,7 +46,7 @@ beforeEach(async () => {
 test("only the Apple Health token may push, and other bots' tokens are refused", async () => {
 	const body = await sample("metrics");
 	expect((await post(body, null)).status).toBe(401);
-	expect((await post(body, "Bearer nutrition-token")).status).toBe(401);
+	expect((await post(body, "Bearer nutrition-token")).status).toBe(403);
 	expect((await post(body, `Bearer ${TOKEN}x`)).status).toBe(401);
 	expect(await rows("select * from activity.apple_health_sleep")).toEqual([]);
 });

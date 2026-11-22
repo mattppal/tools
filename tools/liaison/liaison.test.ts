@@ -40,7 +40,7 @@ async function call(init: { method?: string; path?: string; body?: unknown; toke
 		headers: { authorization: `Bearer ${init.token ?? COORDINATOR}`, "content-type": "application/json" },
 		...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
 	});
-	const response = await api(request, { env, ctx: {} as ExecutionContext, path: path.split("?")[0] ?? path, db });
+	const response = await api(request, { env, ctx: {} as ExecutionContext, path: path.split("?")[0] ?? path, db, caller: { kind: "local" } });
 	return { status: response.status, json: (await response.json()) as Record<string, any> };
 }
 
@@ -54,7 +54,7 @@ beforeEach(async () => {
 });
 
 test("only the coordinator's token may send notices or list deliveries", async () => {
-	expect((await call({ body: nutritionNotice, token: "nutrition-token" })).status).toBe(401);
+	expect((await call({ body: nutritionNotice, token: "nutrition-token" })).status).toBe(403);
 	expect((await call({ method: "GET", path: "/deliveries", token: "wrong" })).status).toBe(401);
 	expect(received).toHaveLength(0);
 });

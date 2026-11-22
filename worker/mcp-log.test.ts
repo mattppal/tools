@@ -28,9 +28,9 @@ async function call(args: unknown): Promise<unknown[]> {
 			headers: { authorization: "Bearer nutrition-test", "content-type": "application/json", accept: "application/json, text/event-stream" },
 			body: JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "log_food", arguments: args } }),
 		}),
-		{ env, ctx: { waitUntil() {} } as never, path: "/mcp", db: () => Promise.reject(new Error("unused")) },
+		{ env, ctx: { waitUntil() {} } as never, path: "/mcp", db: () => Promise.reject(new Error("unused")), caller: { kind: "local" } },
 	);
-	return log.mock.calls.map(([line]) => JSON.parse(String(line)));
+	return log.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>).filter((line) => "mcp" in line);
 }
 
 test("argument names are paths, with arrays marked and no values", () => {

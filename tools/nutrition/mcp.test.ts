@@ -33,6 +33,7 @@ async function post(body: unknown, headers: Record<string, string> = HEADERS, me
 		ctx: { waitUntil() {} } as never,
 		path: "/mcp",
 		db,
+		caller: { kind: "local" },
 	});
 }
 
@@ -114,5 +115,5 @@ test("transport errors are HTTP statuses the bot can tell apart", async () => {
 		noAccept: (await post(list, { authorization: HEADERS.authorization, "content-type": "application/json" })).status,
 		textBody: (await post(list, { ...HEADERS, "content-type": "text/plain" })).status,
 	};
-	expect(statuses).toEqual({ noBearer: 401, coachToken: 401, get: 405, noAccept: 406, textBody: 415 });
+	expect(statuses).toEqual({ noBearer: 401, coachToken: 403, get: 405, noAccept: 406, textBody: 415 });
 });

@@ -62,7 +62,7 @@ const fakeWithings: Fetch = async (url, init) => {
 
 const api = activityApi(fakeWithings);
 const ctx = {} as ExecutionContext;
-const hit = (path: string, init?: RequestInit) => api(new Request(`https://tools.mattpalmer.io/api/withings${path}`, init), { env, ctx, path: `/withings${path.split("?")[0]}`, db });
+const hit = (path: string, init?: RequestInit) => api(new Request(`https://tools.mattpalmer.io/api/withings${path}`, init), { env, ctx, path: `/withings${path.split("?")[0]}`, db, caller: { kind: "owner", email: "mattppalmer@gmail.com" } });
 
 async function connect(): Promise<void> {
 	const state = await signState(creds.clientSecret);
@@ -446,7 +446,7 @@ test("workout links are rebuilt from the training log and shown on the workout",
 	await pg.query("insert into workouts.repo_files (path, kind, content, sha) values ('sessions/2026-11-18-run.json', 'session', $1, 'x')", [JSON.stringify({ date: "2026-11-18T06:10:00-08:00" })]);
 	expect(await refreshWorkoutLinks(client)).toBe(1);
 	expect((await listWorkouts(client, "2026-11-18", "2026-11-18"))[0]?.session).toEqual({ path: "sessions/2026-11-18-run.json", status: "matched", candidates: ["sessions/2026-11-18-run.json"] });
-	const response = await api(new Request("https://tools.mattpalmer.io/api/tools/activity/workouts?from=2026-11-18&to=2026-11-18"), { env, ctx, path: "/workouts", db });
+	const response = await api(new Request("https://tools.mattpalmer.io/api/tools/activity/workouts?from=2026-11-18&to=2026-11-18"), { env, ctx, path: "/workouts", db, caller: { kind: "owner", email: "mattppalmer@gmail.com" } });
 	expect(((await response.json()) as { workouts: { session: { path: string } }[] }).workouts[0]?.session.path).toBe("sessions/2026-11-18-run.json");
 });
 

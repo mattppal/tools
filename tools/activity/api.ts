@@ -29,7 +29,8 @@ function stateCookie(request: Request): string | null {
 }
 
 export function activityApi(fetcher: Fetch = fetch) {
-	return defineToolApi(async (request, { path, db, env }) => {
+	return defineToolApi(async (request, context) => {
+		const { path, db, env } = context;
 		const url = new URL(request.url);
 		if (path === "/withings/callback") {
 			if (request.method === "HEAD") return new Response(null, { status: 200, headers: NO_STORE });
@@ -102,7 +103,7 @@ export function activityApi(fetcher: Fetch = fetch) {
 			});
 		}
 		if (path === "/apple-health" && request.method === "POST") {
-			const bot = await requireBot(request, env, "activity");
+			const bot = await requireBot(request, context, "activity");
 			if (bot instanceof Response) return bot;
 			const body = await request.json().catch(() => null);
 			const result = parsePayload(body);

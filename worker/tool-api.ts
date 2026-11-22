@@ -1,3 +1,4 @@
+import type { Caller } from "./access.ts";
 import type { WithDb } from "./db.ts";
 
 export type ToolApiContext = {
@@ -5,6 +6,7 @@ export type ToolApiContext = {
 	ctx: ExecutionContext;
 	path: string;
 	db: WithDb;
+	caller: Caller;
 };
 
 export type ToolApi = (request: Request, context: ToolApiContext) => Response | Promise<Response>;

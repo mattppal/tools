@@ -18,7 +18,7 @@ async function listTools(api: ToolApi): Promise<Listed[] | null> {
 				headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
 			}),
-			{ env, ctx: { waitUntil() {} } as never, path: "/mcp", db: () => Promise.reject(new Error("tools/list must not touch the database")) },
+			{ env, ctx: { waitUntil() {} } as never, path: "/mcp", db: () => Promise.reject(new Error("tools/list must not touch the database")), caller: { kind: "local" } },
 		);
 		if (response.status === 404) return null;
 		if (response.status === 200) return ((await response.json()) as { result: { tools: Listed[] } }).result.tools;

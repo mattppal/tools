@@ -37,8 +37,9 @@ const listQuery = z.strictObject({
 	thread: z.uuid().optional(),
 });
 
-export default defineToolApi(async (request, { env, db, path }) => {
-	const caller = await requireBot(request, env, "liaison");
+export default defineToolApi(async (request, context) => {
+	const { env, db, path } = context;
+	const caller = await requireBot(request, context, "liaison");
 	if (caller instanceof Response) return caller;
 	const route = `${request.method} ${path}`;
 	try {

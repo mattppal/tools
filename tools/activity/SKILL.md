@@ -52,7 +52,7 @@ A failed run stores `last_error`. An auth failure says to reconnect at `/api/wit
 
 ## Apple Health
 
-Health Auto Export on Matt's iPhone posts JSON, export version 2, to `POST /api/tools/activity/apple-health` on a schedule. Eight Sleep writes sleep to Apple Health, so this is how Eight Sleep's nights reach tools. The phone sends three headers, like a bot: `CF-Access-Client-Id` and `CF-Access-Client-Secret` for the `apple-health-export` service token, and `Authorization: Bearer` with the `BOT_TOKEN_APPLE_HEALTH` secret. `worker/bot-auth.ts` names that caller `apple-health` and lets it call only this tool. The setup Matt follows on the phone is in the Project store at `docs/apple-health-setup.md`.
+Health Auto Export on Matt's iPhone posts JSON, export version 2, to `POST /api/tools/activity/apple-health` on a schedule. Eight Sleep writes sleep to Apple Health, so this is how Eight Sleep's nights reach tools. The phone sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` for the `apple-health-export` service token. `BOTS` in `worker/access.ts` names that caller `apple-health` and lets it call only `POST /apple-health`. The phone's `Authorization: Bearer <BOT_TOKEN_APPLE_HEALTH>` header still works until the bearer-removal PR and is ignored after it, so the phone needs no change. The setup Matt follows on the phone is in the Project store at `docs/apple-health-setup.md`.
 
 The body is `{"data":{"metrics":[...],"workouts":[...]}}` in the shapes of Health Auto Export's help center (Export Format, Health Metrics and Workouts). `samples/` holds one push of each kind, and the tests post them.
 

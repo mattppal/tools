@@ -1,4 +1,4 @@
-import { accessGate } from "./access.ts";
+import { accessGate, type Caller } from "./access.ts";
 import { type WithDb, withRequestDb } from "./db.ts";
 import { debugReport } from "./debug.ts";
 import { bundledMigrations, checkMigrations, type MigrationDrift } from "./migrations.ts";
@@ -56,7 +56,7 @@ async function checkDb(withDb: WithDb): Promise<HealthReport> {
 	}
 }
 
-async function handleApi(request: Request, env: Env, ctx: ExecutionContext, withDb: WithDb): Promise<Response> {
+async function handleApi(request: Request, env: Env, ctx: ExecutionContext, withDb: WithDb, caller: Caller): Promise<Response> {
 	const { pathname } = new URL(request.url);
 	if (pathname === "/api/health") {
 		const report = await checkDb(withDb);
@@ -69,7 +69,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, with
 	const api = TOOL_APIS.get(slug);
 	if (api === undefined) return Response.json({ error: `No API for tool "${slug}"` }, { status: 404 });
 	try {
-		return await api(request, { env, ctx, path: rest, db: withDb });
+		return await api(request, { env, ctx, path: rest, db: withDb, caller });
 	} catch (error) {
 		console.error(`Tool API ${slug} failed on ${request.method} ${rest}`, error);
 		return Response.json({ error: "Internal error" }, { status: 500 });
@@ -79,9 +79,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, with
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	const url = new URL(request.url);
 	if (url.pathname.startsWith("/api/")) {
-		const denied = await gate(request);
-		if (denied !== null) return denied;
-		return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
+		const caller = await gate(request);
+		if (caller instanceof Response) return caller;
+		return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb, caller));
 	}
 	if (url.pathname.startsWith("/assets/")) return new Response("Not found", { status: 404 });
 	return withScriptNonce(await env.ASSETS.fetch(new Request(new URL("/", url), request)));

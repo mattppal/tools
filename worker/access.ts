@@ -1,24 +1,83 @@
+export type BearerSecret = "BOT_TOKEN_NUTRITION" | "BOT_TOKEN_COACH" | "BOT_TOKEN_COORDINATOR" | "BOT_TOKEN_APPLE_HEALTH";
+
+export type Scope = "all" | readonly string[];
+
+export type Bot = {
+	serviceToken: string;
+	clientId: string | null;
+	bearer: BearerSecret | null;
+	tools: Readonly<Record<string, Scope>>;
+};
+
+export const BOTS = {
+	nutrition: {
+		serviceToken: "nutrition-bot",
+		clientId: "46f516f5dd0738abfa72def83722f0da.access",
+		bearer: "BOT_TOKEN_NUTRITION",
+		tools: { nutrition: "all", activity: ["GET /days", "GET /weights", "GET /health"] },
+	},
+	coach: {
+		serviceToken: "coach-bot",
+		clientId: "e7234384aca5ccf0fe162d8a112c76b5.access",
+		bearer: "BOT_TOKEN_COACH",
+		tools: { workouts: "all", activity: ["GET /workouts"] },
+	},
+	coordinator: {
+		serviceToken: "tools-coordinator",
+		clientId: "9f5386b746c91cbc0774e9f806a081fa.access",
+		bearer: "BOT_TOKEN_COORDINATOR",
+		tools: { liaison: ["POST /notices", "GET /deliveries"] },
+	},
+	smoke: {
+		serviceToken: "tools-agent-verify",
+		clientId: "3764ccd9a5d87214d1032418b8c228ed.access",
+		bearer: null,
+		tools: { nutrition: "all" },
+	},
+	"apple-health": {
+		serviceToken: "apple-health-export",
+		clientId: "9ae32c65cfb73a1cf83b0196b682ba65.access",
+		bearer: "BOT_TOKEN_APPLE_HEALTH",
+		tools: { activity: ["POST /apple-health"] },
+	},
+	gtd: {
+		serviceToken: "gtd-bot",
+		clientId: null,
+		bearer: null,
+		tools: { goals: "all" },
+	},
+} as const satisfies Record<string, Bot>;
+
+export type BotName = keyof typeof BOTS;
+
+export type Caller = { kind: "owner"; email: string } | { kind: "bot"; bot: BotName } | { kind: "local" } | { kind: "public" };
+
 export type AccessConfig = {
 	teamDomain: string;
 	audiences: readonly string[];
 	emails: readonly string[];
-	serviceTokens: Readonly<Record<string, string>>;
+	bots: Readonly<Record<string, BotName>>;
 	publicRoutes: readonly string[];
 };
+
+function botsByClientId(bots: Readonly<Record<BotName, Bot>>): Record<string, BotName> {
+	return Object.fromEntries(Object.entries(bots).flatMap(([name, bot]) => (bot.clientId === null ? [] : [[bot.clientId, name as BotName]])));
+}
 
 export const ACCESS: AccessConfig = {
 	teamDomain: "https://mattpalmer.cloudflareaccess.com",
 	audiences: ["a99f3303259b1e9f2cd5f99542fe69260fd351fd51b7c4596ee0210ca7893b13"],
 	emails: ["mattppalmer@gmail.com"],
-	serviceTokens: {
-		"tools-agent-verify": "3764ccd9a5d87214d1032418b8c228ed.access",
-		"coach-bot": "e7234384aca5ccf0fe162d8a112c76b5.access",
-		"nutrition-bot": "46f516f5dd0738abfa72def83722f0da.access",
-		"tools-coordinator": "9f5386b746c91cbc0774e9f806a081fa.access",
-		"apple-health-export": "9ae32c65cfb73a1cf83b0196b682ba65.access",
-	},
+	bots: botsByClientId(BOTS),
 	publicRoutes: ["GET /api/withings/callback", "HEAD /api/withings/callback", "POST /api/withings/callback"],
 };
+
+export function allows(bot: BotName, tool: string, route: string): boolean {
+	const tools: Readonly<Record<string, Scope>> = BOTS[bot].tools;
+	if (!Object.hasOwn(tools, tool)) return false;
+	const scope = tools[tool];
+	return scope === "all" || (scope?.includes(route) ?? false);
+}
 
 type Jwk = JsonWebKey & { kid?: string };
 type Claims = { iss?: unknown; aud?: unknown; exp?: unknown; nbf?: unknown; email?: unknown; common_name?: unknown };
@@ -60,7 +119,6 @@ function crossSite(request: Request, url: URL): boolean {
 
 export function accessGate(config: AccessConfig = ACCESS, fetcher: Fetch = (input) => fetch(input), clock: () => number = Date.now) {
 	let keySet: KeySet | null = null;
-	const allowedTokens = new Set(Object.values(config.serviceTokens));
 
 	async function loadKeys(): Promise<Map<string, CryptoKey>> {
 		const response = await fetcher(`${config.teamDomain}/cdn-cgi/access/certs`);
@@ -94,23 +152,24 @@ export function accessGate(config: AccessConfig = ACCESS, fetcher: Fetch = (inpu
 		return valid ? (decodePart(payload) as Claims | null) : null;
 	}
 
-	function admitted(claims: Claims): string | null {
+	function admitted(claims: Claims): Caller | string {
 		const now = clock() / 1000;
 		if (claims.iss !== config.teamDomain) return "token has the wrong issuer";
 		const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
 		if (!audiences.some((aud) => typeof aud === "string" && config.audiences.includes(aud))) return "token is for another Access app";
 		if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_S < now) return "token expired";
 		if (typeof claims.nbf === "number" && claims.nbf - CLOCK_SKEW_S > now) return "token is not valid yet";
-		if (typeof claims.email === "string" && claims.email !== "" && config.emails.includes(claims.email.toLowerCase())) return null;
-		if (typeof claims.common_name === "string" && allowedTokens.has(claims.common_name)) return null;
+		if (typeof claims.email === "string" && claims.email !== "" && config.emails.includes(claims.email.toLowerCase())) return { kind: "owner", email: claims.email.toLowerCase() };
+		const bot = typeof claims.common_name === "string" && Object.hasOwn(config.bots, claims.common_name) ? config.bots[claims.common_name] : undefined;
+		if (bot !== undefined) return { kind: "bot", bot };
 		return "this identity is not on the tools allowlist";
 	}
 
-	return async function gate(request: Request): Promise<Response | null> {
+	return async function gate(request: Request): Promise<Caller | Response> {
 		const url = new URL(request.url);
-		if (config.publicRoutes.includes(`${request.method} ${url.pathname}`)) return null;
+		if (config.publicRoutes.includes(`${request.method} ${url.pathname}`)) return { kind: "public" };
 		if (crossSite(request, url)) return forbidden("cross-site request");
-		if (LOCAL_HOSTS.has(url.hostname)) return null;
+		if (LOCAL_HOSTS.has(url.hostname)) return { kind: "local" };
 		const token = request.headers.get("cf-access-jwt-assertion");
 		if (token === null || token === "") return forbidden("no Cloudflare Access token");
 		let claims: Claims | null;
@@ -121,7 +180,7 @@ export function accessGate(config: AccessConfig = ACCESS, fetcher: Fetch = (inpu
 			return Response.json({ error: "Could not verify the Cloudflare Access token" }, { status: 503, headers: { "cache-control": "no-store" } });
 		}
 		if (claims === null) return forbidden("Cloudflare Access token did not verify");
-		const reason = admitted(claims);
-		return reason === null ? null : forbidden(reason);
+		const caller = admitted(claims);
+		return typeof caller === "string" ? forbidden(caller) : caller;
 	};
 }

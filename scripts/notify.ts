@@ -1,17 +1,24 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { BOTS } from "../worker/access.ts";
 
 const USAGE = `Usage:
-  bun run notify [<for>] <label> --subject <text> [--body-file <path>] [--confirm <text>] [--ref <https url>]... [--reply-to <id>] [--test] [--notice-id <id>] [--dry-run]
-  bun run notify --list [--app nutrition|workouts|tools] [--thread <id>]
+  bun run notify [<for>] <label> --subject <text> [--body-file <path>] [--confirm <text>] [--ref <https url>]... [--reply-to <id>] [--test] [--notice-id <id>] [--dry-run] [--mint]
+  bun run notify --list [--app nutrition|workouts|tools] [--thread <id>] [--mint]
 
 <for> is liaison (the default), nutrition, coach, fog, tinkabot or all; all goes to every bot. Without --body-file the markdown body is read from stdin.
-Needs TOOLS_COORDINATOR_CLIENT_ID, TOOLS_COORDINATOR_CLIENT_SECRET and BOT_TOKEN_COORDINATOR (CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET also work). TOOLS_URL defaults to https://tools.mattpalmer.io.`;
+Sends the tools-coordinator Access service token, from TOOLS_COORDINATOR_CLIENT_ID and TOOLS_COORDINATOR_CLIENT_SECRET. When those are unset, --mint rotates that token's secret with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and uses it for this run only. TOOLS_URL defaults to https://tools.mattpalmer.io.`;
 
 const ATTEMPTS = 3;
 const RETRY_MS = 2_000;
+const MINT_GRACE_MS = 60 * 60_000;
+const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
-export type NotifyArgs = { list: false; notice: Record<string, unknown>; dryRun: boolean } | { list: true; query: URLSearchParams };
+export type NotifyArgs = { list: false; notice: Record<string, unknown>; dryRun: boolean; mint: boolean } | { list: true; query: URLSearchParams; mint: boolean };
+
+export type Credentials = { clientId: string; clientSecret: string };
+
+type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export function parseNotify(argv: readonly string[], body: string | null): NotifyArgs {
 	const { values, positionals } = parseArgs({
@@ -29,13 +36,15 @@ export function parseNotify(argv: readonly string[], body: string | null): Notif
 			list: { type: "boolean" },
 			app: { type: "string" },
 			thread: { type: "string" },
+			mint: { type: "boolean" },
 		},
 	});
+	const mint = values.mint === true;
 	if (values.list) {
 		const query = new URLSearchParams();
 		if (values.app !== undefined) query.set("app", values.app);
 		if (values.thread !== undefined) query.set("thread", values.thread);
-		return { list: true, query };
+		return { list: true, query, mint };
 	}
 	const [recipient, label] = positionals.length === 1 ? ["liaison", positionals[0]] : positionals;
 	if (recipient === undefined || label === undefined || positionals.length > 2 || values.subject === undefined) throw new Error(USAGE);
@@ -43,6 +52,7 @@ export function parseNotify(argv: readonly string[], body: string | null): Notif
 	return {
 		list: false,
 		dryRun: values["dry-run"] === true,
+		mint,
 		notice: {
 			for: recipient,
 			label,
@@ -57,25 +67,40 @@ export function parseNotify(argv: readonly string[], body: string | null): Notif
 	};
 }
 
-export function credentials(env: Record<string, string | undefined>): { clientId: string; clientSecret: string; token: string } {
-	const clientId = env["TOOLS_COORDINATOR_CLIENT_ID"] || env["CF_ACCESS_CLIENT_ID"];
-	const clientSecret = env["TOOLS_COORDINATOR_CLIENT_SECRET"] || env["CF_ACCESS_CLIENT_SECRET"];
-	const token = env["BOT_TOKEN_COORDINATOR"];
-	const missing = [
-		clientId ? null : "TOOLS_COORDINATOR_CLIENT_ID",
-		clientSecret ? null : "TOOLS_COORDINATOR_CLIENT_SECRET",
-		token ? null : "BOT_TOKEN_COORDINATOR",
-	].filter((name) => name !== null);
-	if (missing.length > 0 || !clientId || !clientSecret || !token) throw new Error(`Set ${missing.join(", ")} first.`);
-	return { clientId, clientSecret, token };
+async function cloudflare<T>(fetcher: Fetch, path: string, apiToken: string, init: RequestInit = {}): Promise<T> {
+	const response = await fetcher(`${CLOUDFLARE_API}${path}`, { ...init, headers: { authorization: `Bearer ${apiToken}`, "content-type": "application/json" } });
+	const body = (await response.json().catch(() => null)) as { success?: unknown; result?: T; errors?: { message?: unknown }[] } | null;
+	if (response.ok && body?.success === true && body.result !== undefined) return body.result;
+	throw new Error(`Cloudflare API ${init.method ?? "GET"} ${path.split("?")[0]} answered HTTP ${response.status}: ${body?.errors?.map((error) => String(error.message)).join("; ") || "no details"}`);
 }
 
-function headers(): Record<string, string> {
-	const { clientId, clientSecret, token } = credentials(process.env);
+export async function mintCredentials(env: Record<string, string | undefined>, fetcher: Fetch = fetch, now: number = Date.now()): Promise<Credentials> {
+	const apiToken = env["CLOUDFLARE_API_TOKEN"];
+	const account = env["CLOUDFLARE_ACCOUNT_ID"];
+	if (!apiToken || !account) throw new Error("--mint needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.");
+	const { clientId, serviceToken } = BOTS.coordinator;
+	const tokens = await cloudflare<{ id: string; client_id: string }[]>(fetcher, `/accounts/${account}/access/service_tokens?per_page=1000`, apiToken);
+	const token = tokens.find((candidate) => candidate.client_id === clientId);
+	if (token === undefined) throw new Error(`No Access service token named ${serviceToken} has client ID ${clientId}.`);
+	const rotated = await cloudflare<{ client_secret: string }>(fetcher, `/accounts/${account}/access/service_tokens/${token.id}/rotate`, apiToken, {
+		method: "POST",
+		body: JSON.stringify({ previous_client_secret_expires_at: new Date(now + MINT_GRACE_MS).toISOString() }),
+	});
+	return { clientId, clientSecret: rotated.client_secret };
+}
+
+export async function credentials(env: Record<string, string | undefined>, mint: boolean, fetcher: Fetch = fetch): Promise<Credentials> {
+	const clientId = env["TOOLS_COORDINATOR_CLIENT_ID"];
+	const clientSecret = env["TOOLS_COORDINATOR_CLIENT_SECRET"];
+	if (clientId && clientSecret) return { clientId, clientSecret };
+	if (mint) return await mintCredentials(env, fetcher);
+	throw new Error("Set TOOLS_COORDINATOR_CLIENT_ID and TOOLS_COORDINATOR_CLIENT_SECRET first, or pass --mint.");
+}
+
+function headers({ clientId, clientSecret }: Credentials): Record<string, string> {
 	return {
 		"cf-access-client-id": clientId,
 		"cf-access-client-secret": clientSecret,
-		authorization: `Bearer ${token}`,
 		"content-type": "application/json",
 		"user-agent": "tools-notify/1",
 	};
@@ -104,9 +129,10 @@ async function main(): Promise<void> {
 		console.log(JSON.stringify(args.notice, null, 2));
 		return;
 	}
+	const sent = headers(await credentials(process.env, args.mint));
 	const response = args.list
-		? await request(`${base}/api/tools/liaison/deliveries?${args.query}`, { headers: headers() })
-		: await request(`${base}/api/tools/liaison/notices`, { method: "POST", headers: headers(), body: JSON.stringify(args.notice) });
+		? await request(`${base}/api/tools/liaison/deliveries?${args.query}`, { headers: sent })
+		: await request(`${base}/api/tools/liaison/notices`, { method: "POST", headers: sent, body: JSON.stringify(args.notice) });
 	const text = await response.text();
 	console.log(`HTTP ${response.status}`);
 	console.log(text);

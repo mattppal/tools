@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { type AccessConfig, accessGate } from "./access.ts";
+import { ACCESS, type AccessConfig, accessGate, BOTS, type Caller } from "./access.ts";
 
 const TEAM = "https://team.cloudflareaccess.com";
 const AUD = "aud-tools";
@@ -8,7 +8,7 @@ const config: AccessConfig = {
 	teamDomain: TEAM,
 	audiences: [AUD],
 	emails: ["owner@example.com"],
-	serviceTokens: { "tools-bot": "bot-client.access" },
+	bots: { "bot-client.access": "nutrition" },
 	publicRoutes: ["GET /api/withings/callback"],
 };
 
@@ -49,8 +49,9 @@ function call(path: string, { token, method = "GET", headers = {} }: { token?: s
 	return new Request(`https://tools.example${path}`, { method, headers: { ...headers, ...(token === undefined ? {} : { "cf-access-jwt-assertion": token }) } });
 }
 
-async function status(result: Promise<Response | null>): Promise<number> {
-	return (await result)?.status ?? 200;
+async function status(result: Promise<Caller | Response>): Promise<number> {
+	const answer = await result;
+	return answer instanceof Response ? answer.status : 200;
 }
 
 test("admits the owner's email and allowlisted service tokens", async () => {
@@ -60,11 +61,32 @@ test("admits the owner's email and allowlisted service tokens", async () => {
 	expect(certFetches).toBe(1);
 });
 
+test("names the caller: the owner by email, a service token by its bot", async () => {
+	const check = gate();
+	expect(await check(call("/api/health", { token: await sign(claims({ email: "Owner@Example.com" })) }))).toEqual({ kind: "owner", email: "owner@example.com" });
+	expect(await check(call("/api/tools/nutrition/mcp", { method: "POST", token: await sign(claims({ common_name: "bot-client.access" })) }))).toEqual({ kind: "bot", bot: "nutrition" });
+	expect(await check(call("/api/withings/callback"))).toEqual({ kind: "public" });
+	expect(await check(new Request("http://localhost:5173/api/health"))).toEqual({ kind: "local" });
+	for (const name of ["__proto__", "constructor", "toString"]) expect(await status(check(call("/api/health", { token: await sign(claims({ common_name: name })) })))).toBe(403);
+});
+
+test("the production allowlist is exactly the registry's Access clients", () => {
+	expect(ACCESS.bots).toEqual({
+		"46f516f5dd0738abfa72def83722f0da.access": "nutrition",
+		"e7234384aca5ccf0fe162d8a112c76b5.access": "coach",
+		"9f5386b746c91cbc0774e9f806a081fa.access": "coordinator",
+		"3764ccd9a5d87214d1032418b8c228ed.access": "smoke",
+		"9ae32c65cfb73a1cf83b0196b682ba65.access": "apple-health",
+	});
+	expect(Object.values(BOTS).map((bot) => bot.serviceToken)).toEqual(["nutrition-bot", "coach-bot", "tools-coordinator", "tools-agent-verify", "apple-health-export", "gtd-bot"]);
+});
+
 test("refuses a valid Access token for an identity off the allowlist", async () => {
 	const check = gate();
 	const response = await check(call("/api/health", { token: await sign(claims({ common_name: "other-client.access" })) }));
-	expect(response?.status).toBe(403);
-	expect(await response?.json()).toEqual({ error: "Forbidden: this identity is not on the tools allowlist" });
+	if (!(response instanceof Response)) throw new Error("expected a refusal");
+	expect(response.status).toBe(403);
+	expect(await response.json()).toEqual({ error: "Forbidden: this identity is not on the tools allowlist" });
 	expect(await status(check(call("/api/health", { token: await sign(claims({ email: "someone@example.com" })) })))).toBe(403);
 	expect(await status(check(call("/api/health", { token: await sign(claims({ email: "", common_name: "" })) })))).toBe(403);
 });

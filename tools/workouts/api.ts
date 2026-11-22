@@ -64,7 +64,8 @@ async function trainingLog(db: Database): Promise<TrainingLog> {
 	return trainingLogFrom(programs, sessions);
 }
 
-export default defineToolApi(async (request, { env, ctx, path, db }) => {
+export default defineToolApi(async (request, context) => {
+	const { env, ctx, path, db } = context;
 	const method = request.method;
 	try {
 		if (method === "GET" && path === "/program") {
@@ -108,7 +109,7 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 			);
 
 		if (method === "POST" && path === "/sync") {
-			const bot = await requireBot(request, env, "workouts");
+			const bot = await requireBot(request, context, "workouts");
 			if (bot instanceof Response) return bot;
 			const result = await db((client) => syncTrainingLog(client, env, { force: new URL(request.url).searchParams.get("force") === "1" }));
 			return json({ result, sync: await db(readSyncState) }, result.status === "failed" ? 502 : 200);
