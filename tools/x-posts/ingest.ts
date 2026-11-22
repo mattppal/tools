@@ -420,6 +420,10 @@ export async function runIngest(withDb: WithDb, deps: IngestDeps): Promise<RunRe
 		}
 	}
 
+	if (caughtUp && totals.inserted > 0) {
+		await withDb((client) => client.query("update x_posts.sync_state set next_run_at = least(next_run_at, $1::timestamptz + make_interval(mins => $2::int))", [now, ACTIVE_INTERVAL_MINUTES]));
+	}
+
 	if (caughtUp && stopped === null) {
 		try {
 			const refreshed = await refreshMetrics(withDb, deps, budget);

@@ -5,13 +5,13 @@ description: "The X posts tool at /x-posts. A log of X posts matching one query,
 
 # X posts
 
-Every 5 minutes, and every minute while posts are arriving, the cron reads X recent search for `"mattyp mattyp mattyp" lang:en -is:retweet`, stores each post, and screens it. matty prints' review agent approves, rejects or overflows what passed the screen. Approved posts become print jobs, and a bridge on the Mac Mini claims each job, prints it on the receipt printer, and acks it. tools owns everything except the printing.
+Every 5 minutes, and every minute while posts are arriving, the cron reads X recent search for `"mattyp mattyp mattyp" -is:retweet` (any language: X can label a post that is only the phrase as another language (one was tagged Swedish), so `lang:en` dropped real summons; search ignores case), stores each post, and screens it. matty prints' review agent approves, rejects or overflows what passed the screen. Approved posts become print jobs, and a bridge on the Mac Mini claims each job, prints it on the receipt printer, and acks it. tools owns everything except the printing.
 
 Two switches in `query.ts`: `LIVE_INGEST` (reads X with the Worker secret `X_BEARER_TOKEN`) and `QUEUE_OPEN`. While the queue is closed (shadow mode), ingest and screening run, `POST /decisions` and `POST /jobs/claim` answer 503, no jobs are built, and the sweep marks posts pending for 24 hours as overflow without summarizing them. Open the queue only after Matt OKs the shadow numbers.
 
 ## Ingest
 
-- One run every 5 minutes, or every minute when a post was ingested in the last 30 minutes, claimed atomically through `sync_state.next_run_at`. Up to 10 pages of 100 per run, paging `next_token` under `since_id`. The first page's `newest_id` is held as `pending_since_id`, and `since_id` moves to it only after the last page. A run that stops early keeps `next_token` and resumes it. X refusing a saved token or `since_id` resets it once.
+- One run every 5 minutes, or every minute when a post was ingested in the last 30 minutes (a run that stores a post schedules the next one a minute later), claimed atomically through `sync_state.next_run_at`. Up to 10 pages of 100 per run, paging `next_token` under `since_id`. The first page's `newest_id` is held as `pending_since_id`, and `since_id` moves to it only after the last page. A run that stops early keeps `next_token` and resumes it. X refusing a saved token or `since_id` resets it once.
 - Budget: 12,000 reads a month (posts returned, metrics lookups included). At the budget, or when X answers 402 or a usage-cap 429, reading stops until the 1st and one liaison notice goes out. A rate-limit 429 waits for `x-rate-limit-reset`.
 - After catching up, metrics are refreshed for posts under 48 hours old at 6, 24 and 48 hours of age, up to 300 posts a run, within 80% of the budget. `metricsAt` says when.
 - No success for 24 hours sends one liaison notice. Unauthorized, a bad request, or 3 failed runs in a row throw, and `worker/cron-alerts.ts` reports it.

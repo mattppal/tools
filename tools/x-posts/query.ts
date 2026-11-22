@@ -1,4 +1,4 @@
-export const QUERY = '"mattyp mattyp mattyp" lang:en -is:retweet';
+export const QUERY = '"mattyp mattyp mattyp" -is:retweet';
 
 export const LIVE_INGEST = true;
 export const QUEUE_OPEN = false;
