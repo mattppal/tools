@@ -10,7 +10,12 @@ export const SCOPE = "user.info,user.metrics,user.activity";
 
 const AUTHORIZE_URL = "https://account.withings.com/oauth2_user/authorize2";
 const API = "https://wbsapi.withings.net";
-const DATA_FIELDS = "steps,distance,elevation,soft,moderate,intense,active,calories,totalcalories";
+const DATA_FIELDS = "steps,distance,elevation,soft,moderate,intense,active,calories,totalcalories,hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3";
+const WORKOUT_FIELDS =
+	"calories,intensity,manual_distance,manual_calories,hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3,pause_duration,algo_pause_duration,spo2_average,steps,distance,elevation,pool_laps,strokes,pool_length";
+const SLEEP_FIELDS =
+	"total_sleep_time,total_timeinbed,lightsleepduration,deepsleepduration,remsleepduration,wakeupduration,wakeupcount,durationtosleep,durationtowakeup,sleep_efficiency,sleep_latency,wakeup_latency,waso,nb_rem_episodes,out_of_bed_count,hr_average,hr_min,hr_max,rr_average,rr_min,rr_max,breathing_disturbances_intensity,snoring,snoringepisodecount,sleep_score,apnea_hypopnea_index";
+const INTRADAY_FIELDS = "steps,elevation,calories,distance,stroke,pool_lap,duration,heart_rate,spo2_auto";
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 export type Credentials = { clientId: string; clientSecret: string };
@@ -26,6 +31,13 @@ export type WithingsActivity = {
 	intense?: number | null;
 	calories?: number | null;
 	totalcalories?: number | null;
+	hr_average?: number | null;
+	hr_min?: number | null;
+	hr_max?: number | null;
+	hr_zone_0?: number | null;
+	hr_zone_1?: number | null;
+	hr_zone_2?: number | null;
+	hr_zone_3?: number | null;
 	deviceid?: string | null;
 	brand?: number | null;
 	is_tracker?: boolean | null;
@@ -104,6 +116,31 @@ export async function getWeights(fetcher: Fetch, accessToken: string, lastupdate
 	if (offset > 0) form["offset"] = String(offset);
 	const body = await call<{ measuregrps?: MeasureGroup[]; more?: boolean | number; offset?: number; updatetime: number }>(fetcher, "/measure", form, accessToken);
 	return { groups: body.measuregrps ?? [], more: Boolean(body.more), offset: body.offset ?? 0, updatetime: body.updatetime };
+}
+
+export type Feed = "measures" | "workouts" | "sleep";
+type Series = Record<string, unknown>;
+export type FeedPage = { items: Series[]; more: boolean; offset: number; updatetime: number | null };
+
+const FEEDS: Record<Feed, { path: string; form: Record<string, string> }> = {
+	measures: { path: "/measure", form: { action: "getmeas", category: "1" } },
+	workouts: { path: "/v2/measure", form: { action: "getworkouts", data_fields: WORKOUT_FIELDS } },
+	sleep: { path: "/v2/sleep", form: { action: "getsummary", data_fields: SLEEP_FIELDS } },
+};
+
+export async function getFeed(fetcher: Fetch, accessToken: string, feed: Feed, lastupdate: number, offset: number): Promise<FeedPage> {
+	const form: Record<string, string> = { ...FEEDS[feed].form, lastupdate: String(lastupdate) };
+	if (offset > 0) form["offset"] = String(offset);
+	const body = await call<{ measuregrps?: Series[]; series?: Series[]; more?: boolean | number; offset?: number; updatetime?: number }>(fetcher, FEEDS[feed].path, form, accessToken);
+	return { items: body.measuregrps ?? body.series ?? [], more: Boolean(body.more), offset: body.offset ?? 0, updatetime: body.updatetime ?? null };
+}
+
+export type IntradaySample = { steps?: number; calories?: number; distance?: number; elevation?: number; heart_rate?: number; spo2_auto?: number; model?: string; model_id?: number; deviceid?: string };
+
+export async function getIntraday(fetcher: Fetch, accessToken: string, startdate: number, enddate: number): Promise<Record<string, IntradaySample>> {
+	const form = { action: "getintradayactivity", startdate: String(startdate), enddate: String(enddate), data_fields: INTRADAY_FIELDS };
+	const body = await call<{ series?: Record<string, IntradaySample> | IntradaySample[] }>(fetcher, "/v2/measure", form, accessToken);
+	return body.series !== undefined && !Array.isArray(body.series) ? body.series : {};
 }
 
 export async function getActivity(fetcher: Fetch, accessToken: string, from: string, to: string, offset: number): Promise<ActivityPage> {

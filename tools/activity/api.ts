@@ -1,5 +1,6 @@
 import { defineToolApi } from "../../worker/tool-api.ts";
 import { addDays, isIsoDate, today } from "./dates.ts";
+import { dailyHealth, intradayDay, listMeasures, listSleep, listWorkouts, resetStreams } from "./health.ts";
 import { signState, verifyState } from "./secrets.ts";
 import { listDays, readConnection, saveConnection } from "./store.ts";
 import { weightReport } from "./weights.ts";
@@ -42,7 +43,11 @@ export function activityApi(fetcher: Fetch = fetch) {
 				return text("This link expired or did not start in this browser. Start again from /api/withings/connect.", 400, clear);
 			}
 			const tokens = await exchangeCode(fetcher, creds, code ?? "");
-			await db((client) => saveConnection(client, creds.clientSecret, tokens, addDays(today(), -RECENT_DAYS)));
+			await db(async (client) => {
+				const previous = await readConnection(client);
+				if (previous !== null && previous.userid !== tokens.userid) await resetStreams(client);
+				await saveConnection(client, creds.clientSecret, tokens, addDays(today(), -RECENT_DAYS));
+			});
 			return new Response(null, { status: 302, headers: { ...NO_STORE, ...clear, location: "/settings" } });
 		}
 		if (path === "/withings/connect" && request.method === "GET") {
@@ -78,6 +83,27 @@ export function activityApi(fetcher: Fetch = fetch) {
 			const from = url.searchParams.get("from") ?? addDays(to, -29);
 			if (!isIsoDate(from) || !isIsoDate(to) || from > to) return Response.json({ error: "Use dates like 2026-11-22, from on or before to" }, { status: 400 });
 			return Response.json(await db((client) => weightReport(client, from, to)), { headers: NO_STORE });
+		}
+		if (request.method === "GET" && (path === "/health" || path === "/workouts" || path === "/sleep" || path === "/measures")) {
+			const to = url.searchParams.get("to") ?? today();
+			const from = url.searchParams.get("from") ?? addDays(to, -29);
+			if (!isIsoDate(from) || !isIsoDate(to) || from > to) return Response.json({ error: "Use dates like 2026-11-22, from on or before to" }, { status: 400 });
+			const types = (url.searchParams.get("types") ?? "")
+				.split(",")
+				.filter((type) => /^\d+$/.test(type))
+				.map(Number);
+			return db(async (client) => {
+				if (path === "/health") return Response.json({ days: await dailyHealth(client, from, to) }, { headers: NO_STORE });
+				if (path === "/workouts") return Response.json({ workouts: await listWorkouts(client, from, to) }, { headers: NO_STORE });
+				if (path === "/sleep") return Response.json({ sleep: await listSleep(client, from, to) }, { headers: NO_STORE });
+				return Response.json({ measures: await listMeasures(client, from, to, types) }, { headers: NO_STORE });
+			});
+		}
+		if (path === "/intraday" && request.method === "GET") {
+			const day = url.searchParams.get("day") ?? today();
+			if (!isIsoDate(day)) return Response.json({ error: "Use a day like 2026-11-22" }, { status: 400 });
+			const result = await db((client) => intradayDay(client, day));
+			return result === null ? Response.json({ error: `No intraday data for ${day}` }, { status: 404 }) : Response.json(result, { headers: NO_STORE });
 		}
 		return Response.json({ error: "Not found" }, { status: 404 });
 	});

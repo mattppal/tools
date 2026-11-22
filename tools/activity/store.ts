@@ -167,18 +167,30 @@ export async function upsertWithingsDays(client: Database, activities: readonly 
 		soft_s: best.soft ?? null,
 		moderate_s: best.moderate ?? null,
 		intense_s: best.intense ?? null,
+		hr_avg: best.hr_average ?? null,
+		hr_min: best.hr_min ?? null,
+		hr_max: best.hr_max ?? null,
+		hr_zone_0_s: best.hr_zone_0 ?? null,
+		hr_zone_1_s: best.hr_zone_1 ?? null,
+		hr_zone_2_s: best.hr_zone_2 ?? null,
+		hr_zone_3_s: best.hr_zone_3 ?? null,
 		device: best.deviceid ?? (best.brand === undefined || best.brand === null ? null : `brand ${best.brand}`),
 		raw: all,
 	}));
 	if (rows.length === 0) return 0;
 	const { rowCount } = await client.query(
-		`insert into activity.days (day, source, steps, active_kcal, total_kcal, distance_m, elevation_m, soft_s, moderate_s, intense_s, device, raw, updated_by)
-		select r.day, 'withings', r.steps, r.active_kcal, r.total_kcal, r.distance_m, r.elevation_m, r.soft_s, r.moderate_s, r.intense_s, r.device, r.raw, 'withings-sync'
+		`insert into activity.days (day, source, steps, active_kcal, total_kcal, distance_m, elevation_m, soft_s, moderate_s, intense_s,
+			hr_avg, hr_min, hr_max, hr_zone_0_s, hr_zone_1_s, hr_zone_2_s, hr_zone_3_s, device, raw, updated_by)
+		select r.day, 'withings', r.steps, r.active_kcal, r.total_kcal, r.distance_m, r.elevation_m, r.soft_s, r.moderate_s, r.intense_s,
+			r.hr_avg, r.hr_min, r.hr_max, r.hr_zone_0_s, r.hr_zone_1_s, r.hr_zone_2_s, r.hr_zone_3_s, r.device, r.raw, 'withings-sync'
 		from jsonb_to_recordset($1::jsonb) as r (day date, steps integer, active_kcal numeric, total_kcal numeric, distance_m numeric, elevation_m numeric,
-			soft_s integer, moderate_s integer, intense_s integer, device text, raw jsonb)
+			soft_s integer, moderate_s integer, intense_s integer, hr_avg integer, hr_min integer, hr_max integer,
+			hr_zone_0_s integer, hr_zone_1_s integer, hr_zone_2_s integer, hr_zone_3_s integer, device text, raw jsonb)
 		on conflict (day, source) do update set
 			steps = excluded.steps, active_kcal = excluded.active_kcal, total_kcal = excluded.total_kcal, distance_m = excluded.distance_m,
 			elevation_m = excluded.elevation_m, soft_s = excluded.soft_s, moderate_s = excluded.moderate_s, intense_s = excluded.intense_s,
+			hr_avg = excluded.hr_avg, hr_min = excluded.hr_min, hr_max = excluded.hr_max, hr_zone_0_s = excluded.hr_zone_0_s,
+			hr_zone_1_s = excluded.hr_zone_1_s, hr_zone_2_s = excluded.hr_zone_2_s, hr_zone_3_s = excluded.hr_zone_3_s,
 			device = excluded.device, raw = excluded.raw, updated_by = excluded.updated_by, updated_at = now()
 		where (activity.days.steps, activity.days.active_kcal, activity.days.total_kcal, activity.days.distance_m, activity.days.raw)
 			is distinct from (excluded.steps, excluded.active_kcal, excluded.total_kcal, excluded.distance_m, excluded.raw)`,

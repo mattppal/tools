@@ -1,18 +1,31 @@
 import type { Database } from "../../worker/db.ts";
 import { addDays, today } from "./dates.ts";
+import { dayStart, type FeedState, type IntradayState, readStream, refreshWorkoutLinks, saveIntraday, saveMeasures, saveSleep, saveStream, saveWorkouts } from "./health.ts";
 import { unseal } from "./secrets.ts";
 import { claimConnection, releaseConnection, type SyncProgress, saveTokens, upsertWithingsDays } from "./store.ts";
 import { saveWeighins, toWeighins } from "./weights.ts";
-import { type Credentials, type Fetch, getActivity, getWeights, refreshTokens, WithingsError } from "./withings.ts";
+import { type Credentials, type Feed, type Fetch, getActivity, getFeed, getIntraday, getWeights, refreshTokens, WithingsError } from "./withings.ts";
 
 export const BACKFILL_FLOOR = "2009-01-01";
 const BACKFILL_WINDOW_DAYS = 180;
 const RECENT_DAYS = 7;
 const RECENT_EVERY_MS = 30 * 60_000;
-const CALLS_PER_RUN = 3;
+export const CALLS_PER_RUN = 6;
+const INTRADAY_EMPTY_STOP = 120;
+const FEEDS: Feed[] = ["measures", "workouts", "sleep"];
+const SAVE_FEED: Record<Feed, (client: Database, items: Record<string, unknown>[]) => Promise<number>> = { measures: saveMeasures, workouts: saveWorkouts, sleep: saveSleep };
 const REFRESH_MARGIN_MS = 5 * 60_000;
 
 export type SyncResult = { status: "idle" } | { status: "synced"; calls: number; changed: number; backfillCursor: string | null } | { status: "failed"; error: string };
+
+function due(syncedAt: string | null, now: Date): boolean {
+	return syncedAt === null || now.getTime() - Date.parse(syncedAt) >= RECENT_EVERY_MS;
+}
+
+function softError(error: unknown): string {
+	if (error instanceof WithingsError && error.needsReconnect) throw error;
+	return error instanceof Error ? error.message : String(error);
+}
 
 function message(error: unknown): string {
 	if (error instanceof WithingsError && error.needsReconnect) return `${error.message}. Reconnect at /api/withings/connect.`;
@@ -72,6 +85,37 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 			progress.weightsSynced = true;
 		}
 
+		for (const feed of FEEDS) {
+			if (calls >= CALLS_PER_RUN) break;
+			const stream = await readStream<FeedState>(client, feed, { lastupdate: null, pending: null, offset: 0 });
+			if (stream.state.offset === 0 && !due(stream.syncedAt, now)) continue;
+			const state: FeedState & { error?: string | null } = { ...stream.state, error: null };
+			let synced = false;
+			try {
+				while (calls < CALLS_PER_RUN && !synced) {
+					const page = await getFeed(fetcher, accessToken, feed, state.lastupdate ?? 0, state.offset);
+					calls++;
+					changed += await SAVE_FEED[feed](client, page.items);
+					state.pending ??= page.updatetime ?? Math.floor(now.getTime() / 1000);
+					if (page.more && page.offset > 0) {
+						state.offset = page.offset;
+						continue;
+					}
+					state.lastupdate = state.pending;
+					state.pending = null;
+					state.offset = 0;
+					synced = true;
+				}
+			} catch (error) {
+				state.error = softError(error);
+				progress.error = `${feed}: ${state.error}`;
+				await saveStream(client, feed, state, true);
+				continue;
+			}
+			await saveStream(client, feed, state, synced, synced);
+			if (synced && feed === "workouts") await refreshWorkoutLinks(client);
+		}
+
 		while (calls < CALLS_PER_RUN && progress.backfillCursor !== null) {
 			const end = progress.backfillCursor;
 			const start = addDays(end, 1 - BACKFILL_WINDOW_DAYS) < BACKFILL_FLOOR ? BACKFILL_FLOOR : addDays(end, 1 - BACKFILL_WINDOW_DAYS);
@@ -89,6 +133,43 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 				progress.backfillDone = true;
 			} else progress.backfillCursor = next;
 		}
+		if (calls < CALLS_PER_RUN) {
+			const stream = await readStream<IntradayState>(client, "intraday", { cursor: null, empty: 0, recentAt: null });
+			const state: IntradayState & { error?: string | null; failedAt?: string | null } = { ...stream.state, error: null };
+			const paused = state.failedAt !== null && state.failedAt !== undefined && !due(state.failedAt, now);
+			let done = false;
+			const pull = async (date: string): Promise<number> => {
+				const start = dayStart(date);
+				const series = await getIntraday(fetcher, accessToken, start, dayStart(addDays(date, 1)) - 1);
+				calls++;
+				const saved = await saveIntraday(client, date, series);
+				changed += saved.changed;
+				return saved.samples;
+			};
+			try {
+				if (!paused && due(state.recentAt, now) && calls + 2 <= CALLS_PER_RUN) {
+					await pull(addDays(day, -1));
+					await pull(day);
+					state.recentAt = now.toISOString();
+					if (state.cursor === null && stream.doneAt === null) state.cursor = addDays(day, -2);
+				}
+				while (!paused && calls < CALLS_PER_RUN && state.cursor !== null) {
+					state.empty = (await pull(state.cursor)) === 0 ? state.empty + 1 : 0;
+					state.cursor = addDays(state.cursor, -1);
+					if (state.empty >= INTRADAY_EMPTY_STOP || state.cursor < BACKFILL_FLOOR) {
+						state.cursor = null;
+						done = true;
+					}
+				}
+			} catch (error) {
+				state.error = softError(error);
+				state.failedAt = now.toISOString();
+				progress.error = `intraday: ${state.error}`;
+			}
+			if (state.error === null && !paused) state.failedAt = null;
+			await saveStream(client, "intraday", state, state.recentAt !== stream.state.recentAt, done);
+		}
+
 		return { status: "synced", calls, changed, backfillCursor: progress.backfillCursor };
 	} catch (error) {
 		progress.error = message(error);
