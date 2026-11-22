@@ -344,7 +344,7 @@
 	font-size: var(--text-sm);
 	line-height: var(--leading-sm);
 	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
+	text-wrap: balance;
 }
 
 @media (max-width: 639px) {
