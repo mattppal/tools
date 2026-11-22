@@ -122,7 +122,7 @@ test("closing from the UI queues one delivery that sends the key as a Bearer tok
 	expect(relayed?.delivery).toBe(first.deliveryId);
 	expect(Object.keys(relayed?.body ?? {}).toSorted()).toEqual(["app", "data", "deliveryId", "event"]);
 	const { event: _event, deliveryId: _deliveryId, ...legacyData } = (received[0]?.body["data"] ?? {}) as Record<string, unknown>;
-	expect(relayed?.body).toEqual({ app: "nutrition", event: "day.closed", deliveryId: first.deliveryId, data: legacyData });
+	expect(relayed?.body).toEqual({ app: "nutrition", event: "day.closed", deliveryId: first.deliveryId, data: { ...legacyData, full: { method: "GET", path: "/api/tools/nutrition/day?date=2026-11-20" } } });
 	expect(relayed?.body["data"]).toMatchObject({ totals: { kcal: 52 }, targets: { kcal: { min: 2650, max: 2850 } } });
 });
 

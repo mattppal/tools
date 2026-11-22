@@ -75,7 +75,29 @@ function isLogged(set: SetRow): boolean {
 	return set.weight !== null || set.reps !== null || set.rir !== null || (set.notes ?? "") !== "";
 }
 
-export function buildLog(session: SessionRow): Record<string, unknown> {
+export type WorkoutLog = {
+	$schema: string;
+	date: string;
+	name: string;
+	notes?: string;
+	blockId: string;
+	weekId: string;
+	dayId: string;
+	status: "completed";
+	kind: "lift";
+	test?: true;
+	exercises: {
+		order: number;
+		id: string;
+		status: "completed" | "skipped";
+		exercise: { name: string };
+		prescribed: Record<string, unknown>;
+		notes?: string;
+		sets: Record<string, unknown>[];
+	}[];
+};
+
+export function buildLog(session: SessionRow): WorkoutLog {
 	const name = `${session.week_id.toUpperCase()} ${session.day_title}`;
 	return {
 		$schema: "https://openweight.org/schemas/workout-log.schema.json",
@@ -87,7 +109,7 @@ export function buildLog(session: SessionRow): Record<string, unknown> {
 		dayId: session.day_id,
 		status: "completed",
 		kind: "lift",
-		...(session.test ? { test: true } : {}),
+		...(session.test ? { test: true as const } : {}),
 		exercises: session.exercises.map((exercise) => {
 			const sets = exercise.sets.filter(isLogged).toSorted((a, b) => a.set_index - b.set_index);
 			const skipped = exercise.status === "skipped" || sets.length === 0;

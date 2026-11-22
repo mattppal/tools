@@ -1,6 +1,7 @@
 import type { Database } from "../../worker/db.ts";
+import { sessionFinishedData } from "../liaison/events.ts";
 import { queueForLiaison } from "../liaison/webhook.ts";
-import type { ExerciseRow, SessionRow, SetRow } from "./log.ts";
+import type { ExerciseRow, SessionRow, SetRow, WorkoutLog } from "./log.ts";
 import type { ProgramDay } from "./program.ts";
 
 export type DeliveryState = { deliveryId: string; attempts: number; deliveredAt: string | null; nextAttemptAt: string | null; lastStatus: number | null; lastError: string | null };
@@ -162,7 +163,7 @@ export async function updateSessionNotes(db: Database, id: string, notes: string
 	await db.query("update workouts.sessions set notes = $2, updated_at = now() where id = $1", [id, notes]);
 }
 
-export async function finishSession(db: Database, id: string, test: boolean, data: { sessionId: string; log: unknown }): Promise<string> {
+export async function finishSession(db: Database, id: string, test: boolean, data: { sessionId: string; log: WorkoutLog }): Promise<string> {
 	const deliveryId = crypto.randomUUID();
 	await db.query("begin");
 	try {
@@ -176,7 +177,7 @@ export async function finishSession(db: Database, id: string, test: boolean, dat
 		}
 		const payload = { event: "session.finished", deliveryId, sessionId: data.sessionId, ...(test ? { test: true } : {}), log: data.log };
 		await db.query("insert into workouts.deliveries (session_id, delivery_id, payload) values ($1, $2, $3)", [id, deliveryId, JSON.stringify(payload)]);
-		await queueForLiaison(db, { app: "workouts", event: "session.finished", ref: id, test, data }, deliveryId);
+		await queueForLiaison(db, { app: "workouts", event: "session.finished", ref: id, test, data: sessionFinishedData(data.sessionId, data.log) }, deliveryId);
 		await db.query("commit");
 		return deliveryId;
 	} catch (error) {

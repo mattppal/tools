@@ -134,7 +134,8 @@ export default defineToolApi(async (request, context) => {
 			const [, id = ""] = session;
 			if (method === "GET") {
 				const found = await db((client) => getSession(client, id));
-				return found === null ? json({ error: "Session not found" }, 404) : json({ session: found });
+				if (found === null) return json({ error: "Session not found" }, 404);
+				return json(found.status === "finished" ? { session: found, log: buildLog(sessionRow(found)) } : { session: found });
 			}
 			if (method === "PATCH") {
 				const input = await body(request);

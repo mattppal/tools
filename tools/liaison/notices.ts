@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Database } from "../../worker/db.ts";
-import { LIAISON_RECEIVER_CHARS, liaisonEnvelope, liaisonWire, queueForLiaison } from "./webhook.ts";
+import { LIAISON_RECEIVER_CHARS, liaisonChars, queueForLiaison } from "./webhook.ts";
 
 const GENERAL_LABELS = ["action needed", "FYI", "nothing"] as const;
 
@@ -131,8 +131,8 @@ export async function queueNotice(client: Database, notice: NoticeRequest): Prom
 		threadId = parent.data.threadId;
 	}
 	const data = noticeData(notice, { noticeId, threadId, createdAt: new Date().toISOString() });
-	const event = { app: "tools" as const, event: "notice", ref: threadId, test: notice.test, data };
-	const chars = JSON.stringify(liaisonWire(liaisonEnvelope(event, noticeId))).length;
+	const event = { app: "tools" as const, event: "notice" as const, ref: threadId, test: notice.test, data };
+	const chars = liaisonChars(event, noticeId);
 	if (chars > LIAISON_RECEIVER_CHARS) {
 		throw new Refused(
 			413,

@@ -1,4 +1,5 @@
 import type { Database } from "../../worker/db.ts";
+import { dayClosedData } from "../liaison/events.ts";
 import { queueForLiaison } from "../liaison/webhook.ts";
 import { addDays, today } from "./dates.ts";
 import { listAppleWorkouts } from "../activity/apple-health.ts";
@@ -7,7 +8,7 @@ import { type BodyComp, estimateExpenditure, MEASURED_MIN_DAYS, type Expenditure
 import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
 import { formatSource, parseSource } from "./sources.ts";
-import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
+import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, type Macro, type MacroProgress, macroProgress, type Range, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
 
 export class Rejected extends Error {}
 
@@ -201,6 +202,28 @@ export async function updateDay(client: Database, date: string, update: DayUpdat
 
 type DayClosed = { day: DayView; deliveryId: string | null };
 
+export type DayClosedSummary = {
+	date: string;
+	closedAt: string;
+	estimated: boolean;
+	entries: number;
+	totals: Totals;
+	targets: Record<Macro, Range> | null;
+	progress: Record<Macro, MacroProgress> | null;
+};
+
+export function dayClosedSummary(day: DayView, closedAt: string): DayClosedSummary {
+	return {
+		date: day.date,
+		closedAt,
+		estimated: day.estimated,
+		entries: day.entries.length,
+		totals: day.totals,
+		targets: day.targets === null ? null : { kcal: day.targets.kcal, protein_g: day.targets.protein_g, carbs_g: day.targets.carbs_g, fat_g: day.targets.fat_g },
+		progress: day.progress,
+	};
+}
+
 export async function closeDayFromUi(client: Database, date: string, test = false): Promise<DayClosed> {
 	return transaction(client, async () => {
 		await client.query("insert into nutrition.days (day) values ($1) on conflict (day) do nothing", [date]);
@@ -209,18 +232,10 @@ export async function closeDayFromUi(client: Database, date: string, test = fals
 		const closedAt = rows[0]?.["closed_at"];
 		if (closedAt === undefined) return { day, deliveryId: null };
 		const deliveryId = crypto.randomUUID();
-		const data = {
-			date,
-			closedAt: new Date(closedAt as string | Date).toISOString(),
-			estimated: day.estimated,
-			entries: day.entries.length,
-			totals: day.totals,
-			targets: day.targets === null ? null : { kcal: day.targets.kcal, protein_g: day.targets.protein_g, carbs_g: day.targets.carbs_g, fat_g: day.targets.fat_g },
-			progress: day.progress,
-		};
+		const data = dayClosedSummary(day, new Date(closedAt as string | Date).toISOString());
 		const payload = { event: "day.closed", deliveryId, ...data, ...(test ? { test: true } : {}) };
 		await client.query("insert into nutrition.deliveries (delivery_id, day, payload) values ($1, $2, $3)", [deliveryId, date, payload]);
-		await queueForLiaison(client, { app: "nutrition", event: "day.closed", ref: date, test, data }, deliveryId);
+		await queueForLiaison(client, { app: "nutrition", event: "day.closed", ref: date, test, data: dayClosedData(data) }, deliveryId);
 		return { day, deliveryId };
 	});
 }

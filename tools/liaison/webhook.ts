@@ -1,5 +1,7 @@
 import type { Database } from "../../worker/db.ts";
 import { defineWebhook } from "../../worker/webhooks.ts";
+import type { DayClosedData, SessionFinishedData } from "./events.ts";
+import type { NoticeData } from "./notices.ts";
 
 declare global {
 	interface Env {
@@ -16,7 +18,14 @@ export default defineWebhook({
 	wire: liaisonWire,
 });
 
-export type LiaisonEvent = { app: "nutrition" | "workouts" | "tools"; event: string; ref: string | null; test: boolean; data: unknown };
+export type LiaisonEvent =
+	| { app: "nutrition"; event: "day.closed"; ref: string; test: boolean; data: DayClosedData }
+	| { app: "workouts"; event: "session.finished"; ref: string; test: boolean; data: SessionFinishedData }
+	| { app: "tools"; event: "notice"; ref: string; test: boolean; data: NoticeData };
+
+export function liaisonChars(event: LiaisonEvent, deliveryId: string): number {
+	return JSON.stringify(liaisonWire(liaisonEnvelope(event, deliveryId))).length;
+}
 
 export function liaisonEnvelope(event: LiaisonEvent, deliveryId: string): Record<string, unknown> {
 	return { app: event.app, event: event.event, deliveryId, ...(event.test ? { test: true } : {}), data: event.data };

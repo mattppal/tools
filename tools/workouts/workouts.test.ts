@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
-import { parseSet } from "./api.ts";
+import api, { parseSet } from "./api.ts";
 import { buildLog, checkLog, pacificMidnight } from "./log.ts";
 import { formatLoad, formatVolume, parseProgram, programDays, weekOf, type Program } from "./program.ts";
 import { buildWeek, currentWeek, findDay as findIn, nextDay, parseRepoSession, trainingLogFrom, weekRefs } from "./schedule.ts";
@@ -226,6 +226,12 @@ afterAll(() => server.stop(true));
 const KEY = "grok-routine-key_123";
 const env = { COACH_WEBHOOK_URL: server.url.href, COACH_WEBHOOK_KEY: KEY, LIAISON_WEBHOOK_URL: new URL("/liaison", server.url).href, LIAISON_WEBHOOK_KEY: "liaison-key" } as Env;
 
+async function logOf(id: string) {
+	const session = await getSession(client, id);
+	if (session === null) throw new Error("missing session");
+	return buildLog(sessionRow(session));
+}
+
 beforeEach(async () => {
 	received.length = 0;
 	liaisonReceived.length = 0;
@@ -261,7 +267,7 @@ describe("session lifecycle", () => {
 		expect(legExt).toMatchObject({ id: "leg-ext", status: "skipped", notes: "knee", sets: [{ reps: 0, type: "working", notes: "skipped" }] });
 
 		const deliveryId = await finishSession(client, id, false, { sessionId: id, log });
-		expect(await finishSession(client, id, false, { sessionId: id, log: {} })).toBe(deliveryId);
+		expect(await finishSession(client, id, false, { sessionId: id, log })).toBe(deliveryId);
 		expect(await deliverDue(db, webhook, env, [deliveryId])).toBe(1);
 		expect(received).toHaveLength(1);
 		expect(received[0]?.authorization).toBe(`Bearer ${KEY}`);
@@ -279,19 +285,44 @@ describe("session lifecycle", () => {
 		expect(Object.keys(received[0]?.body ?? {}).toSorted()).toEqual(["deliveryId", "event", "log", "sessionId"]);
 		expect(await deliverDue(db, liaison, env, [deliveryId])).toBe(1);
 		expect(liaisonReceived).toEqual([
-			{ authorization: "Bearer liaison-key", delivery: deliveryId, body: { app: "workouts", event: "session.finished", deliveryId, data: { sessionId: id, log: received[0]?.body.log } } },
+			{
+				authorization: "Bearer liaison-key",
+				delivery: deliveryId,
+				body: {
+					app: "workouts",
+					event: "session.finished",
+					deliveryId,
+					data: {
+						sessionId: id,
+						date: "2026-11-23T00:00:00-08:00",
+						name: "W5 Legs",
+						kind: "lift",
+						blockId: "build-block-c",
+						weekId: "w5",
+						dayId: "day-1",
+						exercises: { total: 3, completed: 1, skipped: 2 },
+						sets: 2,
+						full: { method: "GET", path: `/api/tools/workouts/sessions/${id}` },
+					},
+				},
+			},
 		]);
+		expect(Object.keys(liaisonReceived[0]?.body ?? {})).toEqual(["app", "event", "deliveryId", "data"]);
+		const full = await api(new Request(`https://tools.example/api/tools/workouts/sessions/${id}`), { env, ctx: {} as ExecutionContext, path: `/sessions/${id}`, db, caller: { kind: "local" } });
+		expect(((await full.json()) as { log: unknown }).log).toEqual(received[0]?.body.log);
 	});
 
 	test("a test session reaches coach and the liaison under one delivery id, and deleting it removes both rows", async () => {
 		const day = findDay(program, "w5", "day-1");
 		if (day === null) throw new Error("missing day");
 		const id = await createSession(client, program.id, day, "2026-11-23", true);
-		const deliveryId = await finishSession(client, id, true, { sessionId: id, log: { name: "TEST W5 Legs", test: true } });
+		const log = await logOf(id);
+		const deliveryId = await finishSession(client, id, true, { sessionId: id, log });
 		expect(await deliverDue(db, webhook, env, [deliveryId])).toBe(1);
 		expect(await deliverDue(db, liaison, env, [deliveryId])).toBe(1);
-		expect(received[0]?.body).toEqual({ event: "session.finished", deliveryId, sessionId: id, test: true, log: { name: "TEST W5 Legs", test: true } });
-		expect(liaisonReceived[0]?.body).toEqual({ app: "workouts", event: "session.finished", deliveryId, test: true, data: { sessionId: id, log: { name: "TEST W5 Legs", test: true } } });
+		expect(received[0]?.body).toEqual({ event: "session.finished", deliveryId, sessionId: id, test: true, log });
+		expect(liaisonReceived[0]?.body).toMatchObject({ app: "workouts", event: "session.finished", deliveryId, test: true, data: { sessionId: id, name: "TEST W5 Legs", exercises: { total: 3, completed: 0, skipped: 3 }, sets: 0 } });
+		expect(liaisonReceived[0]?.body).not.toHaveProperty("data.log");
 		expect(await deleteOpenSession(client, id)).toBe(true);
 		expect((await pg.query("select 1 from liaison.deliveries union all select 1 from workouts.deliveries")).rows).toHaveLength(0);
 	});
@@ -312,7 +343,7 @@ describe("session lifecycle", () => {
 		const day = findDay(program, "w5", "day-1");
 		if (day === null) throw new Error("missing day");
 		const id = await createSession(client, program.id, day, "2026-11-23", true);
-		const deliveryId = await finishSession(client, id, true, { sessionId: id, log: {} });
+		const deliveryId = await finishSession(client, id, true, { sessionId: id, log: await logOf(id) });
 		expect(await deliverDue(db, webhook, { COACH_WEBHOOK_URL: server.url.href } as Env, [deliveryId])).toBe(0);
 		expect(await deliverDue(db, webhook, { COACH_WEBHOOK_KEY: KEY } as Env, [deliveryId])).toBe(0);
 		expect(received).toHaveLength(0);

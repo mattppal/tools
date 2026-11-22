@@ -22,12 +22,12 @@ tools talks to Matt's bots through one bot, the tools liaison. Every outbound ev
 { "app": "nutrition" | "workouts" | "tools", "event": "day.closed" | "session.finished" | "notice", "deliveryId": "<uuid>", "test": true, "data": {} }
 ```
 
-`test: true` is present only on test deliveries. `queueForLiaison` writes the row with the envelope as `payload`, in the same transaction as the event. `payload` is jsonb, which reorders keys, so `liaisonWire` rebuilds this key order on every send and moves `data.body` last. The liaison's receiver keeps only the first 4,000 characters of a request body, so whatever is cut is the tail of the body, never the routing fields.
+`test: true` is present only on test deliveries. `queueForLiaison` writes the row with the envelope as `payload`, in the same transaction as the event. `payload` is jsonb, which reorders keys, so `liaisonWire` rebuilds this key order on every send and moves `data.body` last. The liaison's receiver keeps only the first 4,000 characters of a request body. Notices over that are refused, and `day.closed` and `session.finished` carry a bounded summary plus `full`, a `GET` route the bot already has for the whole record (`events.ts`).
 
 | `app` / `event` | Relayed to | `data` |
 | --- | --- | --- |
-| `nutrition` / `day.closed` | nutrition bot | `date, closedAt, estimated, entries, totals, targets, progress`. `totals` is always present. `targets` and `progress` are null when no plan covers the day. |
-| `workouts` / `session.finished` | coach | `sessionId, log`. A test session's log also has `test: true` and a name starting with `TEST`. |
+| `nutrition` / `day.closed` | nutrition bot | `date, closedAt, estimated, entries, totals, targets, progress, full`. `entries` is a count. `totals` is always present. `targets` and `progress` are null when no plan covers the day. `full` is `{ method: "GET", path: "/api/tools/nutrition/day?date=<date>" }`. |
+| `workouts` / `session.finished` | coach | `sessionId, date, name, kind, blockId, weekId, dayId` (text clipped to 80 characters), `exercises: { total, completed, skipped }`, `sets`, and `full: { method: "GET", path: "/api/tools/workouts/sessions/<sessionId>" }`, whose response has the openweight `log`. A test session's name starts with `TEST`. |
 | `tools` / `notice` | `data.for` | See below. |
 
 ## Dual path until phase 2
@@ -69,7 +69,7 @@ Schema `liaison`, table `deliveries`: the shared delivery columns plus `app`, `e
 
 The Worker also sends notices itself. When a webhook retry run or a tool's `cron.ts` throws, `worker/cron-alerts.ts` queues `{ for: "liaison", label: "action needed", subject: "tools: <source> is failing" }`. The `noticeId` is derived from the source and the UTC hour, so each failing source gets at most one notice an hour. Later failures in that hour only reach the Worker logs.
 
-`bun test ./tools/liaison` covers auth, the envelope, labels and lines, test subjects, threading, `noticeId` retries, and a cron retry. `tools/nutrition/store.test.ts` and `tools/workouts/workouts.test.ts` check that each event reaches both paths under one `deliveryId`.
+`bun test ./tools/liaison` covers the 4,000-character bound for every event (`events.test.ts`, worst-case inputs, exhaustive over `LiaisonEvent`), auth, the envelope, labels and lines, test subjects, threading, `noticeId` retries, and a cron retry. `tools/nutrition/store.test.ts` and `tools/workouts/workouts.test.ts` check that each event reaches both paths under one `deliveryId`.
 
 ## Live tests
 
