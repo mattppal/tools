@@ -4,6 +4,8 @@ import type { Layout } from "../kit/layout.ts";
 export type ShellState = {
 	layout: Layout;
 	openNav: () => void;
+	closeNav: () => void;
+	sectionsSlot: HTMLElement | null;
 };
 
 export const ShellContext = createContext<ShellState | null>(null);

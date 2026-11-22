@@ -484,7 +484,7 @@ export function SessionScreen({ id, onClose }: { id: string; onClose: () => void
 		<ToolLayout
 			title={title}
 			actions={back}
-			panel={finished ? undefined : { label: "Review", open: panelOpen, onOpenChange: setPanelOpen, icon: "note", content: <Review session={session} onSession={setSession} onClose={closeAfterPanel} /> }}
+			panel={finished ? undefined : { label: "Review", open: panelOpen, onOpenChange: setPanelOpen, content: <Review session={session} onSession={setSession} onClose={closeAfterPanel} /> }}
 		>
 			<div ref={body} className={styles.page}>
 				<p className={styles.eyebrow}>

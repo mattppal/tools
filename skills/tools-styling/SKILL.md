@@ -1,6 +1,6 @@
 ---
 name: tools-styling
-description: UI rules for the tools repo - poaster kit primitives and tokens, the primary/secondary/right sidebars via ToolLayout, mobile layout, and PWA constraints. Use when building or changing any UI in this repo.
+description: UI rules for the tools repo - poaster kit primitives and tokens, the sidebar with nested sections and the opt-in Details panel via ToolLayout, the Settings page, mobile layout, and PWA constraints. Use when building or changing any UI in this repo.
 ---
 
 # Styling
@@ -19,7 +19,7 @@ Read `skills/emil-design-eng/SKILL.md` before UI work.
 ## Edges
 
 - Hairlines by default: surfaces, cards, fields, buttons, and popovers draw `border: var(--border-width) solid var(--border-color)`, or the kit's `edge-surface` / `edge-raised` / `edge-overlay` utilities. Don't hard-code `1px solid`.
-- The shell's columns are the exception. The primary sidebar against the main pane, the secondary sidebar, and the right panel are separated by shade alone (`--chrome-bg`, `--panel-bg`, `--sunken-bg`) with no border, and so are their phone drawers. Don't add a line there.
+- The shell's columns are the exception. The sidebar, the main pane, and the Details panel are separated by shade alone (`--chrome-bg`, `--panel-bg`, `--sunken-bg`) with no border, and so are their phone sheets. Don't add a line there.
 - Before adding a border, check that the neighbor doesn't already draw one, so you never get a doubled line. Check light and dark at desktop and 390px.
 
 ## Layout
@@ -30,21 +30,28 @@ Every page renders `ToolLayout` from `src/shell/tool-layout.tsx`:
 <ToolLayout
 	title="Name"
 	actions={<Button>Save</Button>}
-	sidebar={{ label: "Lists", content: (close) => <SidebarMenu>...</SidebarMenu> }}
-	panel={{ label: "Details", open, onOpenChange: setOpen, content: <Details /> }}
+	sections={[{ label: "Today", path: "/" }, { label: "History", path: "/history" }]}
+	panel={{ label: "Details", content: <Details /> }}
 >
 	{main}
 </ToolLayout>
 ```
 
-- Primary sidebar: the tool list. The shell owns it. It collapses with the header button or Cmd/Ctrl+S and remembers its state.
-- Secondary sidebar (`sidebar`): optional second column for the tool's own navigation. It starts open at 1024px and wider and collapsed below, so a landscape phone keeps a usable main column. Call `close()` after a selection so the phone drawer shuts.
-- Right panel (`panel`): optional. Docks at 1024px and wider; below that it opens as a sheet from the right, like poaster's comment panel.
+- Sidebar: one column, owned by the shell. It lists the tools and nests the open tool's sections under it. The button in its header or Cmd/Ctrl+S collapses it to an icon rail, and it remembers its state. Don't add a second sidebar.
+- Sections (`sections`): optional links to the tool's own pages. Each `path` is relative to `/<slug>`; read the current one with `useToolPath()`. Pass the same list from every page of the tool. The rail hides them.
+- Details panel (`panel`): opt-in, per page. The title row shows a quiet button with the panel's `label`, the panel closes from its own header, and Cmd/Ctrl+Option+P toggles it. It docks at 1024px and wider; below that it opens as a sheet from the right. Pass `open` and `onOpenChange` to open it from your own control, like a bottom-bar button. Leave `panel` out on pages with nothing to show; never pass a placeholder.
+- The title row holds the title, the tool's `actions`, and the panel button. Don't put layout toggles there.
+
+## Settings
+
+- `/settings` belongs to the shell. The sidebar footer links to it with a quiet row at the bottom left, and on phones it sits at the bottom of the nav sheet. `new-tool` and the skill check refuse a tool named `settings`.
+- It holds the theme choice (System, Light, Dark) and the Debug rows: build commit, deploy time, database latency, Access identity, service worker, app install state, and safe-area insets. Rows are plain text. No dots, pills, or colored states.
+- Tools add their own rows with `tools/<slug>/debug.ts`; see `tools-add-a-tool`. Every `webhook.ts` gets backlog rows without one.
 
 ## Mobile
 
 - Breakpoints come from `useLayout()` in `src/kit/layout.ts`: `compact` under 768px, `medium` to 1023px, `expanded` from 1024px. Use the hook, not new media queries in TS.
-- On `compact`, all three sidebars become drawers opened from the header. Keep the main content usable at 360px wide.
+- On `compact`, the sidebar becomes a nav sheet opened from the header's menu button, with sections nested under the open tool, and the Details panel becomes a sheet from the right. Keep the main content usable at 360px wide.
 - Touch targets are at least `var(--hit)` (44px) where possible.
 
 ## Safe areas

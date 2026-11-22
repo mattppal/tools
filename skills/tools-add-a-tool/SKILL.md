@@ -23,6 +23,7 @@ The shell finds the tool by itself. Don't edit the sidebar, the homepage, or the
 | `index.tsx` | yes | Default-exported React component. Loaded lazily. Render `ToolLayout` at the top. |
 | `SKILL.md` | yes | The tool's skill. `name: tool-<slug>`. The build fails without it. |
 | `api.ts` | no | `export default defineToolApi(handler)`. Served at `/api/tools/<slug>/*`. |
+| `debug.ts` | no | `export default defineToolDebug(async ({ env, db }) => rows)`. Rows show under the tool in the Debug section of `/settings`. |
 | `*.module.css` | no | Styles, using the tokens in `src/styles/tokens.css`. |
 
 Keep everything a tool needs inside its folder. Shared code goes in `src/` only when two tools need it.
@@ -93,6 +94,19 @@ The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to
 3. When the event happens, insert the row in the same transaction as the change. Put the `delivery_id` in the payload too. After the transaction, send the first attempt with `ctx.waitUntil(withRequestDb(env.DB, ctx, (db) => deliverDue(db, webhook, env, [deliveryId])))`. The request's own connection closes after the response, so the first attempt opens a fresh one.
 
 Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `authorization` exactly as given, with no scheme added. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. Each send first claims its row by setting `claim_id` and `claimed_until`, sends with no transaction open, and records the result only while `claim_id` still matches, so cron runs, first attempts and "Send again" never send one delivery at the same time. A tool with deliveries adds both claim columns to its deliveries table. A tool that requeues a delivery uses a plain `update` that leaves the claim alone. Before changing any of this, read `skills/tools-verify-webhooks/SKILL.md`.
+
+## Debug rows
+
+`tools/<slug>/debug.ts` adds plain-text rows under the tool's name in the Debug section of `/settings`. It runs in the Worker on each `GET /api/debug`, with the same `env` and `db` as `api.ts`, so keep it to a cheap query or two.
+
+```ts
+export default defineToolDebug(async ({ db }) => {
+	const sync = await db(async (client) => (await client.query<{ sha: string }>("select sha from my_tool.syncs order by synced_at desc limit 1")).rows[0]);
+	return [{ label: "Synced commit", value: sync?.sha.slice(0, 7) ?? "Never synced" }];
+});
+```
+
+A thrown error shows as an Error row and doesn't break the page. A tool with `webhook.ts` already gets Webhook, Backlog, and Last error rows, so don't repeat them. The page shows every value as is, so never return a secret.
 
 ## Remove a tool
 

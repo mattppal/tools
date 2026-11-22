@@ -13,7 +13,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run dev` | Vite dev server with the Worker at http://127.0.0.1:5173. |
 | `bun run dev:db` | Point local dev at the PlanetScale `preview` branch. Writes `.env`. |
 | `bun run migrate` | Apply pending `tools/<slug>/migrations/*.sql` to the database in `.env`. Add `--dry-run` to list them. |
-| `bun run build` | Skill and style checks, then build the Worker, client, and service worker into `dist/`. |
+| `bun run build` | Skill and style checks, then write `public/build.json` and build the Worker, client, and service worker into `dist/`. |
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
 | `bun run test` | `bun test` over `worker`, `tools`, `src`, and `scripts`. Vendored skills keep their own tests, which this skips. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
@@ -45,6 +45,8 @@ The `env.DB` binding is Hyperdrive in front of the PlanetScale Postgres database
 For real data, run `bun run dev:db` once. It needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`, creates a 7-day role on the `preview` branch, and writes the connection string to `.env` (gitignored). To use another database, copy `.env.example` to `.env` and edit it. Never point local dev at `main`.
 
 `GET /api/health` runs `select now()` through the binding and returns `latencyMs`, `connectMs`, and `queryMs`, or a 503 with the error.
+
+`GET /api/debug` feeds the Debug section of `/settings`: the deployed version and its time from the `CF_VERSION_METADATA` binding, the Access email from `Cf-Access-Authenticated-User-Email`, and each tool's webhook backlog and `debug.ts` rows. `bun run build` writes the commit SHA and branch to `public/build.json` (gitignored). On Workers Builds they come from `WORKERS_CI_COMMIT_SHA` and `WORKERS_CI_BRANCH`, and locally from git.
 
 ## Connection budget
 

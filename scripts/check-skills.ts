@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { SETTINGS_SLUG } from "../src/router.tsx";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const SKILLS_DIR = join(ROOT, "skills");
@@ -131,6 +132,7 @@ async function main(): Promise<void> {
 
 	for (const slug of await directories(TOOLS_DIR)) {
 		if (!NAME.test(slug)) fail(`tools/${slug}: tool directories must be kebab-case`);
+		if (slug === SETTINGS_SLUG) fail(`tools/${slug}: /${slug} is the shell's settings page`);
 		await checkSkillFile(join(TOOLS_DIR, slug, "SKILL.md"), `tool-${slug}`);
 	}
 

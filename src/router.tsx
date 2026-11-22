@@ -27,11 +27,14 @@ export function navigate(to: string, { replace = false }: { replace?: boolean } 
 	window.dispatchEvent(new Event(CHANGED));
 }
 
-export type Route = { kind: "home" } | { kind: "tool"; slug: string; rest: string };
+export const SETTINGS_SLUG = "settings";
+
+export type Route = { kind: "home" } | { kind: "settings" } | { kind: "tool"; slug: string; rest: string };
 
 export function parseRoute(path: string): Route {
 	const [, slug = "", ...rest] = path.split("/");
 	if (slug === "") return { kind: "home" };
+	if (slug === SETTINGS_SLUG) return { kind: "settings" };
 	return { kind: "tool", slug, rest: `/${rest.join("/")}` };
 }
 

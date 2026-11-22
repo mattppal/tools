@@ -4,12 +4,12 @@ import { Link } from "../../src/router.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
 import type { HistoryDay } from "./types.ts";
-import { dayLabel, useJson, viewsSidebar, whole } from "./ui.tsx";
+import { dayLabel, useJson, VIEWS, whole } from "./ui.tsx";
 
 export function History() {
 	const [load, , reload] = useJson<HistoryDay[]>("/history");
 	return (
-		<ToolLayout title="History" sidebar={viewsSidebar("/history")}>
+		<ToolLayout title="History" sections={VIEWS}>
 			<div className={styles.page}>
 				{load.status === "loading" ? (
 					<div className={styles.skeletonRows} aria-busy="true">

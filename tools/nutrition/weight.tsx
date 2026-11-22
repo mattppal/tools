@@ -4,7 +4,7 @@ import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
 import type { WeightRow } from "./types.ts";
-import { dayLabel, tenths, useJson, viewsSidebar } from "./ui.tsx";
+import { dayLabel, tenths, useJson, VIEWS } from "./ui.tsx";
 
 const RANGES = [
 	{ id: "90d", label: "90 days" },
@@ -78,7 +78,7 @@ export function Weight() {
 	const [load, , reload] = useJson<WeightRow[]>(`/weights?range=${range}`);
 	const last = load.status === "ready" ? load.data.at(-1) : undefined;
 	return (
-		<ToolLayout title="Weight" sidebar={viewsSidebar("/weight")}>
+		<ToolLayout title="Weight" sections={VIEWS}>
 			<div className={styles.page}>
 				<div className={styles.weightHead}>
 					<div>

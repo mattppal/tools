@@ -19,7 +19,7 @@ Shows today's prescribed session from training-log, logs it set by set in the gy
 
 training-log is the source of truth, and the `workouts` schema holds a read model of it. Requests and screens read only the database. Nothing reads GitHub per request.
 
-`sync.ts` keeps the mirror current. `cron.ts` runs it on the Worker's one-minute trigger through `defineToolCron`, and bots can force a run with `POST /sync`.
+`sync.ts` keeps the mirror current. `cron.ts` runs it on the Worker's one-minute trigger through `defineToolCron`, and bots can force a run with `POST /sync`. `debug.ts` shows the synced commit, the last check, and any sync error under Workouts on `/settings`.
 
 1. `GET /repos/mattppal/training-log/commits/main` with `Accept: application/vnd.github.sha` and `If-None-Match` set to the stored ETag. A 304 ends the run and doesn't count against the rate limit.
 2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json` and `sessions/*.json`.

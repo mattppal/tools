@@ -4,7 +4,7 @@ import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import styles from "./nutrition.module.css";
 import type { PhaseWeek } from "./phase.ts";
 import type { PhaseView as Phase } from "./store.ts";
-import { dayLabel, tenths, useJson, viewsSidebar, whole } from "./ui.tsx";
+import { dayLabel, tenths, useJson, VIEWS, whole } from "./ui.tsx";
 
 const short = (date: string) => dayLabel(date, { month: "short", day: "numeric" });
 const maybe = (value: number | null, format: (value: number) => string) => (value === null ? "–" : format(value));
@@ -81,7 +81,7 @@ function Body({ phase }: { phase: Phase }) {
 export function PhaseView() {
 	const [load, , reload] = useJson<Phase>("/phase");
 	return (
-		<ToolLayout title="Phase" sidebar={viewsSidebar("/phase")}>
+		<ToolLayout title="Phase" sections={VIEWS}>
 			<div className={styles.page}>
 				{load.status === "loading" ? (
 					<Skeleton className={styles.chartSkeleton} />

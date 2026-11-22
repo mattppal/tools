@@ -23,7 +23,7 @@ This repo is one Cloudflare Worker that serves a homepage and a directory of too
 | Review the PlanetScale database: safety, query load, Traffic Control | `skills/planetscale-postgres-safety-review/SKILL.md` |
 | Add or change a tool | `skills/tools-add-a-tool/SKILL.md` |
 | Change webhook delivery, retries or the cron | `skills/tools-verify-webhooks/SKILL.md` |
-| Layout, sidebars, styling, mobile, PWA | `skills/tools-styling/SKILL.md` |
+| Layout, sidebar sections, Details panel, Settings, styling, mobile, PWA | `skills/tools-styling/SKILL.md` |
 | Deploys, domain, Access, previews | `skills/tools-deploy/SKILL.md` |
 | Work inside one tool | `tools/<slug>/SKILL.md` |
 

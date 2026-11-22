@@ -3,7 +3,7 @@ import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { Icon } from "../shell/icons.tsx";
-import { buttonVariants, IconButton } from "./button.tsx";
+import { buttonVariants } from "./button.tsx";
 import { Input } from "./input.tsx";
 import { ScrollArea } from "./scroll-area.tsx";
 import { Skeleton } from "./skeleton.tsx";
@@ -60,15 +60,18 @@ export function SidebarProvider({ defaultOpen = true, open: controlled, onOpenCh
 	);
 }
 
-export function Sidebar({ className, children, ...props }: ComponentProps<"aside">) {
+type SidebarProps = ComponentProps<"aside"> & { collapsible?: "offcanvas" | "icon" };
+
+export function Sidebar({ collapsible = "offcanvas", className, children, ...props }: SidebarProps) {
 	const { open } = useSidebar();
 	return (
 		<aside
 			data-slot="sidebar"
 			data-state={open ? "open" : "closed"}
-			inert={!open}
+			data-collapsible={collapsible}
+			inert={!open && collapsible === "offcanvas"}
 			className={cn(
-				"h-full w-(--list-width) shrink-0 overflow-hidden transition-[width] duration-(--duration-hover) ease-out motion-reduce:transition-none data-[state=closed]:w-0",
+				"h-full w-(--list-width) shrink-0 overflow-hidden transition-[width] duration-(--duration-hover) ease-out motion-reduce:transition-none data-[state=closed]:w-0 data-[collapsible=icon]:data-[state=closed]:w-(--rail-width)",
 				className,
 			)}
 			{...props}
@@ -85,15 +88,6 @@ export function SidebarInset({ className, ...props }: ComponentProps<"main">) {
 			className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col rounded-s-xl bg-background text-foreground group-data-[sidebar-state=closed]/sidebar:rounded-none", className)}
 			{...props}
 		/>
-	);
-}
-
-export function SidebarToggle({ className }: { className?: string | undefined }) {
-	const { open, toggle } = useSidebar();
-	return (
-		<IconButton label={open ? "Hide sidebar" : "Show sidebar"} aria-keyshortcuts="Meta+S" aria-expanded={open} className={className} onClick={toggle}>
-			<Icon name="sidebar" />
-		</IconButton>
 	);
 }
 

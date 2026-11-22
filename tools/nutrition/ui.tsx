@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../../src/kit/sidebar.tsx";
-import { navigate } from "../../src/router.tsx";
-import type { SecondarySidebar } from "../../src/shell/tool-layout.tsx";
+import type { ToolSection } from "../../src/shell/tool-layout.tsx";
 import { type DayView, type FoodEntry, MACROS, macroProgress, type SourceKind, type Totals } from "./types.ts";
 
 export const API = "/api/tools/nutrition";
@@ -42,35 +40,12 @@ export function useJson<T>(path: string): [Load<T>, (data: T) => void, () => voi
 	return [load, (data) => setLoad({ status: "ready", data }), () => setAttempt((count) => count + 1)];
 }
 
-const VIEWS = [
+export const VIEWS: readonly ToolSection[] = [
 	{ path: "/", label: "Today" },
 	{ path: "/history", label: "History" },
 	{ path: "/weight", label: "Weight" },
 	{ path: "/phase", label: "Phase" },
-] as const;
-
-export function viewsSidebar(current: string): SecondarySidebar {
-	return {
-		label: "Views",
-		content: (close) => (
-			<SidebarMenu>
-				{VIEWS.map((view) => (
-					<SidebarMenuItem key={view.path}>
-						<SidebarMenuButton
-							isActive={view.path === current}
-							onClick={() => {
-								navigate(view.path === "/" ? "/nutrition" : `/nutrition${view.path}`);
-								close();
-							}}
-						>
-							<span>{view.label}</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-				))}
-			</SidebarMenu>
-		),
-	};
-}
+];
 
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const decimal = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });

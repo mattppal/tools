@@ -65,6 +65,6 @@ async function install(): Promise<void> {
 	notify();
 }
 
-export function useInstall(): { way: InstallWay; install: () => Promise<void> } {
-	return { way: useSyncExternalStore(subscribe, currentWay, () => null), install };
+export function useInstall(): { way: InstallWay; installed: boolean; install: () => Promise<void> } {
+	return { way: useSyncExternalStore(subscribe, currentWay, () => null), installed: useSyncExternalStore(subscribe, installed, () => false), install };
 }

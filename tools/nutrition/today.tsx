@@ -8,7 +8,7 @@ import { ToolLayout } from "../../src/shell/tool-layout.tsx";
 import { addDays, today } from "./dates.ts";
 import styles from "./nutrition.module.css";
 import type { CheckIn, DayView, FoodEntry, Macro, MacroProgress } from "./types.ts";
-import { dayLabel, request, SOURCE_TAGS, tenths, useJson, viewsSidebar, whole, withEntries } from "./ui.tsx";
+import { dayLabel, request, SOURCE_TAGS, tenths, useJson, VIEWS, whole, withEntries } from "./ui.tsx";
 
 const FIELDS = [
 	{ key: "food", label: "Food", span: 4, numeric: false },
@@ -271,7 +271,7 @@ export function Today() {
 	return (
 		<ToolLayout
 			title={date === today() ? "Today" : dayLabel(date)}
-			sidebar={viewsSidebar("/")}
+			sections={VIEWS}
 			actions={
 				<>
 					<IconButton label="Previous day" onClick={() => goTo(addDays(date, -1))}>

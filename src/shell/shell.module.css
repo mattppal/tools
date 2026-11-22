@@ -2,6 +2,7 @@
 	height: 100dvh;
 	font-family: var(--font-ui);
 	--list-width: calc(264px + env(safe-area-inset-left));
+	--rail-width: calc(2 * var(--sidebar-inset) + var(--control-lg) + env(safe-area-inset-left));
 	--focus-fill: var(--chrome-focus);
 	--edge-top: env(safe-area-inset-top);
 	--edge-right: env(safe-area-inset-right);
@@ -34,11 +35,7 @@
 	--focus-fill: var(--focus-bg);
 }
 
-[data-sidebar-state="closed"] .panel {
-	border-radius: 0;
-}
-
-[data-sidebar-state="open"] .panel {
+.app:not([data-layout="compact"]) .panel {
 	--edge-left: 0px;
 }
 
@@ -73,9 +70,45 @@
 }
 
 .foot {
-	justify-content: flex-end;
 	gap: var(--space-1);
 	padding-block-start: var(--space-2);
+}
+
+.side[data-state="open"] .tool:has([data-slot="sidebar-menu"]) > [data-active],
+.navSheet .tool:has([data-slot="sidebar-menu"]) > [data-active] {
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+}
+
+.side[data-state="closed"] .brandLink {
+	display: none;
+}
+
+.side[data-state="closed"] .brandAction {
+	margin-inline-start: 0;
+}
+
+.side[data-state="closed"] [data-slot="sidebar-group-label"] {
+	visibility: hidden;
+}
+
+.side[data-state="closed"] .row {
+	width: var(--control-lg);
+}
+
+.side[data-state="closed"] .row > span {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.side[data-state="closed"] .foot {
+	flex-direction: column;
+	align-items: flex-start;
 }
 
 .navSheet {
@@ -93,51 +126,9 @@
 	overflow: hidden;
 }
 
-.theme {
-	display: grid;
-}
-
-.moon,
-.sun {
-	grid-area: 1 / 1;
-	transition:
-		opacity 200ms var(--ease-out),
-		rotate 200ms var(--ease-out);
-}
-
-.sun,
-:global(:root[data-theme="dark"]) .moon {
-	opacity: 0;
-	rotate: -45deg;
-}
-
-:global(:root[data-theme="dark"]) .sun {
-	opacity: 1;
-	rotate: none;
-}
-
-@media (prefers-color-scheme: dark) {
-	:global(:root:not([data-theme="light"])) .moon {
-		opacity: 0;
-		rotate: -45deg;
-	}
-
-	:global(:root:not([data-theme="light"])) .sun {
-		opacity: 1;
-		rotate: none;
-	}
-}
-
 @media (max-width: 767px) {
 	.panel {
 		border-radius: 0;
 		box-shadow: none;
-	}
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.moon,
-	.sun {
-		rotate: none !important;
 	}
 }

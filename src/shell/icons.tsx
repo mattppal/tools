@@ -11,18 +11,14 @@ import Download04Icon from "@hugeicons/core-free-icons/Download04Icon";
 import Home01Icon from "@hugeicons/core-free-icons/Home01Icon";
 import InformationCircleIcon from "@hugeicons/core-free-icons/InformationCircleIcon";
 import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
-import LayoutTwoColumnIcon from "@hugeicons/core-free-icons/LayoutTwoColumnIcon";
 import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import Menu01Icon from "@hugeicons/core-free-icons/Menu01Icon";
-import Moon02Icon from "@hugeicons/core-free-icons/Moon02Icon";
 import MoreHorizontalIcon from "@hugeicons/core-free-icons/MoreHorizontalIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
-import PanelRightIcon from "@hugeicons/core-free-icons/PanelRightIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon";
 import SidebarLeftIcon from "@hugeicons/core-free-icons/SidebarLeftIcon";
 import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
-import Sun03Icon from "@hugeicons/core-free-icons/Sun03Icon";
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -40,18 +36,14 @@ const GLYPHS = {
 	home: Home01Icon,
 	info: InformationCircleIcon,
 	alert: Alert02Icon,
-	"secondary-sidebar": LayoutTwoColumnIcon,
 	loading: Loading03Icon,
 	menu: Menu01Icon,
-	moon: Moon02Icon,
 	more: MoreHorizontalIcon,
 	note: Note01Icon,
-	panel: PanelRightIcon,
 	search: Search01Icon,
 	gear: Settings02Icon,
 	sidebar: SidebarLeftIcon,
 	sparkles: SparklesIcon,
-	sun: Sun03Icon,
 	tool: Wrench01Icon,
 } as const satisfies Record<string, IconSvgElement>;
 

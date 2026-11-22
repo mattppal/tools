@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { HealthReport } from "../../worker/index.ts";
 
-export type Health = { state: "checking" } | { state: "ok"; latencyMs: number } | { state: "down"; error: string };
+export type Health = { state: "checking" } | { state: "ok"; latencyMs: number; connectMs: number; queryMs: number } | { state: "down"; error: string };
 
 const RECHECK_AFTER_MS = 30_000;
 
@@ -9,7 +9,9 @@ function isHealthReport(body: unknown): body is HealthReport {
 	if (typeof body !== "object" || body === null || !("ok" in body) || !("db" in body)) return false;
 	const { ok, db } = body;
 	if (typeof db !== "object" || db === null) return false;
-	return ok === true ? "latencyMs" in db && typeof db.latencyMs === "number" : ok === false && "error" in db && typeof db.error === "string";
+	return ok === true
+		? "latencyMs" in db && typeof db.latencyMs === "number" && "connectMs" in db && typeof db.connectMs === "number" && "queryMs" in db && typeof db.queryMs === "number"
+		: ok === false && "error" in db && typeof db.error === "string";
 }
 
 export async function checkHealth(): Promise<Health> {
@@ -17,7 +19,7 @@ export async function checkHealth(): Promise<Health> {
 		const response = await fetch("/api/health", { cache: "no-store" });
 		const body: unknown = response.headers.get("content-type")?.includes("application/json") ? await response.json() : null;
 		if (!isHealthReport(body)) return { state: "down", error: `Unexpected response (HTTP ${response.status})` };
-		return body.ok ? { state: "ok", latencyMs: body.db.latencyMs } : { state: "down", error: body.db.error };
+		return body.ok ? { state: "ok", ...body.db } : { state: "down", error: body.db.error };
 	} catch (error) {
 		return { state: "down", error: error instanceof Error ? error.message : "Network error" };
 	}

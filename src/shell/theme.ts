@@ -54,8 +54,3 @@ export function setTheme(theme: Theme): void {
 	document.body.getBoundingClientRect();
 	root.removeAttribute(SWITCHING);
 }
-
-export function toggleTheme(): void {
-	const current = document.documentElement.dataset.theme ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-	setTheme(current === "dark" ? "light" : "dark");
-}

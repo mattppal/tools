@@ -1,140 +1,129 @@
-import { useState, type ReactNode } from "react";
-import { IconButton } from "../kit/button.tsx";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal, flushSync } from "react-dom";
+import { Button, IconButton } from "../kit/button.tsx";
+import { Kbd } from "../kit/kbd.tsx";
 import { ScrollArea } from "../kit/scroll-area.tsx";
 import { Sheet, SheetPopup } from "../kit/sheet.tsx";
-import { SidebarToggle, useSidebar } from "../kit/sidebar.tsx";
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../kit/sidebar.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../kit/tooltip.tsx";
 import { cn } from "../kit/utils.ts";
-import { Icon, type IconName } from "./icons.tsx";
+import { Link, parseRoute, usePath } from "../router.tsx";
+import { Icon } from "./icons.tsx";
 import { useShell } from "./shell-context.ts";
 import styles from "./tool-layout.module.css";
 
-export type SecondarySidebar = {
-	label: string;
-	content: ReactNode | ((close: () => void) => ReactNode);
-};
+export type ToolSection = { label: string; path: string };
 
-export type RightPanel = {
-	label: string;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	content: ReactNode;
-	icon?: IconName;
-};
+export type ToolPanel = { label: string; content: ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void };
 
 type ToolLayoutProps = {
 	title: string;
 	actions?: ReactNode;
-	sidebar?: SecondarySidebar;
-	panel?: RightPanel;
+	sections?: readonly ToolSection[];
+	panel?: ToolPanel | undefined;
 	bodyClassName?: string;
 	children: ReactNode;
 };
 
-function NavButton() {
-	const { layout, openNav } = useShell();
-	const { open } = useSidebar();
-	if (layout === "compact")
-		return (
-			<IconButton label="Open menu" onClick={openNav}>
-				<Icon name="menu" />
-			</IconButton>
-		);
-	return open ? null : <SidebarToggle />;
+const PANEL_KEYS = "⌥⌘P";
+const PANEL_ARIA_KEYS = "Meta+Alt+P Control+Alt+P";
+
+function isPanelKey(event: KeyboardEvent): boolean {
+	return event.code === "KeyP" && (event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && !event.repeat && !event.getModifierState("AltGraph");
 }
 
-function render(content: SecondarySidebar["content"], close: () => void): ReactNode {
-	return typeof content === "function" ? content(close) : content;
+function isCurrent(rest: string, path: string): boolean {
+	return rest === path || (path !== "/" && rest.startsWith(`${path}/`));
 }
 
-function Secondary({ sidebar, open, onOpenChange }: { sidebar: SecondarySidebar; open: boolean; onOpenChange: (open: boolean) => void }) {
-	const { layout } = useShell();
-	const close = () => onOpenChange(false);
-	if (layout === "compact")
-		return (
-			<Sheet side="left" open={open} onOpenChange={onOpenChange}>
-				<SheetPopup side="left" aria-label={sidebar.label} className={styles.secondarySheet} bodyClassName={styles.sheetBody}>
-					<div className={styles.paneHead}>
-						<h2 className={styles.paneTitle}>{sidebar.label}</h2>
-						<IconButton label={`Close ${sidebar.label}`} onClick={close}>
-							<Icon name="close" />
-						</IconButton>
-					</div>
-					<ScrollArea className={styles.paneScroll}>
-						<div className={styles.paneContent}>{render(sidebar.content, close)}</div>
-					</ScrollArea>
-				</SheetPopup>
-			</Sheet>
-		);
+function Sections({ sections }: { sections: readonly ToolSection[] }) {
+	const { closeNav } = useShell();
+	const route = parseRoute(usePath());
+	if (route.kind !== "tool") return null;
 	return (
-		<aside aria-label={sidebar.label} data-state={open ? "open" : "closed"} inert={!open} className={styles.secondary}>
-			<div className={styles.secondaryInner}>
-				<ScrollArea className={styles.paneScroll}>
-					<div className={styles.paneContent}>{render(sidebar.content, () => {})}</div>
-				</ScrollArea>
-			</div>
-		</aside>
+		<SidebarMenu aria-label="Sections" className={styles.sections}>
+			{sections.map((section) => (
+				<SidebarMenuItem key={section.path}>
+					<SidebarMenuButton
+						isActive={isCurrent(route.rest, section.path)}
+						render={<Link href={section.path === "/" ? `/${route.slug}` : `/${route.slug}${section.path}`} onClick={closeNav} />}
+					>
+						<span>{section.label}</span>
+					</SidebarMenuButton>
+				</SidebarMenuItem>
+			))}
+		</SidebarMenu>
 	);
 }
 
-function Panel({ panel }: { panel: RightPanel }) {
-	const { layout } = useShell();
-	const close = () => panel.onOpenChange(false);
-	const head = (
+function PanelHead({ label, onClose }: { label: string; onClose: () => void }) {
+	return (
 		<div className={styles.paneHead}>
-			<h2 className={styles.paneTitle}>{panel.label}</h2>
-			<IconButton label={`Close ${panel.label}`} onClick={close}>
+			<h2 className={styles.paneTitle}>{label}</h2>
+			<IconButton label={`Close ${label}`} aria-keyshortcuts={PANEL_ARIA_KEYS} onClick={onClose}>
 				<Icon name="close" />
 			</IconButton>
 		</div>
 	);
-	if (layout === "expanded") {
-		if (!panel.open) return null;
-		return (
-			<aside aria-label={panel.label} className={styles.panel}>
-				{head}
-				<ScrollArea className={styles.paneScroll}>
-					<div className={styles.paneContent}>{panel.content}</div>
-				</ScrollArea>
-			</aside>
-		);
-	}
-	return (
-		<Sheet side="right" open={panel.open} onOpenChange={panel.onOpenChange}>
-			<SheetPopup side="right" aria-label={panel.label} className={styles.panelSheet} bodyClassName={styles.sheetBody}>
-				{head}
-				<ScrollArea className={styles.paneScroll}>
-					<div className={styles.paneContent}>{panel.content}</div>
-				</ScrollArea>
-			</SheetPopup>
-		</Sheet>
-	);
 }
 
-export function ToolLayout({ title, actions, sidebar, panel, bodyClassName, children }: ToolLayoutProps) {
-	const { layout } = useShell();
-	const [secondaryOpen, setSecondaryOpen] = useState(layout === "expanded");
+export function ToolLayout({ title, actions, sections, panel, bodyClassName, children }: ToolLayoutProps) {
+	const { layout, openNav, sectionsSlot } = useShell();
+	const [ownOpen, setOwnOpen] = useState(false);
+	const trigger = useRef<HTMLButtonElement>(null);
+	const docked = useRef<HTMLElement>(null);
+	const hasPanel = panel !== undefined;
+	const isDocked = layout === "expanded";
+	const panelOpen = panel?.open ?? ownOpen;
+
+	const setPanelOpen = (next: boolean) => {
+		setOwnOpen(next);
+		panel?.onOpenChange?.(next);
+	};
+
+	const showPanel = (next: boolean) => {
+		const hadFocus = docked.current?.contains(document.activeElement) ?? false;
+		flushSync(() => setPanelOpen(next));
+		if (next) docked.current?.focus();
+		else if (hadFocus) trigger.current?.focus();
+	};
+
+	useEffect(() => {
+		if (!hasPanel) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (!isPanelKey(event)) return;
+			event.preventDefault();
+			showPanel(!panelOpen);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [hasPanel, panelOpen]);
+
 	return (
 		<div className={styles.layout}>
-			{sidebar === undefined ? null : <Secondary sidebar={sidebar} open={secondaryOpen} onOpenChange={setSecondaryOpen} />}
 			<div className={styles.column}>
 				<header className={styles.header}>
-					<NavButton />
-					{sidebar === undefined ? null : (
-						<IconButton
-							label={secondaryOpen && layout !== "compact" ? `Hide ${sidebar.label}` : `Show ${sidebar.label}`}
-							aria-expanded={secondaryOpen}
-							onClick={() => setSecondaryOpen(!secondaryOpen)}
-						>
-							<Icon name="secondary-sidebar" />
+					{layout === "compact" ? (
+						<IconButton label="Open menu" onClick={openNav}>
+							<Icon name="menu" />
 						</IconButton>
-					)}
+					) : null}
 					<h1 className={styles.title}>{title}</h1>
 					<div className={styles.actions}>
 						{actions}
-						{panel === undefined ? null : (
-							<IconButton label={panel.open ? `Hide ${panel.label}` : `Show ${panel.label}`} aria-expanded={panel.open} onClick={() => panel.onOpenChange(!panel.open)}>
-								<Icon name={panel.icon ?? "panel"} />
-							</IconButton>
+						{!hasPanel || (isDocked && panelOpen) ? null : (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button ref={trigger} variant="quiet" size="sm" aria-expanded={panelOpen} aria-keyshortcuts={PANEL_ARIA_KEYS} onClick={() => showPanel(true)}>
+											{panel.label}
+										</Button>
+									}
+								/>
+								<TooltipPopup>
+									{panel.label} <Kbd>{PANEL_KEYS}</Kbd>
+								</TooltipPopup>
+							</Tooltip>
 						)}
 					</div>
 				</header>
@@ -142,7 +131,26 @@ export function ToolLayout({ title, actions, sidebar, panel, bodyClassName, chil
 					{children}
 				</div>
 			</div>
-			{panel === undefined ? null : <Panel panel={panel} />}
+			{!hasPanel ? null : isDocked ? (
+				panelOpen ? (
+					<aside ref={docked} tabIndex={-1} aria-label={panel.label} className={styles.panel}>
+						<PanelHead label={panel.label} onClose={() => showPanel(false)} />
+						<ScrollArea className={styles.paneScroll}>
+							<div className={styles.paneContent}>{panel.content}</div>
+						</ScrollArea>
+					</aside>
+				) : null
+			) : (
+				<Sheet side="right" open={panelOpen} onOpenChange={setPanelOpen}>
+					<SheetPopup side="right" aria-label={panel.label} className={styles.panelSheet} bodyClassName={styles.sheetBody}>
+						<PanelHead label={panel.label} onClose={() => setPanelOpen(false)} />
+						<ScrollArea className={styles.paneScroll}>
+							<div className={styles.paneContent}>{panel.content}</div>
+						</ScrollArea>
+					</SheetPopup>
+				</Sheet>
+			)}
+			{sections === undefined || sectionsSlot === null ? null : createPortal(<Sections sections={sections} />, sectionsSlot)}
 		</div>
 	);
 }

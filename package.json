@@ -9,7 +9,7 @@
     "dev": "vite dev",
     "dev:db": "bun scripts/dev-db.ts",
     "migrate": "bun scripts/migrate.ts",
-    "build": "bun scripts/check-skills.ts && bun scripts/check-style.ts && bun scripts/hairline.ts --check && vite build",
+    "build": "bun scripts/check-skills.ts && bun scripts/check-style.ts && bun scripts/hairline.ts --check && bun scripts/build-info.ts && vite build",
     "typecheck": "tsc --noEmit",
     "check:skills": "bun scripts/check-skills.ts",
     "check:style": "bun scripts/check-style.ts",

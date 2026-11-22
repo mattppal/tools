@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { SETTINGS_SLUG } from "../src/router.tsx";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -25,6 +26,7 @@ function usage(message: string): never {
 const slug = positionals[0];
 if (slug === undefined) usage("Missing slug.");
 if (!SLUG.test(slug)) usage(`"${slug}" is not kebab-case.`);
+if (slug === SETTINGS_SLUG) usage(`"${slug}" is the shell's settings page.`);
 
 const dir = join(ROOT, "tools", slug);
 if (existsSync(dir)) usage(`tools/${slug} already exists.`);
@@ -79,7 +81,7 @@ ${description}
 
 ## UI
 
-- \`index.tsx\` renders \`ToolLayout\`. No secondary sidebar or right panel yet.
+- \`index.tsx\` renders \`ToolLayout\`. No sections or Details panel yet.
 
 ## API
 

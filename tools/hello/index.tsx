@@ -1,85 +1,66 @@
 import { useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../../src/kit/sidebar.tsx";
-import { ToolLayout } from "../../src/shell/tool-layout.tsx";
+import { useToolPath } from "../../src/router.tsx";
+import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
 import styles from "./hello.module.css";
 
-const SECTIONS = [
-	{ id: "overview", label: "Overview", body: "This is a placeholder tool. Copy it with `bun run new-tool <slug>` to start a new one." },
-	{ id: "sidebar", label: "Secondary sidebar", body: "Pass `sidebar` to ToolLayout to get a second column beside the main navigation. On phones it opens as a drawer." },
-	{ id: "panel", label: "Right panel", body: "Pass `panel` to ToolLayout for a right-hand panel. It docks on wide screens and becomes a sheet on smaller ones." },
-] as const;
+const SECTIONS: readonly ToolSection[] = [
+	{ label: "Overview", path: "/" },
+	{ label: "Database", path: "/database" },
+];
 
-type SectionId = (typeof SECTIONS)[number]["id"];
+type Answer = { text: string; ms: number };
+
+function Details({ answer }: { answer: Answer | null }) {
+	return (
+		<dl className={styles.details}>
+			<dt>Endpoint</dt>
+			<dd>
+				<code>GET /api/tools/hello/time</code>
+			</dd>
+			<dt>Round trip</dt>
+			<dd>{answer === null ? "Not asked yet" : `${answer.ms} ms`}</dd>
+		</dl>
+	);
+}
 
 export default function Hello() {
-	const [section, setSection] = useState<SectionId>("overview");
-	const [panelOpen, setPanelOpen] = useState(false);
-	const [time, setTime] = useState<string | null>(null);
+	const database = useToolPath() === "/database";
+	const [answer, setAnswer] = useState<Answer | null>(null);
 	const [loading, setLoading] = useState(false);
-	const current = SECTIONS.find((candidate) => candidate.id === section) ?? SECTIONS[0];
 
 	async function askDatabase() {
 		setLoading(true);
+		const started = performance.now();
 		try {
 			const response = await fetch("/api/tools/hello/time");
 			const body: { now?: string; error?: string } = await response.json();
-			setTime(body.now ?? body.error ?? "No answer");
+			setAnswer({ text: body.now ?? body.error ?? "No answer", ms: Math.round(performance.now() - started) });
 		} finally {
 			setLoading(false);
 		}
 	}
 
 	return (
-		<ToolLayout
-			title="Hello"
-			sidebar={{
-				label: "Sections",
-				content: (close) => (
-					<SidebarMenu>
-						{SECTIONS.map((item) => (
-							<SidebarMenuItem key={item.id}>
-								<SidebarMenuButton
-									isActive={item.id === section}
-									onClick={() => {
-										setSection(item.id);
-										close();
-									}}
-								>
-									<span>{item.label}</span>
-								</SidebarMenuButton>
-							</SidebarMenuItem>
-						))}
-					</SidebarMenu>
-				),
-			}}
-			panel={{
-				label: "Details",
-				open: panelOpen,
-				onOpenChange: setPanelOpen,
-				content: (
-					<div className={styles.details}>
-						<p>The right panel is for context about the current selection.</p>
-						<p>
-							Current section: <strong>{current.label}</strong>
-						</p>
+		<ToolLayout title="Hello" sections={SECTIONS} panel={database ? { label: "Details", content: <Details answer={answer} /> } : undefined}>
+			{database ? (
+				<article className={styles.article}>
+					<h2 className={styles.heading}>Database</h2>
+					<p>Ask Postgres for the time through Hyperdrive.</p>
+					<div className={styles.row}>
+						<Button onClick={() => void askDatabase()} loading={loading}>
+							Ask the database for the time
+						</Button>
 					</div>
-				),
-			}}
-		>
-			<article className={styles.article}>
-				<h2 className={styles.heading}>{current.label}</h2>
-				<p>{current.body}</p>
-				<div className={styles.row}>
-					<Button onClick={() => void askDatabase()} loading={loading}>
-						Ask the database for the time
-					</Button>
-					<Button variant="quiet" onClick={() => setPanelOpen(!panelOpen)}>
-						{panelOpen ? "Hide details" : "Show details"}
-					</Button>
-				</div>
-				{time === null ? null : <p className={styles.answer}>{time}</p>}
-			</article>
+					{answer === null ? null : <p className={styles.answer}>{answer.text}</p>}
+				</article>
+			) : (
+				<article className={styles.article}>
+					<h2 className={styles.heading}>Overview</h2>
+					<p>A placeholder tool that exercises the shell. Copy it with <code>bun run new-tool &lt;slug&gt;</code> to start a new one.</p>
+					<p>Its sections sit under it in the sidebar. The Database section adds a Details panel.</p>
+				</article>
+			)}
 		</ToolLayout>
 	);
 }

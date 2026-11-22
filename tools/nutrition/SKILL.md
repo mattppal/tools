@@ -9,7 +9,7 @@ Matt logs food here and the nutrition bot logs it over MCP. Both write through `
 
 ## UI
 
-The secondary sidebar switches between four views. None of them use status dots. States show as words or as bar color.
+Four views nest under Nutrition in the sidebar as sections (`VIEWS` in `ui.tsx`). None of them use status dots. States show as words or as bar color.
 
 - Today (`/nutrition`, `?date=YYYY-MM-DD` for another day). Four range bars for kcal, protein, fat, and carbs, each reading "N to go", "in range", or "+N over". Under them is the bot's check-in line, then the entries. A row opens the right panel to edit or delete it. Add food is one labeled button under the entries, pinned to the bottom of the screen while the list scrolls. It and each row open the same right panel, which holds only the entry form so it can move to another container. Saves show at once and roll back with an error in the panel if the request fails. Close day locks the entries and fires the webhook. Reopen unlocks them.
 - History (`/nutrition/history`). One row per day, newest first, with "Open" on days that aren't closed.
