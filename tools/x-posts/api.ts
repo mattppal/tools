@@ -5,9 +5,20 @@ import { FeedError, parseFeedRequest, readFeed } from "./feed.ts";
 import { blocklistRequest, listPosts, POST_STATUSES, readStatus, replaceBlocklist } from "./owner.ts";
 import { checkNow, runIngest } from "./ingest.ts";
 import { CHECK_NOW_COOLDOWN_MS, LIVE_INGEST, QUEUE_OPEN } from "./query.ts";
-import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue } from "./queue.ts";
+import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, QUEUE_CLOSED, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue } from "./queue.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
+
+export const DB_DOWN = "The x-posts database is unavailable; try again later";
+const DB_DOWN_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "57P01", "57P02", "57P03", "53300"]);
+const DB_DOWN_MESSAGE = /timeout|connection terminated|connection.*(closed|ended)|connect.*refused/i;
+
+function databaseDown(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const code = (error as { code?: unknown }).code;
+	if (typeof code === "string" && (code.startsWith("08") || DB_DOWN_CODES.has(code))) return true;
+	return DB_DOWN_MESSAGE.test(error.message);
+}
 const BOT_ROUTES = new Set(["GET /feed", "GET /review", "POST /decisions", "POST /jobs/claim", "POST /jobs/ack"]);
 const requeueRequest = z.strictObject({ jobId: z.uuid() });
 
@@ -62,7 +73,7 @@ export function xPostsApi({ queueOpen }: { queueOpen: boolean }): ToolApi {
 						const { bridge } = await body(request, claimRequest);
 						const pending = await db(pendingTotal);
 						const headers = { ...NO_STORE, "x-pending-total": String(pending) };
-						if (!queueOpen) return Response.json({ error: "The print queue is closed while x-posts runs in shadow mode" }, { status: 503, headers });
+						if (!queueOpen) return Response.json({ error: QUEUE_CLOSED }, { status: 503, headers });
 						const claimed = await db((client) => claimJob(client, { bridge, actor: "prints-bridge" }, now, queueOpen));
 						return claimed === null ? new Response(null, { status: 204, headers }) : Response.json(claimed, { headers });
 					}
@@ -114,6 +125,10 @@ export function xPostsApi({ queueOpen }: { queueOpen: boolean }): ToolApi {
 			if (error instanceof NotFound) return Response.json({ error: error.message }, { status: 404, headers: NO_STORE });
 			if (error instanceof Closed) return Response.json({ error: error.message }, { status: 503, headers: NO_STORE });
 			if (error instanceof Conflict) return Response.json({ error: error.message }, { status: 409, headers: NO_STORE });
+			if (databaseDown(error)) {
+				console.error(`x-posts ${request.method} ${path}: database unavailable`, error);
+				return Response.json({ error: DB_DOWN }, { status: 503, headers: NO_STORE });
+			}
 			throw error;
 		}
 	};

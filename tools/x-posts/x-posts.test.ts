@@ -4,13 +4,13 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Caller } from "../../worker/access.ts";
 import type { Database, WithDb } from "../../worker/db.ts";
-import api, { xPostsApi } from "./api.ts";
+import api, { DB_DOWN, xPostsApi } from "./api.ts";
 import { type FeedPost, parseFeedRequest, type SinceFeed, type WindowFeed } from "./feed.ts";
 import { checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
-import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, requeueJob, sweep } from "./queue.ts";
+import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE_CLOSED, requeueJob, sweep } from "./queue.ts";
 
 const openApi = xPostsApi({ queueOpen: true });
-import { handleOk, screen } from "./screen.ts";
+import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
 
 const pg = new PGlite();
@@ -237,7 +237,10 @@ test("while the queue is closed, decisions and claims answer 503 and claim still
 	const claim = await send("/jobs/claim", { method: "POST", body: { bridge: "mini" }, caller: BRIDGE, open: false });
 	expect(claim.status).toBe(503);
 	expect(claim.headers.get("x-pending-total")).toBe("2");
-	expect((await send("/decisions", { method: "POST", body: { approve: [] }, open: false })).status).toBe(503);
+	expect(await claim.json()).toEqual({ error: QUEUE_CLOSED });
+	const decisions = await send("/decisions", { method: "POST", body: { approve: [] }, open: false });
+	expect(decisions.status).toBe(503);
+	expect(await decisions.json()).toEqual({ error: QUEUE_CLOSED });
 	expect(await db((c) => sweep(c, new Date(NOW.getTime() + 25 * 3_600_000), false))).toMatchObject({ overflowed: 2, jobs: [] });
 	expect((await pg.query("select count(*)::int as n from x_posts.jobs")).rows[0]).toEqual({ n: 0 });
 	expect((await pg.query("select count(*)::int as n from x_posts.posts where summarized_at is null")).rows[0]).toEqual({ n: 0 });
@@ -373,4 +376,41 @@ test("ingest checks every minute while posts arrive and every 5 minutes otherwis
 	await pg.query("insert into x_posts.runs (started_at, finished_at, status) values ($1, $1, 'rate limited')", [soon]);
 	await pg.query("update x_posts.sync_state set next_run_at = $1, last_run_at = $2", [new Date(soon.getTime() + 600_000), soon]);
 	expect(await db((c) => checkNow(c, new Date(soon.getTime() + 60_000), 30_000))).toBe(false);
+});
+
+test("mattyp in any capitalization screens, stores and reads back the same as lowercase", async () => {
+	const mixed = "MATTYP MattyP mattyp";
+	expect(screen(mixed, "A")).toMatchObject({ cleanText: mixed, flags: [] });
+	expect(screen(`${mixed} MATTY PRINTS, say hi`, "A").flags).toEqual(["addressed"]);
+	expect(screen(`${mixed} SPOON`, "A", [normalizeTerm("SpOoN")]).flags).toEqual(["blocked"]);
+	expect(screen(`${mixed} call 415-555-1234`, "A")).toMatchObject({ cleanText: `${mixed} call [phone]`, flags: ["phone"] });
+	const [upper, lower, addressed] = await seed([{ text: mixed, handle: "MattyFan" }, { text: "mattyp mattyp mattyp", handle: "mattyfan" }, { text: `${mixed} matty prints, hi` }]);
+	expect([await status(upper ?? ""), await status(lower ?? ""), await status(addressed ?? "")]).toEqual(["pending", "pending", "pending"]);
+	const review = (await (await send("/review")).json()) as { pendingTotal: number; posts: { id: string; flags: string[]; untrustedText: string }[] };
+	expect(review.pendingTotal).toBe(3);
+	expect(review.posts.find((post) => post.id === upper)).toMatchObject({ flags: [], untrustedText: mixed });
+	expect(review.posts.find((post) => post.id === addressed)?.flags).toEqual(["addressed"]);
+	await send("/decisions", { method: "POST", body: { overflow: [upper, lower, addressed].map((id) => ({ id, reason: "summary" })) } });
+	const claim = (await (await send("/jobs/claim", { method: "POST", body: { bridge: "mini" }, caller: BRIDGE })).json()) as { job: Job };
+	expect(claim.job.summary).toMatchObject({ count: 3, handles: ["MattyFan", "someone"] });
+});
+
+test("a database outage answers 503 with its own error text, apart from the closed queue", async () => {
+	const down = Object.assign(new Error("connection failure"), { code: "08006" });
+	const timeout = new Error("Connection terminated due to connection timeout");
+	spyOn(console, "error").mockImplementation(() => {});
+	for (const error of [down, timeout]) {
+		const response = await openApi(new Request("https://tools.test/api/tools/x-posts/jobs/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bridge: "mini" }) }), {
+			env: {} as Env,
+			ctx: { waitUntil() {} } as never,
+			path: "/jobs/claim",
+			db: async () => {
+				throw error;
+			},
+			caller: BRIDGE,
+		});
+		expect(response.status).toBe(503);
+		expect(await response.json()).toEqual({ error: DB_DOWN });
+	}
+	expect(DB_DOWN).not.toBe(QUEUE_CLOSED);
 });

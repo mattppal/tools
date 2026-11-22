@@ -37,7 +37,14 @@ A rejected post's `reason` names the flags and, for the name or handle, the fiel
 
 Post: `pending`, then `approved`, `rejected` or `overflow`; an approved post becomes `queued` in the same transaction (or `overflow` past a cap); then `printed`, `unconfirmed` or `failed` with its job. An overflow post becomes `summarized` when its summary job prints.
 
-Job: `ready`, then `claimed`, then `printed`, `unconfirmed` or `failed`. A `failed` ack before the third returns the job to `ready` with `notBefore` 1, then 5 minutes later. The third `failed` is terminal and sends the liaison a notice that Matt needs to check the printer. `unconfirmed` is terminal and never blocks newer jobs. Only Matt can send a terminal job again, from the Queue page, which makes a new job.
+Job: `ready`, then `claimed`, then `printed`, `unconfirmed` or `failed`. A job gets 3 tries.
+
+Ack outcomes:
+- `printed` is final.
+- `unconfirmed` is final and never retried. Only Matt's Print again on the Queue page sends it again, as a new job. It never blocks newer jobs.
+- `failed` means nothing printed. The first two return the job to `ready` with `notBefore` 1 minute, then 5 minutes later; there is no third delay. The third `failed` is final and sends the liaison a notice (`data.for` `"liaison"`) that Matt needs to check the printer. Print again works on it too.
+- A claim not acked by `claimExpiresAt` becomes `unconfirmed`.
+- A stale `claimId`, or a different result for a claim already acked, gets 409. The same result again gets 200 with `changed: false`.
 
 ## Caps
 
@@ -45,13 +52,19 @@ Enforced in the `POST /decisions` transaction, never at claim. A posts job holds
 
 ## Routes
 
-Base `/api/tools/x-posts`. Bot routes check the bot with `requireBot`: Matt or any non-bot identity gets 401, another bot 403 `Forbidden: bot <name> may not call <route> on x-posts`. Bad parameters or bodies get 400, unknown jobs 404, conflicts 409, and the closed queue 503. Every response is `no-store`.
+Base `/api/tools/x-posts`. Bot routes check the bot with `requireBot`: Matt or any non-bot identity gets 401, another bot 403 `Forbidden: bot <name> may not call <route> on x-posts`. Bad parameters or bodies get 400, unknown jobs 404, conflicts 409, and 503 means try later. Every response is `no-store`.
+
+Two 503s, told apart by `error`:
+- Queue closed: `The print queue is closed while x-posts runs in shadow mode`.
+- Database down: `The x-posts database is unavailable; try again later`.
+
+The bridge treats both as try later and doesn't ack because of them; a 503 is never a print outcome. After a 503 on claim it holds no job, so it prints nothing. After a 503 on an ack it already owes, it sends the same ack again before `claimExpiresAt`, which is safe because acks are idempotent.
 
 | Route | Who | Does |
 | --- | --- | --- |
 | `GET /feed` | prints-review | Read-only log. `since=now` returns no posts and a cursor at the head; `since=start` starts at the first post; `since=<nextCursor>` continues. Or `from`, `to` (ISO, at most 31 days) and `cursor`. `limit` 1 to 200, default 50. Since mode omits the aggregates; window mode adds `window`, `total`, `counts`, `authors` (up to 500, `authorsTruncated`) and `top` (5, never `injection`). Delivery is at least once: dedupe on `id`. |
 | `GET /review?limit=25&idsOnly=false` | prints-review | Pending posts, oldest first: `{ pendingTotal, posts: [{ id, handle, url, createdAt, flags, metrics, untrustedText }] }`, or ids with `idsOnly=true`. |
-| `POST /decisions` | prints-review | `{ approve?: [id], reject?: [{ id, reason }], overflow?: [{ id, reason }] }`, reasons 1 to 200 characters, each id once. Returns id lists `{ approved, rejected, overflowed, capped, refused, unknownIds, notPending, jobs }`. `refused` holds approvals of posts with a rejecting flag; `notPending` holds posts already decided. Reasons are never printed and never go into a job. |
+| `POST /decisions` | prints-review | `{ approve?: [id], reject?: [{ id, reason }], overflow?: [{ id, reason }] }`, reasons 1 to 200 characters, each id once. Returns id lists `{ approved, rejected, overflowed, capped, refused, unknownIds, notPending, jobs }`. `refused` lists approved ids the screen rejected (a rejecting flag); approving them does nothing. `notPending` holds posts already decided. Reasons are never printed and never go into a job. |
 | `POST /jobs/claim` | prints-bridge | `{ bridge }`. 200 `{ claimId, claimExpiresAt, job }` for the oldest ready job whose `notBefore` has passed, or 204 with no body. One job is claimed at a time. Both carry `X-Pending-Total`. |
 | `POST /jobs/ack` | prints-bridge | `{ jobId, claimId, result: printed\|failed\|unconfirmed, error? }`. Idempotent on (jobId, claimId): the same result again is 200 `changed: false`; a different result, a stale claim, or an ack after `claimExpiresAt` is 409. |
 | `GET /posts?status=&before=&limit=` | Matt | Posts newest first with raw text. |
@@ -67,7 +80,7 @@ Writes record their actor: `decided_by` (`screen`, `prints-review`, `matt`, `cap
 
 ## Bridge rules (printmc3 side)
 
-- Send `failed` only when nothing reached the printer. A bridge that isn't sure sends `unconfirmed`, never `failed`.
+- Send `failed` only when nothing reached the printer. If unsure whether paper came out, ack `unconfirmed`, never `failed`.
 - Before each claim, check that `192.168.0.97:9100` accepts a TCP connection; don't claim while the printer is offline.
 - Ack before `claimExpiresAt` (10 minutes). After it the job is `unconfirmed` and the ack gets 409.
 - Fire the review automation from `X-Pending-Total`, once per change: when it goes from 0 to more than 0, or grows since the last trigger, at most once per 15 minutes.

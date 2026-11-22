@@ -8,7 +8,7 @@ export const DAILY_CAP = 150;
 export const MAX_HANDLES = 50;
 export const CLAIM_MINUTES = 10;
 export const MAX_TRIES = 3;
-export const RETRY_AFTER_MINUTES = [1, 5, 15] as const;
+export const RETRY_AFTER_MINUTES = [1, 5] as const;
 export const REVIEW_TIMEOUT_HOURS = 24;
 const TIME_ZONE = "America/Los_Angeles";
 
@@ -20,6 +20,7 @@ export class Conflict extends Error {}
 
 export class NotFound extends Error {}
 
+export const QUEUE_CLOSED = "The print queue is closed while x-posts runs in shadow mode";
 export class Closed extends Error {}
 
 const postId = z.string().regex(/^[1-9]\d{0,18}$/, "Post ids are strings of 1 to 19 digits");
@@ -236,7 +237,7 @@ async function buildJobs(client: Database, approved: readonly string[], now: Dat
 }
 
 export async function applyDecisions(client: Database, input: DecisionsRequest, actor: "prints-review" | "matt", now: Date, open: boolean): Promise<DecisionsResult> {
-	if (!open) throw new Closed("The print queue is closed while x-posts runs in shadow mode; decisions open with printing");
+	if (!open) throw new Closed(QUEUE_CLOSED);
 	const all = [...input.approve, ...input.reject.map((item) => item.id), ...input.overflow.map((item) => item.id)];
 	const repeated = all.filter((id, index) => all.indexOf(id) !== index);
 	if (repeated.length > 0) throw new BadRequest(`Each id may appear once across approve, reject and overflow: ${[...new Set(repeated)].join(", ")}`);
@@ -294,7 +295,7 @@ export async function expireClaims(client: Database, now: Date): Promise<number>
 }
 
 export async function claimJob(client: Database, { bridge, actor }: { bridge: string; actor: Actor }, now: Date, open: boolean): Promise<{ claimId: string; claimExpiresAt: string; job: Job } | null> {
-	if (!open) throw new Closed("The print queue is closed while x-posts runs in shadow mode");
+	if (!open) throw new Closed(QUEUE_CLOSED);
 	return await transaction(client, async () => {
 		await expireClaims(client, now);
 		const busy = (await client.query("select 1 from x_posts.jobs where status = 'claimed' limit 1")).rows.length > 0;
