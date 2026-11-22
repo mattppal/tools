@@ -1,0 +1,156 @@
+.app {
+	height: 100dvh;
+	font-family: var(--font-ui);
+	--list-width: 264px;
+	--focus-fill: var(--chrome-focus);
+}
+
+.side {
+	padding-block-end: var(--sidebar-inset);
+}
+
+.panel {
+	position: relative;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	border-start-start-radius: var(--radius-xl);
+	border-end-start-radius: var(--radius-xl);
+	border: var(--border-width) solid var(--border-color);
+	border-inline-end: 0;
+	box-shadow: var(--shadow-raised);
+	background: var(--panel-bg);
+	color: var(--text-1);
+	overflow: hidden;
+	--focus-fill: var(--focus-bg);
+}
+
+[data-sidebar-state="closed"] .panel {
+	border-radius: 0;
+}
+
+.loading {
+	display: grid;
+	flex: 1;
+	place-items: center;
+	color: var(--text-3);
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-height: var(--control-lg);
+}
+
+.brandLink {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding-inline: var(--space-2);
+	border-radius: var(--radius-control);
+	color: var(--chrome-text);
+	font-weight: var(--weight-brand);
+	font-size: var(--text-md);
+	text-decoration: none;
+}
+
+.logo {
+	border-radius: var(--radius-sm);
+}
+
+.brandAction {
+	margin-inline-start: auto;
+}
+
+.foot {
+	gap: var(--space-1);
+	padding-block-start: var(--space-2);
+}
+
+.footSpace {
+	flex: 1;
+}
+
+.health {
+	width: 8px;
+	height: 8px;
+	margin-inline: var(--sidebar-row-x);
+	border-radius: var(--radius-full);
+	background: var(--chrome-text-3);
+}
+
+.health[data-state="ok"] {
+	background: var(--success);
+}
+
+.health[data-state="down"] {
+	background: var(--danger);
+}
+
+.navSheet {
+	width: min(var(--list-width), calc(100vw - var(--space-7)));
+	background: var(--chrome-bg);
+	color: var(--chrome-text);
+	padding-top: env(safe-area-inset-top);
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+.navSheetBody {
+	display: flex;
+	flex-direction: column;
+	gap: var(--sidebar-stack);
+	padding: 0 0 var(--sidebar-inset);
+	overflow: hidden;
+}
+
+.theme {
+	display: grid;
+}
+
+.moon,
+.sun {
+	grid-area: 1 / 1;
+	transition:
+		opacity 200ms var(--ease-out),
+		rotate 200ms var(--ease-out);
+}
+
+.sun,
+:global(:root[data-theme="dark"]) .moon {
+	opacity: 0;
+	rotate: -45deg;
+}
+
+:global(:root[data-theme="dark"]) .sun {
+	opacity: 1;
+	rotate: none;
+}
+
+@media (prefers-color-scheme: dark) {
+	:global(:root:not([data-theme="light"])) .moon {
+		opacity: 0;
+		rotate: -45deg;
+	}
+
+	:global(:root:not([data-theme="light"])) .sun {
+		opacity: 1;
+		rotate: none;
+	}
+}
+
+@media (max-width: 767px) {
+	.panel {
+		border-radius: 0;
+		box-shadow: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.moon,
+	.sun {
+		rotate: none !important;
+	}
+}

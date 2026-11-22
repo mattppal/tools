@@ -1,0 +1,88 @@
+@theme inline reference {
+	--color-overlay: var(--overlay);
+	--color-scrollbar: var(--scrollbar-thumb);
+	--color-scrollbar-hover: var(--scrollbar-thumb-hover);
+	--color-scrollbar-active: var(--scrollbar-thumb-active);
+
+	--radius-panel: var(--radius-panel);
+	--radius-pane: var(--radius-pane);
+	--radius-thumb: var(--radius-thumb);
+
+	--spacing-pane-inset: var(--pane-inset);
+	--spacing-track-inset: var(--track-inset);
+
+	--animate-pop-in: kit-pop-in var(--duration-popover) var(--ease-out);
+	--animate-pop-out: kit-pop-out var(--duration-popover-exit) var(--ease-out);
+	--animate-dialog-in: kit-pop-in var(--duration-dialog) var(--ease-out);
+	--animate-dialog-out: kit-pop-out var(--duration-dialog-exit) var(--ease-out);
+	--animate-overlay-in: kit-overlay-in var(--duration-dialog) var(--ease-out);
+	--animate-overlay-out: kit-overlay-out var(--duration-dialog-exit) var(--ease-out);
+	--animate-toast-in: kit-toast-in var(--duration-popover) var(--ease-out);
+	--animate-toast-out: kit-overlay-out var(--duration-popover-exit) var(--ease-out);
+	--animate-label-in: kit-label-in var(--duration-select) var(--ease-out) both;
+	--animate-label-out: kit-label-out var(--duration-select) var(--ease-out) both;
+	--animate-label-fade-in: kit-overlay-in var(--duration-select) var(--ease-out) both;
+	--animate-label-fade-out: kit-overlay-out var(--duration-select) var(--ease-out) both;
+
+	@keyframes kit-pop-in {
+		from {
+			opacity: 0;
+			scale: 0.97;
+		}
+	}
+
+	@keyframes kit-pop-out {
+		to {
+			opacity: 0;
+			scale: 0.97;
+		}
+	}
+
+	@keyframes kit-overlay-in {
+		from {
+			opacity: 0;
+		}
+	}
+
+	@keyframes kit-overlay-out {
+		to {
+			opacity: 0;
+		}
+	}
+
+	@keyframes kit-label-in {
+		from {
+			opacity: 0;
+			filter: blur(2px);
+		}
+	}
+
+	@keyframes kit-label-out {
+		to {
+			opacity: 0;
+			filter: blur(2px);
+		}
+	}
+
+	@keyframes kit-toast-in {
+		from {
+			opacity: 0;
+			translate: 0 8px;
+		}
+	}
+}
+
+@utility scroll-fade {
+	--fade-top: min(var(--scroll-area-overflow-y-start, 0px), var(--scroll-mask-top));
+	--fade-bottom: min(var(--scroll-area-overflow-y-end, 0px), var(--scroll-mask-bottom));
+	scroll-padding-block: var(--scroll-mask-top) var(--scroll-mask-bottom);
+	mask-image: linear-gradient(
+		to bottom,
+		transparent,
+		color-mix(in srgb, black 30%, transparent) calc(var(--fade-top) / 2),
+		black var(--fade-top),
+		black calc(100% - var(--fade-bottom)),
+		color-mix(in srgb, black 30%, transparent) calc(100% - var(--fade-bottom) / 2),
+		transparent
+	);
+}

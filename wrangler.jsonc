@@ -1,0 +1,17 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "tools",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-11-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"preview_urls": true,
+	"routes": [{ "pattern": "tools.mattpalmer.io", "custom_domain": true }],
+	"assets": {
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"]
+	},
+	"hyperdrive": [{ "binding": "DB", "id": "1fce713944994e84ada0aefed7e29dec" }],
+	"observability": { "enabled": true, "logs": { "enabled": true } }
+}

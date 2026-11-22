@@ -1,0 +1,150 @@
+.layout {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+.column {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+
+.header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--space-1);
+	min-height: var(--topbar-height);
+	padding: 0 var(--panel-inset);
+}
+
+.title {
+	margin: 0 0 0 var(--space-1);
+	overflow: hidden;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: var(--weight-title);
+	letter-spacing: var(--tracking-title);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	margin-inline-start: auto;
+}
+
+.body {
+	flex: 1;
+	min-height: 0;
+	padding: 0 var(--space-5) var(--space-6);
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.secondary {
+	flex: none;
+	width: var(--secondary-width, 256px);
+	min-height: 0;
+	overflow: hidden;
+	border-inline-end: 1px solid var(--line);
+	transition: width var(--duration-hover) ease-out;
+}
+
+.secondary[data-state="closed"] {
+	width: 0;
+	border-inline-end-width: 0;
+}
+
+.secondaryInner {
+	display: flex;
+	flex-direction: column;
+	width: var(--secondary-width, 256px);
+	height: 100%;
+	padding-block-start: var(--space-2);
+}
+
+.panel {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	width: 320px;
+	min-height: 0;
+	margin: var(--space-3) var(--space-3) var(--space-3) 0;
+	border-radius: var(--radius-lg);
+	background: var(--sunken-bg);
+	overflow: hidden;
+	animation: fade-in var(--duration-popover) var(--ease-out);
+}
+
+.paneHead {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--space-2);
+	height: 48px;
+	padding: 0 var(--space-2) 0 var(--space-4);
+}
+
+.paneTitle {
+	margin: 0 auto 0 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: var(--weight-title);
+}
+
+.paneScroll {
+	flex: 1;
+}
+
+.paneContent {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-3) var(--space-5);
+}
+
+.secondarySheet,
+.panelSheet {
+	width: min(360px, calc(100vw - var(--space-7)));
+	padding-top: env(safe-area-inset-top);
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+.sheetBody {
+	display: flex;
+	flex-direction: column;
+	padding: var(--space-1) 0 0;
+	overflow: hidden;
+}
+
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+@media (max-width: 767px) {
+	.header {
+		position: sticky;
+		top: 0;
+		padding-top: env(safe-area-inset-top);
+		padding-inline: var(--space-2);
+	}
+
+	.body {
+		padding: 0 var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.secondary {
+		transition: none;
+	}
+}
