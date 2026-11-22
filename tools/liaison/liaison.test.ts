@@ -86,6 +86,12 @@ test("a notice goes to the liaison in the tools envelope with its bot, label and
 	expect(json["sent"]).toEqual(sent?.body);
 });
 
+test("a notice for the liaison itself is addressed to it, not broadcast", async () => {
+	expect((await call({ body: { for: "liaison", label: "FYI", subject: "Shipped", body: "b" } })).status).toBe(201);
+	expect(received[0]?.body["data"]).toMatchObject({ for: "liaison", label: "FYI", line: "liaison: FYI" });
+	expect((await call({ body: { for: "liaison", label: "please confirm", confirm: "x", subject: "s", body: "b" } })).status).toBe(400);
+});
+
 test("coach's please confirm needs its confirm text, which ends the line", async () => {
 	await call({ body: coachNotice });
 	expect(received[0]?.body["data"]).toMatchObject({ for: "coach", label: "please confirm", confirm: "you still write `kind` on every session file", line: "coach: please confirm you still write `kind` on every session file" });

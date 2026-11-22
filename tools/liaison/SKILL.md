@@ -40,8 +40,8 @@ The coordinator's messages to bots. `data`:
 
 | Field | Value |
 | --- | --- |
-| `for` | `nutrition`, `coach`, `fog`, `tinkabot` or `all` |
-| `label` | nutrition, fog, tinkabot, all: `action needed`, `FYI`, `nothing`. coach: `no action`, `please confirm`. |
+| `for` | `liaison` (for the liaison only; not relayed), `nutrition`, `coach`, `fog`, `tinkabot` or `all` (relayed to every bot) |
+| `label` | liaison, nutrition, fog, tinkabot, all: `action needed`, `FYI`, `nothing`. coach: `no action`, `please confirm`. |
 | `confirm` | Only with coach's `please confirm`: what coach should confirm. |
 | `line` | Ready to relay: `nutrition bot: action needed`, `coach: please confirm <confirm>`, `all bots: FYI`. |
 | `subject` | Up to 200 characters. Starts with `TEST` exactly when the delivery is a test; a test subject gets the prefix added. |
@@ -59,7 +59,7 @@ All routes need Access plus `Authorization: Bearer <BOT_TOKEN_COORDINATOR>` (bot
 | `POST /api/tools/liaison/notices` | `{ for, label, confirm?, subject, body, refs?, replyTo?, test?, noticeId? }`. Queues the notice, tries it once, and returns its delivery state and the exact body sent: 201 new, 200 when `noticeId` was already sent with the same content (nothing is resent), 409 for the same id with other content, 404 for an unknown `replyTo`, 400 for a bad label or a real subject starting with `TEST`. |
 | `GET /api/tools/liaison/deliveries?app=&thread=` | The latest 50 liaison deliveries, newest first, with attempts, last status and the body sent. |
 
-`bun run notify <for> <label> --subject <text> [--confirm <text>] [--ref <url>]... [--reply-to <id>] [--test] [--body-file <path>]` sends one, with the body from stdin when there's no `--body-file`. It generates the `noticeId` once and retries 5xx and network errors under it, so a retry never sends twice. `bun run notify --list [--app tools] [--thread <id>]` lists deliveries. Both read `TOOLS_COORDINATOR_CLIENT_ID`, `TOOLS_COORDINATOR_CLIENT_SECRET` (falling back to `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`) and `BOT_TOKEN_COORDINATOR`, which Matt keeps in Cursor's environment secrets; `TOOLS_URL` defaults to production. `--dry-run` prints the notice without sending.
+`bun run notify [<for>] <label> --subject <text> [--confirm <text>] [--ref <url>]... [--reply-to <id>] [--test] [--body-file <path>]` sends one, with the body from stdin when there's no `--body-file`. Without `<for>` it goes to the liaison alone; use `all` only for something every bot should read. It generates the `noticeId` once and retries 5xx and network errors under it, so a retry never sends twice. `bun run notify --list [--app tools] [--thread <id>]` lists deliveries. Both read `TOOLS_COORDINATOR_CLIENT_ID`, `TOOLS_COORDINATOR_CLIENT_SECRET` (falling back to `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`) and `BOT_TOKEN_COORDINATOR`, which Matt keeps in Cursor's environment secrets; `TOOLS_URL` defaults to production. `--dry-run` prints the notice without sending.
 
 ## Data
 

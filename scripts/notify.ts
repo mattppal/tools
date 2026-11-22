@@ -2,10 +2,10 @@ import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 const USAGE = `Usage:
-  bun run notify <for> <label> --subject <text> [--body-file <path>] [--confirm <text>] [--ref <https url>]... [--reply-to <id>] [--test] [--notice-id <id>] [--dry-run]
+  bun run notify [<for>] <label> --subject <text> [--body-file <path>] [--confirm <text>] [--ref <https url>]... [--reply-to <id>] [--test] [--notice-id <id>] [--dry-run]
   bun run notify --list [--app nutrition|workouts|tools] [--thread <id>]
 
-<for> is nutrition, coach, fog, tinkabot or all. Without --body-file the markdown body is read from stdin.
+<for> is liaison (the default), nutrition, coach, fog, tinkabot or all; all goes to every bot. Without --body-file the markdown body is read from stdin.
 Needs TOOLS_COORDINATOR_CLIENT_ID, TOOLS_COORDINATOR_CLIENT_SECRET and BOT_TOKEN_COORDINATOR (CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET also work). TOOLS_URL defaults to https://tools.mattpalmer.io.`;
 
 const ATTEMPTS = 3;
@@ -37,8 +37,8 @@ export function parseNotify(argv: readonly string[], body: string | null): Notif
 		if (values.thread !== undefined) query.set("thread", values.thread);
 		return { list: true, query };
 	}
-	const [recipient, label, ...extra] = positionals;
-	if (recipient === undefined || label === undefined || extra.length > 0 || values.subject === undefined) throw new Error(USAGE);
+	const [recipient, label] = positionals.length === 1 ? ["liaison", positionals[0]] : positionals;
+	if (recipient === undefined || label === undefined || positionals.length > 2 || values.subject === undefined) throw new Error(USAGE);
 	if (body === null || body.trim() === "") throw new Error("The notice needs a markdown body, from --body-file or stdin.");
 	return {
 		list: false,

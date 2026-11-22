@@ -18,6 +18,14 @@ test("builds a notice the route accepts, with a fresh noticeId so retries stay i
 	expect(again.notice["noticeId"]).not.toBe(args.notice["noticeId"]);
 });
 
+test("sends to the liaison when no recipient is named", () => {
+	const args = parseNotify(["FYI", "--subject", "s"], "b");
+	if (args.list) throw new Error("expected a notice");
+	expect(args.notice).toMatchObject({ for: "liaison", label: "FYI" });
+	expect(noticeRequest.safeParse(args.notice).success).toBe(true);
+	expect(() => parseNotify(["coach", "no action", "extra", "--subject", "s"], "b")).toThrow("Usage");
+});
+
 test("keeps a given noticeId and replyTo", () => {
 	const args = parseNotify(["nutrition", "nothing", "--subject", "s", "--notice-id", "9b2e7c4a-1d5f-4a8e-b3c6-0f7d2e9a4b18", "--reply-to", "4c1a9e6b-7f2d-4b3e-a8c5-2d9f6b1e7a30"], "b");
 	if (args.list) throw new Error("expected a notice");

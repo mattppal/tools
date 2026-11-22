@@ -5,6 +5,7 @@ import { queueForLiaison } from "./webhook.ts";
 const GENERAL_LABELS = ["action needed", "FYI", "nothing"] as const;
 
 export const RECIPIENTS = {
+	liaison: { name: "liaison", labels: GENERAL_LABELS },
 	nutrition: { name: "nutrition bot", labels: GENERAL_LABELS },
 	coach: { name: "coach", labels: ["no action", "please confirm"], confirmLabel: "please confirm" },
 	fog: { name: "fog", labels: GENERAL_LABELS },
