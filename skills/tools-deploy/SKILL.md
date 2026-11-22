@@ -33,6 +33,10 @@ Built files in `dist/client` are served as they are. Every other request reaches
 
 All of them sit behind the Access app "tools - Cloudflare Workers".
 
+## The Worker checks Access too
+
+`worker/access.ts` verifies the `Cf-Access-Jwt-Assertion` header on every `/api/*` request against the team's signing keys, then admits only the identities in `ACCESS`: Matt's email and the service tokens listed by name and client ID. A token Access lets through but `ACCESS` doesn't list gets a 403 that says "not on the tools allowlist". Writes from another site (an `Origin` or `Sec-Fetch-Site` that isn't this origin) get a 403 too. The only routes without a token are the ones in `ACCESS.publicRoutes`, which must match an Access bypass app. Requests to `localhost` and `127.0.0.1` skip the check so dev and e2e work.
+
 ## Verify through Access
 
 Use the service token `tools-agent-verify`, which has a Service Auth policy on that app. Get its client ID and secret from whoever runs the task; never commit them.
@@ -55,4 +59,5 @@ Each bot has its own Access service token, a Service Auth policy with the same n
 2. Find the app with `GET /accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps` and pick the one named "tools - Cloudflare Workers". Add the policy with `POST /accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps/<app id>/policies`, sending `{"name":"<bot>-bot","decision":"non_identity","include":[{"service_token":{"token_id":"<token id>"}}]}`. Its precedence goes after the existing policies, and those policies stay as they are.
 3. Generate the bearer token with `openssl rand -base64 32` and set it with `bunx wrangler secret put BOT_TOKEN_<BOT>`.
 4. Write all three values to a file only the owner can read (mode 0600), outside the repo and the Project store, and tell the user its path so the values go into 1Password. Never commit them.
-5. Check that the bot's endpoint answers through Access with all three headers and an explicit `User-Agent`. It should answer 401 when the bearer token is missing.
+5. Add the token's name and client ID to `ACCESS.serviceTokens` in `worker/access.ts` and land it. Until then the Worker answers 403.
+6. Check that the bot's endpoint answers through Access with all three headers and an explicit `User-Agent`. It should answer 401 when the bearer token is missing.

@@ -55,7 +55,7 @@ Only add tables a tool needs. A tool's tables live in its own schema, named afte
 
 Bots reach a tool through an MCP endpoint or bot-only HTTP routes. Every bot request carries two credentials:
 
-- an Access service token, sent as `CF-Access-Client-Id` and `CF-Access-Client-Secret`, which Cloudflare Access checks at the edge;
+- an Access service token, sent as `CF-Access-Client-Id` and `CF-Access-Client-Secret`, which Cloudflare Access checks at the edge and `worker/access.ts` checks against its allowlist;
 - `Authorization: Bearer <token>`, which the Worker checks against the bot's Worker secret.
 
 The bot also sends an explicit `User-Agent`. Cloudflare's Browser Integrity Check blocks some clients' default User-Agent, such as Python urllib's, with a 403 and error 1010, before Access or the Worker sees the request.
