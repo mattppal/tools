@@ -4,7 +4,8 @@ Small tools at [tools.mattpalmer.io](https://tools.mattpalmer.io). One Cloudflar
 
 ```bash
 bun install
-bun run dev                     # http://127.0.0.1:5173
+bun run dev                     # http://127.0.0.1:5173, no setup needed
+bun run dev:db                  # optional: real data from the PlanetScale preview branch, written to .env
 bun run new-tool my-tool --name "My Tool" --description "What it does." --api
 bun run build                   # skill check + production build
 bun run deploy                  # Workers Builds also deploys main on push

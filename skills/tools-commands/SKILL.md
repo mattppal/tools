@@ -11,6 +11,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | --- | --- |
 | `bun install` | Install dependencies from `bun.lock`. |
 | `bun run dev` | Vite dev server with the Worker at http://127.0.0.1:5173. |
+| `bun run dev:db` | Point local dev at the PlanetScale `preview` branch. Writes `.env`. |
 | `bun run build` | Skill check, then build the Worker, client, and service worker into `dist/`. |
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
@@ -23,14 +24,16 @@ Run `bun run build` and `bun run typecheck` before you push.
 
 ## Database
 
-Production reaches the PlanetScale Postgres database `tools` (org `mattppalmer`, branch `main`) through the Hyperdrive config `tools-db`, bound as `env.DB`. Worker code calls `withDb(env, ...)` from `worker/db.ts`; tool APIs get `db(...)` in their context.
+The `env.DB` binding is Hyperdrive in front of the PlanetScale Postgres database `tools` (org `mattppalmer`). Worker code calls `withDb(env, ...)` from `worker/db.ts`; tool APIs get `db(...)` in their context.
 
-`bun run dev` needs a direct connection string for that binding. Put it in your shell, not in a file you commit:
+| Where | Branch | Hyperdrive config |
+| --- | --- | --- |
+| Production | `main` | `tools-db` |
+| Previews | `preview` | `tools-db-preview` (the `previews` block in `wrangler.jsonc`) |
+| `bun run dev` | whatever `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB` points at | none |
 
-```bash
-export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB='postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=require'
-```
+`bun run dev` starts with no setup. By default it connects to `postgresql://postgres@127.0.0.1:5432/postgres`, so a local Postgres just works. Without one, the app still runs and `/api/health` reports the database as down.
 
-Get credentials by creating a role on the `main` branch in the PlanetScale dashboard, or with the API using `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`. A local Postgres works too.
+For real data, run `bun run dev:db` once. It needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`, creates a 7-day role on the `preview` branch, and writes the connection string to `.env` (gitignored). To use another database, copy `.env.example` to `.env` and edit it. Never point local dev at `main`.
 
 `GET /api/health` runs `select now()` through the binding and returns the latency.

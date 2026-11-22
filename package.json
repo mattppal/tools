@@ -7,6 +7,8 @@
   },
   "scripts": {
     "dev": "vite dev",
+    "dev:db": "bun scripts/dev-db.ts",
+    "migrate": "bun scripts/migrate.ts",
     "build": "bun scripts/check-skills.ts && vite build",
     "typecheck": "tsc --noEmit",
     "check:skills": "bun scripts/check-skills.ts",
