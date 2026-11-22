@@ -1,11 +1,12 @@
 import type { SetRow } from "./log.ts";
 import type { PrescribedExercise } from "./program.ts";
-import type { Schedule } from "./schedule.ts";
+import type { ScheduleDay, ScheduleWeek, WeekRef } from "./schedule.ts";
 import type { SessionDetail, SessionSummary } from "./store.ts";
+import type { SyncState } from "./sync.ts";
 
-export type { PrescribedExercise, Schedule, SessionDetail, SessionSummary, SetRow };
+export type { PrescribedExercise, ScheduleDay, ScheduleWeek, SessionDetail, SessionSummary, SetRow, SyncState, WeekRef };
 
-export type ProgramResponse = { schedule: Schedule; webhookReady: boolean };
+export type ProgramResponse = { today: string; weeks: WeekRef[]; currentWeek: string | null; week: ScheduleWeek | null; next: ScheduleDay | null; sync: SyncState; webhookReady: boolean };
 
 export class ApiError extends Error {
 	constructor(
@@ -36,10 +37,10 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export type SetDraft = { weight: number | null; unit: "lb" | "kg" | null; reps: number | null; rir: number | null; asWritten: boolean; notes: string | null };
 
 export const api = {
-	program: () => call<ProgramResponse>("/program"),
+	program: (week?: string) => call<ProgramResponse>(week === undefined ? "/program" : `/program?week=${encodeURIComponent(week)}`),
 	sessions: () => call<{ sessions: SessionSummary[] }>("/sessions"),
 	session: (id: string) => call<{ session: SessionDetail }>(`/sessions/${id}`),
-	start: (weekId: string, dayId: string) => call<{ session: SessionDetail }>("/sessions", { method: "POST", body: JSON.stringify({ weekId, dayId }) }),
+	start: (blockId: string, weekId: string, dayId: string) => call<{ session: SessionDetail }>("/sessions", { method: "POST", body: JSON.stringify({ blockId, weekId, dayId }) }),
 	putSet: (id: string, position: number, index: number, set: SetDraft) => call<{ ok: true }>(`/sessions/${id}/sets/${position}/${index}`, { method: "PUT", body: JSON.stringify(set) }),
 	deleteSet: (id: string, position: number, index: number) => call<{ ok: true }>(`/sessions/${id}/sets/${position}/${index}`, { method: "DELETE" }),
 	exercise: (id: string, position: number, patch: { status?: "planned" | "skipped"; notes?: string | null }) =>
@@ -54,6 +55,20 @@ const DAY = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short",
 
 export function formatDate(date: string): string {
 	return DAY.format(new Date(`${date}T00:00:00Z`));
+}
+
+const SHORT = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+export function formatRange(start: string, end: string): string {
+	return `${SHORT.format(new Date(`${start}T00:00:00Z`))} – ${SHORT.format(new Date(`${end}T00:00:00Z`))}`;
+}
+
+export function formatAgo(iso: string, now: number = Date.now()): string {
+	const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+	if (minutes < 1) return "just now";
+	if (minutes < 60) return `${minutes} min ago`;
+	const hours = Math.round(minutes / 60);
+	return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
 export function asWrittenValues(exercise: PrescribedExercise): SetDraft | null {

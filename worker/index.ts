@@ -1,5 +1,5 @@
 import { type WithDb, withRequestDb } from "./db.ts";
-import type { ToolApi } from "./tool-api.ts";
+import type { ToolApi, ToolCron } from "./tool-api.ts";
 import { deliverDue, type Webhook } from "./webhooks.ts";
 
 const apis = import.meta.glob<{ default: ToolApi }>("../tools/*/api.ts", { eager: true });
@@ -11,6 +11,8 @@ const TOOL_APIS = new Map(
 		return [slug, module.default];
 	}),
 );
+
+const CRONS = Object.entries(import.meta.glob<{ default: ToolCron }>("../tools/*/cron.ts", { eager: true }));
 
 const WEBHOOKS = Object.values(import.meta.glob<{ default: Webhook }>("../tools/*/webhook.ts", { eager: true })).map((module) => module.default);
 
@@ -67,6 +69,13 @@ export default {
 					await deliverDue(withDb, webhook, env);
 				} catch (error) {
 					console.error(`Webhook retries for ${webhook.table} failed`, error);
+				}
+			}
+			for (const [file, module] of CRONS) {
+				try {
+					await module.default({ env, ctx, db: withDb });
+				} catch (error) {
+					console.error(`Tool cron ${file} failed`, error);
 				}
 			}
 		});

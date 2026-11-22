@@ -1,9 +1,10 @@
-import { withRequestDb } from "../../worker/db.ts";
+import { type Database, withRequestDb } from "../../worker/db.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
-import { readTrainingLog, TrainingLogError } from "./github.ts";
 import { buildLog, checkLog } from "./log.ts";
-import { buildSchedule, findDay, pacificToday } from "./schedule.ts";
+import { requireBot } from "../../worker/bot-auth.ts";
+import { buildWeek, currentWeek, findDay, nextDay, pacificToday, trainingLogFrom, weekRefs, type TrainingLog } from "./schedule.ts";
+import { readMirror, readSyncState, syncTrainingLog } from "./sync.ts";
 import { createSession, deleteOpenSession, deleteSet, finishSession, getSession, listSessions, putSet, requeue, sessionRow, updateExercise, updateSessionNotes, type SetInput } from "./store.ts";
 import webhook from "./webhook.ts";
 
@@ -54,10 +55,9 @@ export function parseSet(input: Record<string, unknown>): SetInput {
 	};
 }
 
-function trainingLogError(error: unknown): Response {
-	if (!(error instanceof TrainingLogError)) throw error;
-	const code = error.status === null && error.message.includes("TRAINING_LOG_TOKEN") ? "missing_token" : error.status === 401 || error.status === 403 || error.status === 404 ? "no_access" : "github";
-	return json({ error: error.message, code }, 502);
+async function trainingLog(db: Database): Promise<TrainingLog> {
+	const { programs, sessions } = await readMirror(db);
+	return trainingLogFrom(programs, sessions);
 }
 
 export default defineToolApi(async (request, { env, ctx, path, db }) => {
@@ -65,22 +65,40 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 	try {
 		if (method === "GET" && path === "/program") {
 			const today = pacificToday();
-			const [{ program, repoSessions }, sessions] = await Promise.all([readTrainingLog(env, today), db((client) => listSessions(client, 200))]);
-			return json({ schedule: buildSchedule(program, repoSessions, sessions, today), webhookReady: webhook.target(env) !== null });
+			const requested = new URL(request.url).searchParams.get("week");
+			const { log, sessions, sync } = await db(async (client) => ({ log: await trainingLog(client), sessions: await listSessions(client, 500), sync: await readSyncState(client) }));
+			const weeks = weekRefs(log.programs);
+			const current = currentWeek(weeks, today);
+			const ref = weeks.find((week) => week.key === requested) ?? current;
+			return json({
+				today,
+				weeks,
+				currentWeek: current?.key ?? null,
+				week: ref === null ? null : buildWeek(log, sessions, ref),
+				next: nextDay(log, sessions, weeks, today),
+				sync,
+				webhookReady: webhook.target(env) !== null,
+			});
+		}
+
+		if (method === "POST" && path === "/sync") {
+			const bot = await requireBot(request, env, "workouts");
+			if (bot instanceof Response) return bot;
+			const result = await db((client) => syncTrainingLog(client, env, { force: new URL(request.url).searchParams.get("force") === "1" }));
+			return json({ result, sync: await db(readSyncState) }, result.status === "failed" ? 502 : 200);
 		}
 
 		if (method === "GET" && path === "/sessions") return json({ sessions: await db((client) => listSessions(client)) });
 
 		if (method === "POST" && path === "/sessions") {
 			const input = await body(request);
+			const blockId = typeof input.blockId === "string" ? input.blockId : null;
 			const weekId = typeof input.weekId === "string" ? input.weekId : null;
 			const dayId = typeof input.dayId === "string" ? input.dayId : null;
-			if (weekId === null || dayId === null) throw new BadRequest("weekId and dayId are required");
-			const today = pacificToday();
-			const { program } = await readTrainingLog(env, today);
-			const day = findDay(program, weekId, dayId);
-			if (day === null) return json({ error: `${weekId} ${dayId} is not in ${program.id}` }, 404);
-			const id = await db((client) => createSession(client, program.id, day, today, input.test === true));
+			if (blockId === null || weekId === null || dayId === null) throw new BadRequest("blockId, weekId and dayId are required");
+			const found = findDay(await db(trainingLog), blockId, weekId, dayId);
+			if (found === null) return json({ error: `${blockId} ${weekId} ${dayId} is not in training-log` }, 404);
+			const id = await db((client) => createSession(client, blockId, found.day, pacificToday(), input.test === true));
 			return json({ session: await db((client) => getSession(client, id)) }, 201);
 		}
 
@@ -153,7 +171,6 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 		return json({ error: "Not found" }, 404);
 	} catch (error) {
 		if (error instanceof BadRequest) return json({ error: error.message }, 400);
-		if (error instanceof TrainingLogError) return trainingLogError(error);
 		throw error;
 	}
 });

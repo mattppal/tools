@@ -4,9 +4,8 @@ import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { cn } from "../../src/kit/utils.ts";
 import { Icon } from "../../src/shell/icons.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
-import { api, ApiError, formatDate, type ProgramResponse, type SessionSummary } from "./client.ts";
+import { api, ApiError, formatAgo, formatDate, formatRange, type ProgramResponse, type ScheduleDay, type SessionSummary, type SyncState } from "./client.ts";
 import { formatLoad, formatVolume } from "./program.ts";
-import type { ScheduleDay } from "./schedule.ts";
 import { deliveryWords, SessionScreen } from "./session.tsx";
 import styles from "./workouts.module.css";
 
@@ -36,17 +35,11 @@ function toError(error: unknown): ApiError {
 }
 
 function ReadError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
-	const message =
-		error.code === "missing_token"
-			? "TRAINING_LOG_TOKEN isn't set on the Worker, so the program can't be read."
-			: error.code === "no_access"
-				? "GitHub refused TRAINING_LOG_TOKEN. Check that it can read mattppal/training-log."
-				: error.message;
 	return (
 		<div className={styles.notice} role="alert">
 			<Icon name="alert" />
 			<div className={styles.noticeBody}>
-				<p>{message}</p>
+				<p>{error.message}</p>
 				<Button size="sm" onClick={onRetry}>
 					Try again
 				</Button>
@@ -55,7 +48,28 @@ function ReadError({ error, onRetry }: { error: ApiError; onRetry: () => void })
 	);
 }
 
+function SyncLine({ sync }: { sync: SyncState }) {
+	const synced = sync.headSha === null || sync.syncedAt === null ? "training-log hasn't synced yet" : `Synced ${sync.headSha.slice(0, 7)} · ${formatAgo(sync.syncedAt)}`;
+	return (
+		<p className={styles.syncLine}>
+			{synced}
+			{sync.lastError === null ? null : ` · last check failed: ${sync.lastError}`}
+		</p>
+	);
+}
+
 function ExerciseList({ day }: { day: ScheduleDay }) {
+	if (day.logged !== null)
+		return (
+			<ol className={styles.exerciseList}>
+				{day.logged.map((exercise, index) => (
+					<li key={index} className={styles.exerciseLine}>
+						<span className={styles.exerciseName}>{exercise.name}</span>
+						<span className={styles.exerciseRx}>{exercise.summary}</span>
+					</li>
+				))}
+			</ol>
+		);
 	return (
 		<ol className={styles.exerciseList}>
 			{day.exercises.map((exercise) => (
@@ -135,15 +149,16 @@ export default function Workouts() {
 	const [program, setProgram] = useState<Load<ProgramResponse>>({ status: "loading" });
 	const [history, setHistory] = useState<Load<SessionSummary[]>>({ status: "loading" });
 	const [starting, setStarting] = useState<string | null>(null);
+	const [weekKey, setWeekKey] = useState<string | null>(null);
 	const [startError, setStartError] = useState<string | null>(null);
 
 	const loadProgram = useCallback(() => {
 		setProgram((current) => (current.status === "ready" ? current : { status: "loading" }));
-		api.program().then(
+		api.program(weekKey ?? undefined).then(
 			(data) => setProgram({ status: "ready", data }),
 			(error: unknown) => setProgram({ status: "error", error: toError(error) }),
 		);
-	}, []);
+	}, [weekKey]);
 
 	const loadHistory = useCallback(() => {
 		api.sessions().then(
@@ -170,10 +185,10 @@ export default function Workouts() {
 	};
 
 	const start = async (day: ScheduleDay) => {
-		setStarting(`${day.weekId}/${day.dayId}`);
+		setStarting(`${day.blockId}/${day.weekId}/${day.dayId}`);
 		setStartError(null);
 		try {
-			const { session } = await api.start(day.weekId, day.dayId);
+			const { session } = await api.start(day.blockId, day.weekId, day.dayId);
 			open(session.id);
 		} catch (error) {
 			setStartError(toError(error).message);
@@ -184,8 +199,12 @@ export default function Workouts() {
 
 	if (sessionId !== null) return <SessionScreen id={sessionId} onClose={() => open(null)} />;
 
-	const schedule = program.status === "ready" ? program.data.schedule : null;
-	const next = schedule?.next ?? null;
+	const data = program.status === "ready" ? program.data : null;
+	const next = data?.next ?? null;
+	const weekIndex = data === null || data.week === null ? -1 : data.weeks.findIndex((week) => week.key === data.week?.key);
+	const previousWeek = data === null || weekIndex <= 0 ? null : (data.weeks[weekIndex - 1] ?? null);
+	const followingWeek = data === null || weekIndex === -1 ? null : (data.weeks[weekIndex + 1] ?? null);
+	const busyKey = (day: ScheduleDay) => `${day.blockId}/${day.weekId}/${day.dayId}`;
 
 	return (
 		<ToolLayout title="Workouts">
@@ -225,45 +244,71 @@ export default function Workouts() {
 					) : program.status === "error" ? (
 						<ReadError error={program.error} onRetry={loadProgram} />
 					) : tab === "today" ? (
-						next === null ? (
-							<p className={styles.empty}>Every day in {program.data.schedule.block.name} is logged. The next block appears here once it's in training-log.</p>
-						) : (
-							<>
-								{next.date > program.data.schedule.today ? <p className={styles.eyebrow}>Next up</p> : null}
-								<DayCard day={next} today={program.data.schedule.today} busy={starting === `${next.weekId}/${next.dayId}`} onStart={(day) => void start(day)} onOpen={open} />
-							</>
-						)
+						<>
+							{next === null ? (
+								<p className={styles.empty}>{program.data.weeks.length === 0 ? "No program yet. It appears here after training-log syncs." : "Every planned day is logged. The next week appears here once it's in training-log."}</p>
+							) : (
+								<>
+									{next.date > program.data.today ? <p className={styles.eyebrow}>Next up</p> : null}
+									<DayCard day={next} today={program.data.today} busy={starting === busyKey(next)} onStart={(day) => void start(day)} onOpen={open} />
+								</>
+							)}
+							<SyncLine sync={program.data.sync} />
+						</>
 					) : (
-						program.data.schedule.weeks.map((week) => (
-							<section key={week.weekId} className={styles.week}>
-								<h2 className={styles.weekTitle}>
-									{program.data.schedule.block.name} · {week.weekId.toUpperCase()}
-									{week.weekId === program.data.schedule.currentWeek ? <span className={styles.exerciseRx}> · this week</span> : null}
-								</h2>
-								{week.days.map((day) => (
-									<details key={day.dayId} className={cn(styles.weekDay)} open={day.weekId === next?.weekId && day.dayId === next.dayId}>
-										<summary className={styles.weekSummary}>
-											<span className={styles.historyMain}>
-												<span className={styles.exerciseName}>{day.title}</span>
-												<span className={styles.exerciseRx}>{formatDate(day.date)}</span>
-											</span>
-										</summary>
-										<div className={styles.weekBody}>
-											<ExerciseList day={day} />
-											{day.state === "logged" ? null : day.sessionId !== null ? (
-												<Button size="sm" onClick={() => day.sessionId !== null && open(day.sessionId)}>
-													{day.state === "open" ? "Continue logging" : "View session"}
-												</Button>
-											) : (
-												<Button size="sm" loading={starting === `${day.weekId}/${day.dayId}`} onClick={() => void start(day)}>
-													Start session
-												</Button>
-											)}
+						<>
+							{program.data.week === null ? (
+								<p className={styles.empty}>No program yet. It appears here after training-log syncs.</p>
+							) : (
+								<section className={styles.week}>
+									<div className={styles.weekNav}>
+										<Button variant="quiet" disabled={previousWeek === null} aria-label="Previous week" onClick={() => previousWeek !== null && setWeekKey(previousWeek.key)}>
+											<Icon name="back" />
+										</Button>
+										<div className={styles.weekHeading}>
+											<h2 className={styles.weekTitle}>
+												{program.data.week.blockName} · {program.data.week.weekId.toUpperCase()}
+											</h2>
+											<p className={styles.exerciseRx}>
+												{formatRange(program.data.week.start, program.data.week.end)}
+												{program.data.week.key === program.data.currentWeek ? " · this week" : null}
+											</p>
 										</div>
-									</details>
-								))}
-							</section>
-						))
+										<Button variant="quiet" disabled={followingWeek === null} aria-label="Next week" onClick={() => followingWeek !== null && setWeekKey(followingWeek.key)}>
+											<Icon name="chevron-right" />
+										</Button>
+									</div>
+									{program.data.week.key === program.data.currentWeek ? null : (
+										<Button size="sm" variant="quiet" className={styles.thisWeek} onClick={() => setWeekKey(program.data.currentWeek)}>
+											Back to this week
+										</Button>
+									)}
+									{program.data.week.days.map((day) => (
+										<details key={day.dayId} className={styles.weekDay} open={day.dayId === next?.dayId && day.weekId === next.weekId && day.blockId === next.blockId}>
+											<summary className={styles.weekSummary}>
+												<span className={styles.historyMain}>
+													<span className={styles.exerciseName}>{day.title}</span>
+													<span className={styles.exerciseRx}>{formatDate(day.date)}</span>
+												</span>
+											</summary>
+											<div className={styles.weekBody}>
+												<ExerciseList day={day} />
+												{day.state === "logged" ? null : day.sessionId !== null ? (
+													<Button size="sm" onClick={() => day.sessionId !== null && open(day.sessionId)}>
+														{day.state === "open" ? "Continue logging" : "View session"}
+													</Button>
+												) : (
+													<Button size="sm" loading={starting === busyKey(day)} onClick={() => void start(day)}>
+														Start session
+													</Button>
+												)}
+											</div>
+										</details>
+									))}
+								</section>
+							)}
+							<SyncLine sync={program.data.sync} />
+						</>
 					)}
 				</div>
 			</div>

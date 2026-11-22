@@ -5,10 +5,10 @@ import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
 import { parseSet } from "./api.ts";
-import { pickBlock, repoSessions } from "./github.ts";
 import { buildLog, checkLog, pacificMidnight } from "./log.ts";
 import { formatLoad, formatVolume, parseProgram, programDays, weekOf, type Program } from "./program.ts";
-import { buildSchedule, findDay } from "./schedule.ts";
+import { buildWeek, currentWeek, findDay as findIn, nextDay, trainingLogFrom, weekRefs } from "./schedule.ts";
+import { BLOB_BATCH, readMirror, readSyncState, syncTrainingLog, type Fetcher } from "./sync.ts";
 import { createSession, finishSession, getSession, putSet, requeue, sessionRow, updateExercise } from "./store.ts";
 import webhook from "./webhook.ts";
 
@@ -46,6 +46,14 @@ const BLOCK = {
 
 const program = parseProgram(BLOCK) as Program;
 
+function findDay(_program: Program, weekId: string, dayId: string) {
+	return programDays(program, weekId).find((day) => day.dayId === dayId) ?? null;
+}
+
+function session(path: string, extra: Record<string, unknown> = {}) {
+	return { path, content: { date: `${path.slice(9, 19)}T00:00:00-08:00`, exercises: [{ exercise: { name: "Bench Press" }, sets: [{ weight: 235, unit: "lb", reps: 6, rir: 2 }] }], ...extra } };
+}
+
 describe("program", () => {
 	test("finds the week for a date and lays days on the week pattern", () => {
 		expect(weekOf(program, "2026-11-22")).toBe("w4");
@@ -71,30 +79,41 @@ describe("program", () => {
 		expect(findDay(program, "w7", "day-1")?.exercises[2]?.sets).toBe(2);
 	});
 
-	test("reads logged days from repo file names inside the block", () => {
-		const names = ["2026-11-21-bc-w4-d4.json", "2026-11-21-bc-w4-d4.md", "2026-11-18-bc-w4-run.json", "2026-10-01-bb-w4-d1.json"];
-		expect(repoSessions(names, program)).toEqual([{ file: "2026-11-21-bc-w4-d4.json", date: "2026-11-21", weekId: "w4", dayId: "day-4" }]);
+	test("matches repo sessions by blockId, or by file name and date", () => {
+		const log = trainingLogFrom([{ path: "program/block-c.json", content: BLOCK }], [
+			session("sessions/2026-11-21-bc-w4-d4.json", { blockId: "build-block-c", weekId: "w4", dayId: "day-4" }),
+			session("sessions/2026-11-16-bc-w4-d1.json"),
+			session("sessions/2026-11-18-bc-w4-run.json"),
+			session("sessions/2026-10-01-bb-w4-d2.json"),
+		]);
+		const w4 = weekRefs(log.programs).find((week) => week.weekId === "w4");
+		if (w4 === undefined) throw new Error("missing w4");
+		const days = buildWeek(log, [], w4).days;
+		expect(days.map((day) => [day.dayId, day.state, day.repoFile])).toEqual([
+			["day-1", "logged", "sessions/2026-11-16-bc-w4-d1.json"],
+			["day-2", "todo", null],
+			["day-3", "todo", null],
+			["day-4", "logged", "sessions/2026-11-21-bc-w4-d4.json"],
+		]);
+		expect(days[3]?.logged).toEqual([{ name: "Bench Press", summary: "235 × 6 @2" }]);
 	});
 
-	test("picks the block that contains today", () => {
-		const older = parseProgram({ ...BLOCK, id: "b", starts: "2026-09-01", ends: "2026-10-25" }) as Program;
-		const blocks = new Map([
-			["block-c.json", program],
-			["block-b.json", older],
-		]);
-		expect(pickBlock(["block-c.json", "block-b.json"], "2026-11-22", blocks)?.id).toBe("build-block-c");
-		expect(pickBlock(["block-c.json", "block-b.json"], "2026-10-01", blocks)?.id).toBe("b");
+	test("lists every week across blocks and finds the current one", () => {
+		const older = { ...BLOCK, id: "build-block-b", name: "Block B", starts: "2026-09-14", ends: "2026-10-25", calendar: { ...BLOCK.calendar, weeks: { w1: "2026-09-14", w6: "2026-10-19" } } };
+		const weeks = weekRefs(trainingLogFrom([{ path: "program/block-b.json", content: older }, { path: "program/block-c.json", content: BLOCK }], []).programs);
+		expect(weeks.map((week) => week.key).slice(0, 3)).toEqual(["build-block-b/w1", "build-block-b/w6", "build-block-c/w1"]);
+		expect(weeks.at(-1)).toMatchObject({ key: "build-block-c/w7", start: "2026-12-07", end: "2026-12-13" });
+		expect(currentWeek(weeks, "2026-11-22")?.key).toBe("build-block-c/w4");
+		expect(currentWeek(weeks, "2026-10-20")?.key).toBe("build-block-b/w6");
 	});
 
 	test("today's session is the first day not logged in the repo or the app", () => {
-		const repo = repoSessions(["2026-11-16-bc-w4-d1.json", "2026-11-17-bc-w4-d2.json", "2026-11-19-bc-w4-d3.json", "2026-11-21-bc-w4-d4.json"], program);
-		const schedule = buildSchedule(program, repo, [], "2026-11-22");
-		expect(schedule.currentWeek).toBe("w4");
-		expect([schedule.next?.weekId, schedule.next?.dayId]).toEqual(["w5", "day-1"]);
+		const log = trainingLogFrom([{ path: "program/block-c.json", content: BLOCK }], ["d1", "d2", "d3", "d4"].map((day, index) => session(`sessions/2026-11-${16 + index}-bc-w4-${day}.json`)));
+		const weeks = weekRefs(log.programs);
+		expect(nextDay(log, [], weeks, "2026-11-22")).toMatchObject({ blockId: "build-block-c", weekId: "w5", dayId: "day-1" });
 		const app = [{ id: "s1", blockId: "build-block-c", weekId: "w5", dayId: "day-1", status: "finished" as const, test: false }];
-		expect(buildSchedule(program, repo, app, "2026-11-23").next?.dayId).toBe("day-2");
-		const test = [{ ...app[0], test: true } as (typeof app)[number]];
-		expect(buildSchedule(program, repo, test, "2026-11-23").next?.dayId).toBe("day-1");
+		expect(nextDay(log, app, weeks, "2026-11-23")?.dayId).toBe("day-2");
+		expect(nextDay(log, [{ ...app[0], test: true } as (typeof app)[number]], weeks, "2026-11-23")?.dayId).toBe("day-1");
 	});
 });
 
@@ -113,7 +132,7 @@ test("dates are midnight Pacific with the right offset", () => {
 });
 
 const pg = new PGlite();
-const migration = await readFile(join(import.meta.dirname, "migrations/0001-create-sessions.sql"), "utf-8");
+const migration = (await Promise.all(["0001-create-sessions.sql", "0002-create-repo-mirror.sql"].map((file) => readFile(join(import.meta.dirname, "migrations", file), "utf-8")))).join(";\n");
 await pg.exec(`create schema workouts; set search_path to workouts; ${migration}; set search_path to public;`);
 const client = { query: (text: string, values?: unknown[]) => pg.query(text, values).then((result) => ({ ...result, rowCount: result.affectedRows ?? result.rows.length })) } as unknown as Database;
 const db: WithDb = (work) => work(client);
@@ -196,5 +215,90 @@ describe("session lifecycle", () => {
 		expect(webhook.target({ COACH_WEBHOOK_URL: "https://x" } as Env)).toBeNull();
 		expect(webhook.target({ COACH_WEBHOOK_KEY: "k" } as Env)).toBeNull();
 		expect(webhook.target(env)).toEqual({ url: server.url.href, authorization: KEY, deliveryHeader: "X-Workouts-Delivery" });
+	});
+});
+
+describe("training-log sync", () => {
+	type Repo = { head: string; files: Record<string, { sha: string; content: string }> };
+	const repo: Repo = { head: "a".repeat(40), files: {} };
+	const calls: string[] = [];
+	const fetcher: Fetcher = async (url, init) => {
+		const path = url.replace("https://api.github.com/repos/mattppal/training-log", "");
+		const headers = new Headers(init.headers);
+		calls.push(path);
+		expect(headers.get("authorization")).toBe("Bearer test-token");
+		if (path === "/commits/main") {
+			const etag = `"${repo.head}"`;
+			if (headers.get("if-none-match") === etag) return new Response(null, { status: 304 });
+			return new Response(repo.head, { headers: { etag } });
+		}
+		if (path.startsWith("/git/trees/")) {
+			const tree = [
+				{ path: "program", type: "tree", sha: "t0" },
+				{ path: "README.md", type: "blob", sha: "r0" },
+				{ path: "sessions/2026-11-21-bc-w4-d4.md", type: "blob", sha: "m0" },
+				...Object.entries(repo.files).map(([file, blob]) => ({ path: file, type: "blob", sha: blob.sha })),
+			];
+			return Response.json({ sha: repo.head, tree, truncated: false });
+		}
+		const sha = path.replace("/git/blobs/", "");
+		const blob = Object.values(repo.files).find((file) => file.sha === sha);
+		return blob === undefined ? new Response(null, { status: 404 }) : Response.json({ sha, encoding: "base64", content: btoa(blob.content) });
+	};
+	const syncEnv = { TRAINING_LOG_TOKEN: "test-token" } as Env;
+
+	beforeEach(async () => {
+		calls.length = 0;
+		await pg.exec("delete from workouts.repo_files; update workouts.repo_sync set head_sha = null, head_etag = null, synced_at = null, checked_at = null, last_error = null;");
+		repo.head = "a".repeat(40);
+		repo.files = {
+			"program/block-c.json": { sha: "p1", content: JSON.stringify(BLOCK) },
+			"sessions/2026-11-21-bc-w4-d4.json": { sha: "s1", content: JSON.stringify({ date: "2026-11-21T00:00:00-08:00", blockId: "build-block-c", weekId: "w4", dayId: "day-4", exercises: [] }) },
+		};
+	});
+
+	test("mirrors program and session JSON, then costs one conditional request while HEAD is unchanged", async () => {
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "synced", headSha: repo.head, changed: 2, removed: 0 });
+		const mirror = await readMirror(client);
+		expect(mirror.programs.map((file) => file.path)).toEqual(["program/block-c.json"]);
+		expect(mirror.sessions.map((file) => file.path)).toEqual(["sessions/2026-11-21-bc-w4-d4.json"]);
+		expect((await readSyncState(client)).headSha).toBe(repo.head);
+
+		calls.length = 0;
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "unchanged", headSha: repo.head });
+		expect(calls).toEqual(["/commits/main"]);
+	});
+
+	test("fetches only blobs whose SHA changed and drops removed files", async () => {
+		await syncTrainingLog(client, syncEnv, { fetcher });
+		repo.head = "b".repeat(40);
+		repo.files["sessions/2026-11-21-bc-w4-d4.json"] = { sha: "s2", content: JSON.stringify({ date: "2026-11-21T00:00:00-08:00", exercises: [] }) };
+		repo.files["sessions/2026-11-23-bc-w5-d1.json"] = { sha: "s3", content: "{ not json" };
+		calls.length = 0;
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "synced", headSha: repo.head, changed: 2, removed: 0 });
+		expect(calls.filter((call) => call.startsWith("/git/blobs/")).toSorted()).toEqual(["/git/blobs/s2", "/git/blobs/s3"]);
+		const broken = await pg.query<{ parse_error: string | null }>("select parse_error from workouts.repo_files where path = 'sessions/2026-11-23-bc-w5-d1.json'");
+		expect(broken.rows[0]?.parse_error).not.toBeNull();
+
+		delete repo.files["sessions/2026-11-21-bc-w4-d4.json"];
+		repo.head = "c".repeat(40);
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "synced", headSha: repo.head, changed: 0, removed: 1 });
+		expect((await readMirror(client)).sessions).toEqual([]);
+	});
+
+	test("syncs a large tree over several runs and records HEAD only when complete", async () => {
+		for (let index = 0; index < BLOB_BATCH + 5; index++) repo.files[`sessions/2026-01-${String(index).padStart(2, "0")}-x.json`] = { sha: `x${index}`, content: "{}" };
+		const first = await syncTrainingLog(client, syncEnv, { fetcher });
+		expect(first).toMatchObject({ status: "partial", changed: BLOB_BATCH, remaining: 7 });
+		expect((await readSyncState(client)).headSha).toBeNull();
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "synced", headSha: repo.head, changed: 7, removed: 0 });
+		expect((await pg.query("select 1 from workouts.repo_files")).rows).toHaveLength(BLOB_BATCH + 7);
+	});
+
+	test("records a failure without touching the mirror", async () => {
+		await syncTrainingLog(client, syncEnv, { fetcher });
+		expect(await syncTrainingLog(client, {} as Env, { fetcher, force: true })).toEqual({ status: "failed", error: "TRAINING_LOG_TOKEN is not set" });
+		expect((await readSyncState(client)).lastError).toBe("TRAINING_LOG_TOKEN is not set");
+		expect((await readMirror(client)).programs).toHaveLength(1);
 	});
 });
