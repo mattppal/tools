@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WeightRow } from "./types.ts";
 import { inRange, presetRange, sortEntries, summarize, withChanges } from "./weights.ts";
 
-const row = (date: string, weight: number, rolling7d: number, source = "sheet"): WeightRow => ({ date, weight, rolling7d, rolling14d: rolling7d + 0.5, source });
+const row = (date: string, weight: number, rolling7d: number, source = "sheet"): WeightRow => ({ date, weight, rolling7d, rolling14d: rolling7d + 0.5, rolling28d: rolling7d + 1, source });
 
 const rows = [row("2026-01-01", 182, 182.4), row("2026-01-02", 181, 182), row("2026-01-08", 181.5, 181.2, "withings"), row("2026-01-15", 180, 180.6)];
 
@@ -28,6 +28,7 @@ describe("weights", () => {
 		expect(summary?.change).toBeCloseTo(-1.8);
 		expect(summary?.average).toBeCloseTo(181.125);
 		expect(summary?.weeklyRate).toBeCloseTo(-0.9);
+		expect(summarize(rows, "rolling28d")?.start).toBe(183.4);
 		expect(summarize([], "rolling7d")).toBeNull();
 	});
 

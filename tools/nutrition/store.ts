@@ -284,13 +284,14 @@ export async function getHistory(client: Database): Promise<HistoryDay[]> {
 
 export async function getWeights(client: Database): Promise<WeightRow[]> {
 	const { rows } = await client.query<Row>(
-		"select t.measured_on::text as date, t.weight_lb, t.rolling_7d, t.rolling_14d, d.source from nutrition.weight_trend t join nutrition.daily_weights d using (measured_on) order by t.measured_on",
+		"select t.measured_on::text as date, t.weight_lb, t.rolling_7d, t.rolling_14d, t.rolling_28d, d.source from nutrition.weight_trend t join nutrition.daily_weights d using (measured_on) order by t.measured_on",
 	);
 	return rows.map((row) => ({
 		date: String(row["date"]),
 		weight: num(row["weight_lb"]),
 		rolling7d: num(row["rolling_7d"]),
 		rolling14d: num(row["rolling_14d"]),
+		rolling28d: num(row["rolling_28d"]),
 		source: String(row["source"]),
 	}));
 }

@@ -18,7 +18,10 @@ const PRESETS: { id: Preset; label: string }[] = [
 const AVERAGES: { id: Average; label: string }[] = [
 	{ id: "rolling7d", label: "7-day" },
 	{ id: "rolling14d", label: "14-day" },
+	{ id: "rolling28d", label: "28-day" },
 ];
+
+const averageLabel = (average: Average) => AVERAGES.find((option) => option.id === average)?.label ?? "";
 
 const SOURCE_LABELS: Record<string, string> = { withings: "Withings", bot: "Bot", sheet: "Sheet", daily_file: "Daily file" };
 
@@ -103,7 +106,7 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 					width={width}
 					height={HEIGHT}
 					role="img"
-					aria-label={`Weight from ${longDate(first.date)} to ${longDate(last.date)}, latest ${average === "rolling7d" ? "7" : "14"}-day average ${tenths(last[average])} lb`}
+					aria-label={`Weight from ${longDate(first.date)} to ${longDate(last.date)}, latest ${averageLabel(average)} average ${tenths(last[average])} lb`}
 					onPointerDown={begin}
 					onPointerMove={move}
 					onPointerUp={finish}
@@ -169,7 +172,7 @@ function WeightTable({ rows, average, sort, onSort, page, onPage }: TableProps) 
 	const pages = Math.max(Math.ceil(rows.length / PAGE_SIZE), 1);
 	const current = Math.min(page, pages - 1);
 	const visible = sortEntries(rows, sort, average).slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
-	const averageLabel = average === "rolling7d" ? "7-day" : "14-day";
+	const label = averageLabel(average);
 	if (rows.length === 0) return null;
 	return (
 		<div className={styles.weightTable}>
@@ -179,7 +182,7 @@ function WeightTable({ rows, average, sort, onSort, page, onPage }: TableProps) 
 						{COLUMNS.map((column) => (
 							<th key={column.key} aria-sort={sort.key === column.key ? (sort.descending ? "descending" : "ascending") : undefined}>
 								<button type="button" className={styles.sortButton} onClick={() => onSort(column.key)}>
-									{column.key === "average" ? averageLabel : column.label}
+									{column.key === "average" ? label : column.label}
 									<span className={styles.sortMark} aria-hidden="true">
 										{sort.key === column.key ? (sort.descending ? "\u2193" : "\u2191") : ""}
 									</span>
@@ -193,7 +196,7 @@ function WeightTable({ rows, average, sort, onSort, page, onPage }: TableProps) 
 						<tr key={row.date}>
 							<td>{longDate(row.date)}</td>
 							<td className={styles.weightCell}>{tenths(row.weight)}</td>
-							<td data-label={averageLabel}>{tenths(row[average])}</td>
+							<td data-label={label}>{tenths(row[average])}</td>
 							<td data-label="Change">{row.change === null ? "" : signedTenths(row.change)}</td>
 						</tr>
 					))}

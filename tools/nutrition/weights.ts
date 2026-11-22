@@ -3,7 +3,7 @@ import type { WeightRow } from "./types.ts";
 
 export type Preset = "90d" | "1y" | "all";
 export type DateRange = { from: string; to: string };
-export type Average = "rolling7d" | "rolling14d";
+export type Average = "rolling7d" | "rolling14d" | "rolling28d";
 export type SortKey = "date" | "weight" | "average" | "change";
 export type Sort = { key: SortKey; descending: boolean };
 export type WeightEntry = WeightRow & { change: number | null };

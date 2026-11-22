@@ -13,7 +13,7 @@ Four views nest under Nutrition in the sidebar as sections (`VIEWS` in `ui.tsx`)
 
 - Today (`/nutrition`, `?date=YYYY-MM-DD` for another day). Four range bars for kcal, protein, fat, and carbs, each reading "N to go", "in range", or "+N over". Under them is the bot's check-in line, then the entries. A row opens the right panel to edit or delete it. Add food is one labeled button under the entries, pinned to the bottom of the screen while the list scrolls. It and each row open the same right panel, which holds only the entry form so it can move to another container. Saves show at once and roll back with an error in the panel if the request fails. Close day locks the entries and fires the webhook. Reopen unlocks them.
 - History (`/nutrition/history`). One row per day, newest first, with "Open" on days that aren't closed.
-- Weight (`/nutrition/weight`). One range drives everything on the page: 90 days, 1 year, all, a From and To date, or a mouse drag across the chart. Under the controls is a summary of the range: start and end average, change, mean weight, and weekly rate. The chart draws the 7-day or 14-day average in `--chart-accent` over muted weigh-ins, and either layer can be hidden. The table below lists date, weight, the chosen average, and the change from the previous weigh-in, 50 rows a page, sortable by any column. Under 640 px each row stacks onto two lines. A source filter appears only when the data has more than one source. The page loads every weigh-in once and filters in the browser.
+- Weight (`/nutrition/weight`). One range drives everything on the page: 90 days, 1 year, all, a From and To date, or a mouse drag across the chart. Under the controls is a summary of the range: start and end average, change, mean weight, and weekly rate. The chart draws the 7-day, 14-day, or 28-day average in `--chart-accent` over muted weigh-ins, and either layer can be hidden. The table below lists date, weight, the chosen average, and the change from the previous weigh-in, 50 rows a page, sortable by any column. Under 640 px each row stacks onto two lines. A source filter appears only when the data has more than one source. The page loads every weigh-in once and filters in the browser.
 - Phase (`/nutrition/phase`). The open phase's verdict and suggested kcal for next week, then the weekly rows.
 
 ## API
@@ -27,7 +27,7 @@ All routes are under `/api/tools/nutrition` and sit behind Cloudflare Access.
 | `POST /day/close` | Closes the day and queues the webhook. |
 | `POST /day/reopen` | Reopens the day. |
 | `GET /history` | The last 400 days with totals. |
-| `GET /weights` | Every weigh-in with its source and 7-day and 14-day averages, oldest first. |
+| `GET /weights` | Every weigh-in with its source and 7, 14, and 28 day averages, oldest first. |
 | `GET /phase` | The open phase, its tracker settings, and the weekly summary. |
 | `POST /mcp` | The bot's MCP server. |
 
