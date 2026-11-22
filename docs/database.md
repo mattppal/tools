@@ -63,7 +63,17 @@ tools/<slug>/migrations/0002-add-done.sql
 - `bun run migrate --dry-run` lists pending files without writing.
 - To remove a tool's data, run `drop schema <schema> cascade`.
 
-The runner uses `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB`, so by default it migrates the branch your local dev uses. To migrate production, pass a connection string for a role on `main` that inherits `postgres`:
+### Shared databases only get migrations from main
+
+`preview` and `main` are shared by every branch. Their migrations come only from `origin/main`, or from the PR head that `bun run land` is landing:
+
+- `bun run land <pr>` checks whether the PR adds or changes a migration file. If it does, land creates a 15-minute PlanetScale role on `preview` and then on `main` and runs `bun scripts/migrate.ts --ref <head>` on each. It deletes each role afterwards. Only then does it push. If a migration fails, main doesn't move. Land needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN` for such a PR.
+- When the target host is `*.psdb.cloud`, `bun run migrate` reads files from `origin/main` (after fetching it), not from your working tree. `--ref <ref>` picks another commit, which must contain `origin/main`. So a branch can't put its migrations on `preview` where every other branch would then trip over them.
+- Develop a new migration against a local Postgres (`docs/database.md` "Local development") or the PGlite tests. Apply it to `preview` by landing it.
+- The runner leaves migrations it doesn't know about alone and names them. They come from a land that stopped after migrating but before main moved, or from a branch migrated before this rule existed. A changed checksum still stops it.
+- `/api/health` compares the bundled migration files with each schema's `_migrations`. It answers 503 with `migrations.pending` or `migrations.changed` when the deployed code expects a migration the database doesn't have.
+
+To apply main's migrations by hand, pass a connection string for a role that inherits `postgres`:
 
 ```bash
 CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB="postgresql://...@us-west-3.pg.psdb.cloud:5432/postgres?sslmode=verify-full" bun run migrate

@@ -31,8 +31,13 @@ const TOOL_API_PATH = /^\/api\/tools\/([a-z0-9-]+)(\/.*)?$/;
 const MIGRATIONS = bundledMigrations(import.meta.glob<string>("../tools/*/migrations/*.sql", { query: "?raw", import: "default", eager: true }));
 
 export type HealthReport =
-	| { ok: boolean; db: { latencyMs: number; connectMs: number; queryMs: number }; migrations: MigrationDrift }
-	| { ok: false; db: { latencyMs: number; error: string } };
+	| { ok: true; db: { latencyMs: number; connectMs: number; queryMs: number }; migrations: MigrationDrift }
+	| { ok: false; db: { latencyMs: number; error: string }; migrations?: MigrationDrift };
+
+function driftError({ pending, changed }: MigrationDrift): string | null {
+	const problems = [...(pending.length > 0 ? [`not applied: ${pending.join(", ")}`] : []), ...(changed.length > 0 ? [`changed after applying: ${changed.join(", ")}`] : [])];
+	return problems.length === 0 ? null : `Migrations ${problems.join("; ")}`;
+}
 
 async function checkDb(withDb: WithDb): Promise<HealthReport> {
 	const started = Date.now();
@@ -43,11 +48,9 @@ async function checkDb(withDb: WithDb): Promise<HealthReport> {
 			const queriedAt = Date.now();
 			return [connectedAt, queriedAt, await checkMigrations(db, MIGRATIONS)];
 		});
-		return {
-			ok: migrations.pending.length === 0 && migrations.changed.length === 0,
-			db: { latencyMs: queried - started, connectMs: connected - started, queryMs: queried - connected },
-			migrations,
-		};
+		const drift = driftError(migrations);
+		if (drift !== null) return { ok: false, db: { latencyMs: queried - started, error: drift }, migrations };
+		return { ok: true, db: { latencyMs: queried - started, connectMs: connected - started, queryMs: queried - connected }, migrations };
 	} catch (error) {
 		return { ok: false, db: { latencyMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) } };
 	}

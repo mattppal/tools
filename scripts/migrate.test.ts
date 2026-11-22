@@ -36,7 +36,7 @@ test("a migration applied from another source is reported and left alone instead
 test("a file changed after it was applied stops the run", async () => {
 	const db = database();
 	await migrate(db, [one], false);
-	expect(migrate(db, [{ ...one, sql: `${one.sql}; select 1` }], false)).rejects.toThrow("Changed after they were applied: notes/0001-create-items.sql");
+	await expect(migrate(db, [{ ...one, sql: `${one.sql}; select 1` }], false)).rejects.toThrow("Changed after they were applied: notes/0001-create-items.sql");
 });
 
 test("drift names pending files, so a deploy ahead of its migrations shows up in /api/health", async () => {

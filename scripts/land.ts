@@ -1,4 +1,6 @@
 import { $ } from "bun";
+import { MIGRATION_PATH } from "../worker/migrations.ts";
+import { createRole, deleteRole, type Role, roleUrl } from "./planetscale.ts";
 
 type Check = { name?: string; context?: string; status?: string; conclusion?: string; state?: string };
 type PullRequest = { number: number; state: string; baseRefName: string; headRefName: string; headRefOid: string; statusCheckRollup: Check[] };
@@ -6,6 +8,7 @@ type PullRequest = { number: number; state: string; baseRefName: string; headRef
 const REQUIRED_CHECK = "checks";
 const PASSING = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const MERGE_WAIT_MS = 60_000;
+const ROLE_TTL_SECONDS = 15 * 60;
 
 function stop(message: string): never {
 	console.error(`land: ${message}`);
@@ -42,6 +45,22 @@ const fetchedHead = (await $`git rev-parse origin/${pr.headRefName}`.text()).tri
 if (fetchedHead !== pr.headRefOid) stop(`origin/${pr.headRefName} is ${fetchedHead}, but GitHub reports head ${pr.headRefOid}. Retry once GitHub catches up.`);
 const rebased = await $`git merge-base --is-ancestor origin/main ${pr.headRefOid}`.nothrow();
 if (rebased.exitCode !== 0) stop(`PR #${pr.number} does not contain origin/main. Rebase ${pr.headRefName} onto origin/main, push, and wait for CI.`);
+
+const migrations = (await $`git diff --name-only origin/main ${pr.headRefOid} -- tools`.text()).split("\n").filter((path) => MIGRATION_PATH.test(path));
+if (migrations.length > 0) {
+	console.log(`land: PR #${pr.number} changes ${migrations.join(", ")}. Migrating preview, then main, from ${pr.headRefOid.slice(0, 7)} before main moves.`);
+	for (const branch of ["preview", "main"] as const) {
+		let role: Role;
+		try {
+			role = await createRole(branch, `land-${pr.number}-${Date.now()}`, ROLE_TTL_SECONDS);
+		} catch (error) {
+			stop(`${error instanceof Error ? error.message : error} PR #${pr.number} changes migrations, which land applies to preview and main before pushing.`);
+		}
+		const run = await $`bun scripts/migrate.ts --ref ${pr.headRefOid}`.env({ ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB: roleUrl(role) }).nothrow();
+		await deleteRole(branch, role);
+		if (run.exitCode !== 0) stop(`migrating ${branch} failed, so main did not move. Fix the migration, push, and land again.`);
+	}
+}
 
 const push = await $`git push origin ${pr.headRefOid}:refs/heads/main`.nothrow();
 if (push.exitCode !== 0) stop(`pushing ${pr.headRefOid} to main failed. Main probably moved; rebase and retry.`);

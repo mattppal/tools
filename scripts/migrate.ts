@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Client } from "pg";
-import { checksum, MIGRATION_PATH, type MigrationFile, migrationDrift, readApplied, schemaOf } from "../worker/migrations.ts";
+import { checkMigrations, checksum, MIGRATION_PATH, type MigrationFile, schemaOf } from "../worker/migrations.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const CONNECTION_ENV = "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DB";
@@ -85,8 +85,7 @@ async function apply(client: Pick<Client, "query">, file: MigrationFile): Promis
 }
 
 export async function migrate(client: Pick<Client, "query">, files: readonly MigrationFile[], dryRun: boolean): Promise<void> {
-	const applied = new Map(await Promise.all([...new Set(files.map((file) => file.slug))].map(async (slug) => [slug, await readApplied(client, slug)] as const)));
-	const drift = await migrationDrift(files, applied);
+	const drift = await checkMigrations(client, files);
 	if (drift.changed.length > 0) throw new Error(`Changed after they were applied: ${drift.changed.join(", ")}. Add a new migration instead.`);
 	if (drift.unknown.length > 0) console.log(`Applied here but not in this source, so left alone: ${drift.unknown.join(", ")}. They came from a land that stopped before main moved, or from a branch before migrations came only from main.`);
 	if (drift.pending.length === 0) console.log("Up to date");

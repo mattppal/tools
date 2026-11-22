@@ -12,7 +12,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun install` | Install dependencies from `bun.lock`. |
 | `bun run dev` | Vite dev server with the Worker at http://127.0.0.1:5173. |
 | `bun run dev:db` | Point local dev at the PlanetScale `preview` branch. Writes `.env`. |
-| `bun run migrate` | Apply pending `tools/<slug>/migrations/*.sql` to the database in `.env`. Add `--dry-run` to list them. |
+| `bun run migrate` | Apply pending `tools/<slug>/migrations/*.sql` to the database in `.env`. Add `--dry-run` to list them. A PlanetScale host (`preview`, `main`) only gets files from `origin/main` or `--ref <ref>` containing it, never from your working tree. |
 | `bun run build` | Skill and style checks, then write `public/build.json` and build the Worker, client, and service worker into `dist/`. |
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
 | `bun run test` | `bun test` over `worker`, `tools`, `src`, and `scripts`. Vendored skills keep their own tests, which this skips. |
@@ -23,7 +23,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run verify:webhooks` | Model-check webhook delivery with TLC. Needs Java 11 or newer. `skills/tools-verify-webhooks/SKILL.md` explains the results. |
 | `bun run notify [<for>] <label> --subject <text>` | Send a coordinator notice to the tools liaison (for the liaison itself unless `<for>` names a bot or `all`), body from stdin or `--body-file`. `--list` shows recent liaison deliveries. See `tools/liaison/SKILL.md`. |
 | `bun run icons` | Regenerate the favicons and app icons in `public/` from `src/assets/logo.png`. |
-| `bun run land <pr>` | Merge a PR: fast-forward `main` to its head once it contains `main` and every check is green, then confirm GitHub shows it merged. |
+| `bun run land <pr>` | Merge a PR: fast-forward `main` to its head once it contains `main` and every check is green, then confirm GitHub shows it merged. When the PR changes a migration, land first applies the head's migrations to `preview` and then `main` with 15-minute PlanetScale roles, so it needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`. |
 | `bun run deploy` | Build and deploy to production. Workers Builds does this on push to `main`. |
 | `bun run preview` | Build and upload a preview with `wrangler preview`. |
 | `bunx wrangler types` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc`. |
@@ -46,7 +46,7 @@ The `env.DB` binding is Hyperdrive in front of the PlanetScale Postgres database
 
 For real data, run `bun run dev:db` once. It needs `PLANETSCALE_TOKEN_ID` and `PLANETSCALE_API_TOKEN`, creates a 7-day role on the `preview` branch, and writes the connection string to `.env` (gitignored). To use another database, copy `.env.example` to `.env` and edit it. Never point local dev at `main`.
 
-`GET /api/health` runs `select now()` through the binding and returns `latencyMs`, `connectMs`, and `queryMs`, or a 503 with the error.
+`GET /api/health` runs `select now()` through the binding and returns `latencyMs`, `connectMs`, `queryMs`, and `migrations` (`pending`, `changed`, `unknown` against the bundled files). It answers 503 with the error, or when a migration is pending or changed.
 
 `GET /api/debug` feeds the Debug section of `/settings`: the deployed version and its time from the `CF_VERSION_METADATA` binding, the Access email from `Cf-Access-Authenticated-User-Email`, and each tool's webhook backlog and `debug.ts` rows. `bun run build` writes the commit SHA and branch to `public/build.json` (gitignored). On Workers Builds they come from `WORKERS_CI_COMMIT_SHA` and `WORKERS_CI_BRANCH`, and locally from git.
 
