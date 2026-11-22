@@ -1,5 +1,5 @@
-import { z } from "zod";
 import type { Database } from "../../worker/db.ts";
+import { type HaeEvent, HaeScanner } from "./hae-scanner.ts";
 
 type Item = Record<string, unknown>;
 
@@ -8,23 +8,34 @@ export type SleepStage = (typeof SLEEP_STAGES)[keyof typeof SLEEP_STAGES];
 
 const UNKNOWN_SOURCE = "Apple Health";
 const WITHINGS_SOURCE = /withings|health ?mate/i;
-const CHUNK = 1000;
+const CHUNK = 2000;
+export const MAX_BODY_BYTES = 95 * 1024 * 1024;
+const MAX_PENDING_CHARS = 8_000_000;
+const DAY_METRICS = new Set(["step_count", "walking_running_distance", "active_energy", "basal_energy_burned"]);
+const BASE_KEYS = new Set(["date", "start", "end", "startDate", "endDate", "qty", "Min", "Avg", "Max", "source"]);
+export const TOO_LARGE = "This request is too large for one Worker call. Turn on Batch Requests in Health Auto Export, or upload a shorter date range.";
+const SUMMARIZED_SLEEP = "Sleep arrived summarized, so the Sleep page has no stages for it. Turn Summarize Data off in the Health Metrics automation.";
 const DATE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)? ?([+-])(\d{2}):?(\d{2})$/;
 const METRES: Record<string, number> = { m: 1, km: 1000, mi: 1609.344, yd: 0.9144, ft: 0.3048 };
 const KCAL: Record<string, number> = { kcal: 1, Cal: 1, kJ: 0.239006 };
 const BPM: Record<string, number> = { "count/min": 1, bpm: 1 };
 
-const PAYLOAD = z.object({
-	data: z.object({
-		metrics: z.array(z.object({ name: z.string(), units: z.string().optional(), data: z.array(z.record(z.string(), z.unknown())) })).default([]),
-		workouts: z.array(z.record(z.string(), z.unknown())).default([]),
-	}),
-});
-
 export type Instant = { iso: string; ms: number; offsetMin: number; localDate: string };
 
 type SleepRow = { source: string; stage: SleepStage; started: string; ended: string; offset_min: number };
-type SampleRow = { metric: string; source: string; measured: string; offset_min: number; units: string | null; qty: number | null; min: number | null; avg: number | null; max: number | null };
+type SampleRow = {
+	metric: string;
+	source: string;
+	measured: string;
+	ended: string | null;
+	offset_min: number;
+	units: string | null;
+	qty: number | null;
+	min: number | null;
+	avg: number | null;
+	max: number | null;
+	extra: Item | null;
+};
 type WorkoutRow = {
 	id: string;
 	name: string;
@@ -44,10 +55,10 @@ type WorkoutRow = {
 	data: Item;
 };
 
+type Tally = { sleep: number; samples: number; workouts: number };
 export type Skipped = { withings: number; invalid: number };
-export type Parsed = { sleep: SleepRow[]; samples: SampleRow[]; workouts: WorkoutRow[]; skipped: Skipped };
-export type ParseResult = { ok: true; parsed: Parsed } | { ok: false; error: string };
-export type IngestCounts = { received: { sleep: number; samples: number; workouts: number }; changed: { sleep: number; samples: number; workouts: number }; skipped: Skipped };
+export type IngestCounts = { received: Tally; changed: Tally; skipped: Skipped; metrics?: string[]; days?: number; warnings?: string[] };
+export type IngestResult = { ok: true; counts: IngestCounts } | { ok: false; status: 413 | 422; error: string };
 
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const text = (value: unknown): string | null => (typeof value === "string" && value.trim() !== "" ? value.trim() : null);
@@ -104,116 +115,275 @@ function parseWorkout(item: Item, source: string): WorkoutRow | null {
 	};
 }
 
-export function parsePayload(body: unknown): ParseResult {
-	const payload = PAYLOAD.safeParse(body);
-	if (!payload.success) return { ok: false, error: 'Expected Health Auto Export JSON, version 2: {"data":{"metrics":[...],"workouts":[...]}}' };
-	const sleep = new Map<string, SleepRow>();
-	const samples = new Map<string, SampleRow>();
-	const workouts = new Map<string, WorkoutRow>();
-	const skipped: Skipped = { withings: 0, invalid: 0 };
-	for (const metric of payload.data.data.metrics) {
-		for (const item of metric.data) {
-			const source = text(item["source"]) ?? UNKNOWN_SOURCE;
-			if (metric.name === "sleep_analysis") {
-				if (item["value"] === undefined && (item["totalSleep"] !== undefined || item["sleepStart"] !== undefined)) {
-					return { ok: false, error: "sleep_analysis arrived summarized. Turn Summarize Data off in the Health Auto Export automation so sleep arrives as stage segments." };
-				}
-				if (WITHINGS_SOURCE.test(source)) {
-					skipped.withings++;
-					continue;
-				}
-				const stage = SLEEP_STAGES[String(item["value"]) as keyof typeof SLEEP_STAGES];
-				const start = parseDate(item["startDate"] ?? item["start"] ?? item["date"]);
-				const end = parseDate(item["endDate"] ?? item["end"]);
-				if (stage === undefined || start === null || end === null || end.ms < start.ms) {
-					skipped.invalid++;
-					continue;
-				}
-				sleep.set(`${source}/${start.ms}/${stage}`, { source, stage, started: start.iso, ended: end.iso, offset_min: end.offsetMin });
-				continue;
-			}
-			if (WITHINGS_SOURCE.test(source)) {
-				skipped.withings++;
-				continue;
-			}
-			const at = parseDate(item["date"] ?? item["start"] ?? item["startDate"]);
-			const row = { qty: num(item["qty"]), min: num(item["Min"]), avg: num(item["Avg"]), max: num(item["Max"]) };
-			if (at === null || Object.values(row).every((value) => value === null)) {
-				skipped.invalid++;
-				continue;
-			}
-			samples.set(`${metric.name}/${source}/${at.ms}`, { metric: metric.name, source, measured: at.iso, offset_min: at.offsetMin, units: text(metric.units), ...row });
+function sampleRow(metric: string, units: string | null, source: string, item: Item): SampleRow | null {
+	const at = parseDate(item["date"] ?? item["start"] ?? item["startDate"]);
+	if (at === null) return null;
+	const end = parseDate(item["end"] ?? item["endDate"]);
+	const extras = Object.entries(item).filter(([key]) => !BASE_KEYS.has(key));
+	const row = { qty: num(item["qty"]), min: num(item["Min"]), avg: num(item["Avg"]), max: num(item["Max"]) };
+	if (extras.length === 0 && Object.values(row).every((value) => value === null)) return null;
+	return {
+		metric,
+		source,
+		measured: at.iso,
+		ended: end === null || end.ms === at.ms ? null : end.iso,
+		offset_min: at.offsetMin,
+		units,
+		...row,
+		extra: extras.length === 0 ? null : Object.fromEntries(extras),
+	};
+}
+
+type Metric = { name: string | null; units: string | null; ended: boolean; pending: string[] };
+
+const SLEEP_SQL = `insert into activity.apple_health_sleep (source, stage, started_at, ended_at, utc_offset_min)
+	select r.source, r.stage, r.started::timestamptz, r.ended::timestamptz, r.offset_min
+	from jsonb_to_recordset($1::jsonb) as r (source text, stage text, started text, ended text, offset_min integer)
+	on conflict (source, started_at, stage) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, updated_at = now()
+	where (activity.apple_health_sleep.ended_at, activity.apple_health_sleep.utc_offset_min) is distinct from (excluded.ended_at, excluded.utc_offset_min)`;
+
+const SAMPLES_SQL = `insert into activity.apple_health_samples (metric, source, measured_at, ended_at, utc_offset_min, units, qty, min, avg, max, extra)
+	select r.metric, r.source, r.measured::timestamptz, r.ended::timestamptz, r.offset_min, r.units, r.qty, r.min, r.avg, r.max, r.extra
+	from jsonb_to_recordset($1::jsonb) as r (metric text, source text, measured text, ended text, offset_min integer, units text, qty numeric, min numeric,
+		avg numeric, max numeric, extra jsonb)
+	on conflict (metric, source, measured_at) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, units = excluded.units,
+		qty = excluded.qty, min = excluded.min, avg = excluded.avg, max = excluded.max, extra = excluded.extra, updated_at = now()
+	where (activity.apple_health_samples.ended_at, activity.apple_health_samples.utc_offset_min, activity.apple_health_samples.units, activity.apple_health_samples.qty,
+		activity.apple_health_samples.min, activity.apple_health_samples.avg, activity.apple_health_samples.max, activity.apple_health_samples.extra)
+		is distinct from (excluded.ended_at, excluded.utc_offset_min, excluded.units, excluded.qty, excluded.min, excluded.avg, excluded.max, excluded.extra)`;
+
+const WORKOUTS_SQL = `insert into activity.apple_health_workouts (id, name, source, local_date, started_at, ended_at, duration_s, active_kcal, total_kcal, distance_m, elevation_m,
+		hr_avg, hr_min, hr_max, location, data)
+	select r.id, r.name, r.source, r.local_date, r.started::timestamptz, r.ended::timestamptz, r.duration_s, r.active_kcal, r.total_kcal, r.distance_m, r.elevation_m,
+		r.hr_avg, r.hr_min, r.hr_max, r.location, r.data
+	from jsonb_to_recordset($1::jsonb) as r (id text, name text, source text, local_date date, started text, ended text, duration_s integer, active_kcal numeric,
+		total_kcal numeric, distance_m numeric, elevation_m numeric, hr_avg integer, hr_min integer, hr_max integer, location text, data jsonb)
+	on conflict (id) do update set name = excluded.name, source = excluded.source, local_date = excluded.local_date, started_at = excluded.started_at,
+		ended_at = excluded.ended_at, duration_s = excluded.duration_s, active_kcal = excluded.active_kcal, total_kcal = excluded.total_kcal,
+		distance_m = excluded.distance_m, elevation_m = excluded.elevation_m, hr_avg = excluded.hr_avg, hr_min = excluded.hr_min, hr_max = excluded.hr_max,
+		location = excluded.location, data = excluded.data, updated_at = now()
+	where activity.apple_health_workouts.data is distinct from excluded.data`;
+
+const DAYS_SQL = `with picked as (
+		select value::date as day from unnest($1::text[]) as value
+	), per_source as (
+		select (s.measured_at at time zone 'UTC' + make_interval(mins => s.utc_offset_min))::date as day, s.metric, s.source,
+			sum(s.qty * case s.units when 'km' then 1000 when 'mi' then 1609.344 when 'kJ' then 0.239006 else 1 end) as total
+		from activity.apple_health_samples s
+		where s.metric in ('step_count', 'walking_running_distance', 'active_energy', 'basal_energy_burned')
+			and s.measured_at >= (select min(day) from picked) - interval '2 days' and s.measured_at < (select max(day) from picked) + interval '2 days'
+		group by 1, 2, 3
+	), steps as (
+		select distinct on (p.day) p.day, p.source, p.total from per_source p join picked using (day) where p.metric = 'step_count' and p.total > 0
+		order by p.day, p.total desc, p.source
+	), energy as (
+		select distinct on (a.day) a.day, a.total as active, b.total as basal
+		from per_source a left join per_source b on b.day = a.day and b.source = a.source and b.metric = 'basal_energy_burned'
+		where a.metric = 'active_energy' order by a.day, a.total desc, a.source
+	)
+	insert into activity.days (day, source, steps, active_kcal, total_kcal, distance_m, device, raw, updated_by)
+	select st.day, 'apple_health', round(st.total)::integer, round(e.active, 1), round(e.active + e.basal, 1),
+		(select round(d.total, 1) from per_source d where d.day = st.day and d.metric = 'walking_running_distance' and d.source = st.source),
+		st.source,
+		jsonb_build_object('steps', (select jsonb_object_agg(x.source, round(x.total)) from per_source x where x.day = st.day and x.metric = 'step_count')),
+		'apple-health'
+	from steps st left join energy e using (day)
+	on conflict (day, source) do update set steps = excluded.steps, active_kcal = excluded.active_kcal, total_kcal = excluded.total_kcal, distance_m = excluded.distance_m,
+		device = excluded.device, raw = excluded.raw, updated_by = excluded.updated_by, updated_at = now()
+	where (activity.days.steps, activity.days.active_kcal, activity.days.total_kcal, activity.days.distance_m, activity.days.device, activity.days.raw)
+		is distinct from (excluded.steps, excluded.active_kcal, excluded.total_kcal, excluded.distance_m, excluded.device, excluded.raw)`;
+
+class TooLarge extends Error {}
+
+const pendingChars = (metric: Metric): number => metric.pending.reduce((total, raw) => total + raw.length, 0);
+
+class Ingest {
+	private metrics = new Map<number, Metric>();
+	private sleep = new Map<string, SleepRow>();
+	private samples = new Map<string, SampleRow>();
+	private workouts = new Map<string, WorkoutRow>();
+	private pending = 0;
+	private names = new Set<string>();
+	private dates = new Set<string>();
+	private warnings = new Set<string>();
+	readonly received: Tally = { sleep: 0, samples: 0, workouts: 0 };
+	readonly changed: Tally = { sleep: 0, samples: 0, workouts: 0 };
+	readonly skipped: Skipped = { withings: 0, invalid: 0 };
+
+	constructor(private client: Database) {}
+
+	async take(events: HaeEvent[]): Promise<void> {
+		for (const event of events) {
+			if (event.type === "workout") this.workout(event.item);
+			else await this.metricEvent(event);
+			await this.flushWhenFull();
 		}
 	}
-	for (const item of payload.data.data.workouts) {
+
+	private async flushWhenFull(): Promise<void> {
+		if (this.sleep.size + this.samples.size + this.workouts.size >= CHUNK) await this.flush();
+	}
+
+	private async metricEvent(event: Exclude<HaeEvent, { type: "workout" }>): Promise<void> {
+		const metric = this.metrics.get(event.metric) ?? { name: null, units: null, ended: false, pending: [] };
+		this.metrics.set(event.metric, metric);
+		switch (event.type) {
+			case "sample":
+				metric.pending.push(event.raw);
+				this.pending += event.raw.length;
+				break;
+			case "field":
+				metric[event.key] = event.value;
+				break;
+			case "metricEnd":
+				metric.ended = true;
+				break;
+			default: {
+				const unhandled: never = event;
+				throw new Error(`Unknown event ${String(unhandled)}`);
+			}
+		}
+		if (metric.name !== null && (metric.units !== null || metric.ended)) await this.drain(metric, metric.name);
+		else if (metric.ended) {
+			this.skipped.invalid += metric.pending.length;
+			this.pending -= pendingChars(metric);
+			metric.pending = [];
+		}
+		if (this.pending > MAX_PENDING_CHARS) throw new TooLarge(TOO_LARGE);
+	}
+
+	private async drain(metric: Metric, name: string): Promise<void> {
+		this.names.add(name);
+		for (const raw of metric.pending) {
+			const item: unknown = JSON.parse(raw);
+			if (typeof item === "object" && item !== null && !Array.isArray(item)) this.item(name, metric.units, item as Item);
+			else this.skipped.invalid++;
+			await this.flushWhenFull();
+		}
+		this.pending -= pendingChars(metric);
+		metric.pending = [];
+	}
+
+	private item(name: string, units: string | null, item: Item): void {
+		const source = text(item["source"]) ?? UNKNOWN_SOURCE;
+		if (WITHINGS_SOURCE.test(source)) {
+			this.skipped.withings++;
+			return;
+		}
+		if (name === "sleep_analysis" && item["value"] !== undefined) {
+			const stage = SLEEP_STAGES[String(item["value"]) as keyof typeof SLEEP_STAGES];
+			const start = parseDate(item["startDate"] ?? item["start"] ?? item["date"]);
+			const end = parseDate(item["endDate"] ?? item["end"]);
+			if (stage === undefined || start === null || end === null || end.ms < start.ms) {
+				this.skipped.invalid++;
+				return;
+			}
+			this.received.sleep++;
+			this.sleep.set(`${source}/${start.ms}/${stage}`, { source, stage, started: start.iso, ended: end.iso, offset_min: end.offsetMin });
+			return;
+		}
+		if (name === "sleep_analysis") this.warnings.add(SUMMARIZED_SLEEP);
+		const row = sampleRow(name, units, source, item);
+		if (row === null) {
+			this.skipped.invalid++;
+			return;
+		}
+		this.received.samples++;
+		if (DAY_METRICS.has(name)) this.dates.add(row.measured.slice(0, 10));
+		this.samples.set(`${name}/${source}/${row.measured}`, row);
+	}
+
+	private workout(item: Item): void {
 		const source = workoutSource(item);
 		if (WITHINGS_SOURCE.test(`${source.name} ${source.identifier ?? ""}`)) {
-			skipped.withings++;
-			continue;
+			this.skipped.withings++;
+			return;
 		}
 		const workout = parseWorkout(item, source.name);
-		if (workout === null) skipped.invalid++;
-		else workouts.set(workout.id, workout);
+		if (workout === null) {
+			this.skipped.invalid++;
+			return;
+		}
+		this.received.workouts++;
+		this.workouts.set(workout.id, workout);
 	}
-	return { ok: true, parsed: { sleep: [...sleep.values()], samples: [...samples.values()], workouts: [...workouts.values()], skipped } };
+
+	async flush(): Promise<void> {
+		this.changed.sleep += await this.write(SLEEP_SQL, this.sleep);
+		this.changed.samples += await this.write(SAMPLES_SQL, this.samples);
+		this.changed.workouts += await this.write(WORKOUTS_SQL, this.workouts);
+	}
+
+	private async write(sql: string, rows: Map<string, object>): Promise<number> {
+		if (rows.size === 0) return 0;
+		const { rowCount } = await this.client.query(sql, [JSON.stringify([...rows.values()])]);
+		rows.clear();
+		return rowCount ?? 0;
+	}
+
+	async finish(): Promise<IngestCounts> {
+		for (const metric of this.metrics.values()) {
+			if (metric.name !== null) await this.drain(metric, metric.name);
+			else this.skipped.invalid += metric.pending.length;
+		}
+		this.metrics.clear();
+		await this.flush();
+		if (this.dates.size > 0) await this.client.query(DAYS_SQL, [[...this.dates].toSorted()]);
+		return this.counts();
+	}
+
+	counts(error?: string): IngestCounts {
+		return {
+			received: this.received,
+			changed: this.changed,
+			skipped: this.skipped,
+			metrics: [...this.names].toSorted(),
+			days: this.dates.size,
+			warnings: error === undefined ? [...this.warnings] : [error, ...this.warnings],
+		};
+	}
 }
 
-async function upsert(client: Database, sql: string, rows: readonly object[]): Promise<number> {
-	let changed = 0;
-	for (let index = 0; index < rows.length; index += CHUNK) {
-		const { rowCount } = await client.query(sql, [JSON.stringify(rows.slice(index, index + CHUNK))]);
-		changed += rowCount ?? 0;
-	}
-	return changed;
-}
-
-export async function saveAppleHealth(client: Database, parsed: Parsed, push: { automation: string; sessionId: string | null }): Promise<IngestCounts> {
-	const sleep = await upsert(
-		client,
-		`insert into activity.apple_health_sleep (source, stage, started_at, ended_at, utc_offset_min)
-		select r.source, r.stage, r.started::timestamptz, r.ended::timestamptz, r.offset_min
-		from jsonb_to_recordset($1::jsonb) as r (source text, stage text, started text, ended text, offset_min integer)
-		on conflict (source, started_at, stage) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, updated_at = now()
-		where (activity.apple_health_sleep.ended_at, activity.apple_health_sleep.utc_offset_min) is distinct from (excluded.ended_at, excluded.utc_offset_min)`,
-		parsed.sleep,
-	);
-	const samples = await upsert(
-		client,
-		`insert into activity.apple_health_samples (metric, source, measured_at, utc_offset_min, units, qty, min, avg, max)
-		select r.metric, r.source, r.measured::timestamptz, r.offset_min, r.units, r.qty, r.min, r.avg, r.max
-		from jsonb_to_recordset($1::jsonb) as r (metric text, source text, measured text, offset_min integer, units text, qty numeric, min numeric, avg numeric, max numeric)
-		on conflict (metric, source, measured_at) do update set utc_offset_min = excluded.utc_offset_min, units = excluded.units, qty = excluded.qty, min = excluded.min,
-			avg = excluded.avg, max = excluded.max, updated_at = now()
-		where (activity.apple_health_samples.utc_offset_min, activity.apple_health_samples.units, activity.apple_health_samples.qty, activity.apple_health_samples.min,
-			activity.apple_health_samples.avg, activity.apple_health_samples.max) is distinct from (excluded.utc_offset_min, excluded.units, excluded.qty, excluded.min, excluded.avg, excluded.max)`,
-		parsed.samples,
-	);
-	const workouts = await upsert(
-		client,
-		`insert into activity.apple_health_workouts (id, name, source, local_date, started_at, ended_at, duration_s, active_kcal, total_kcal, distance_m, elevation_m,
-			hr_avg, hr_min, hr_max, location, data)
-		select r.id, r.name, r.source, r.local_date, r.started::timestamptz, r.ended::timestamptz, r.duration_s, r.active_kcal, r.total_kcal, r.distance_m, r.elevation_m,
-			r.hr_avg, r.hr_min, r.hr_max, r.location, r.data
-		from jsonb_to_recordset($1::jsonb) as r (id text, name text, source text, local_date date, started text, ended text, duration_s integer, active_kcal numeric,
-			total_kcal numeric, distance_m numeric, elevation_m numeric, hr_avg integer, hr_min integer, hr_max integer, location text, data jsonb)
-		on conflict (id) do update set name = excluded.name, source = excluded.source, local_date = excluded.local_date, started_at = excluded.started_at,
-			ended_at = excluded.ended_at, duration_s = excluded.duration_s, active_kcal = excluded.active_kcal, total_kcal = excluded.total_kcal,
-			distance_m = excluded.distance_m, elevation_m = excluded.elevation_m, hr_avg = excluded.hr_avg, hr_min = excluded.hr_min, hr_max = excluded.hr_max,
-			location = excluded.location, data = excluded.data, updated_at = now()
-		where activity.apple_health_workouts.data is distinct from excluded.data`,
-		parsed.workouts,
-	);
-	const counts: IngestCounts = {
-		received: { sleep: parsed.sleep.length, samples: parsed.samples.length, workouts: parsed.workouts.length },
-		changed: { sleep, samples, workouts },
-		skipped: parsed.skipped,
-	};
+async function recordPush(client: Database, push: { automation: string; sessionId: string | null }, counts: IngestCounts): Promise<void> {
 	await client.query(
 		`insert into activity.apple_health_pushes (automation, session_id, counts) values ($1, $2, $3)
 		on conflict (automation) do update set received_at = now(), session_id = excluded.session_id, counts = excluded.counts`,
 		[push.automation, push.sessionId, JSON.stringify(counts)],
 	);
-	return counts;
+}
+
+export async function ingestAppleHealth(
+	client: Database,
+	body: ReadableStream<Uint8Array>,
+	push: { automation: string; sessionId: string | null },
+): Promise<IngestResult> {
+	const scanner = new HaeScanner();
+	const ingest = new Ingest(client);
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	try {
+		for await (const chunk of body) {
+			bytes += chunk.byteLength;
+			if (bytes > MAX_BODY_BYTES) throw new TooLarge(TOO_LARGE);
+			await ingest.take(scanner.push(decoder.decode(chunk, { stream: true })));
+		}
+		await ingest.take(scanner.push(decoder.decode()));
+	} catch (error) {
+		if (!(error instanceof TooLarge) && !(error instanceof SyntaxError)) throw error;
+		await ingest.flush();
+		const message = error instanceof TooLarge ? error.message : `The body isn't valid JSON: ${error.message}`;
+		await recordPush(client, push, ingest.counts(message));
+		return { ok: false, status: error instanceof TooLarge ? 413 : 422, error: message };
+	}
+	const invalid = scanner.end();
+	if (invalid !== null) {
+		await ingest.flush();
+		await recordPush(client, push, ingest.counts(invalid));
+		return { ok: false, status: 422, error: invalid };
+	}
+	const counts = await ingest.finish();
+	await recordPush(client, push, counts);
+	return { ok: true, counts };
 }
 
 export type AppleWorkout = {

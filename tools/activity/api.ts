@@ -1,6 +1,6 @@
 import { requireBot } from "../../worker/bot-auth.ts";
 import { defineToolApi } from "../../worker/tool-api.ts";
-import { listAppleWorkouts, parsePayload, saveAppleHealth } from "./apple-health.ts";
+import { ingestAppleHealth, listAppleWorkouts, MAX_BODY_BYTES, TOO_LARGE } from "./apple-health.ts";
 import { addDays, isIsoDate, today } from "./dates.ts";
 import { dailyHealth, intradayDay, listMeasures, listSleep, listWorkouts, resetStreams } from "./health.ts";
 import { listNights } from "./nights.ts";
@@ -111,11 +111,12 @@ export function activityApi(fetcher: Fetch = fetch) {
 		if (path === "/apple-health" && request.method === "POST") {
 			const bot = await requireBot(request, context, "activity");
 			if (bot instanceof Response) return bot;
-			const body = await request.json().catch(() => null);
-			const result = parsePayload(body);
-			if (!result.ok) return Response.json({ error: result.error }, { status: 422, headers: NO_STORE });
+			if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return Response.json({ error: TOO_LARGE }, { status: 413, headers: NO_STORE });
+			const body = request.body;
+			if (body === null) return Response.json({ error: "Empty body" }, { status: 422, headers: NO_STORE });
 			const push = { automation: request.headers.get("automation-name") ?? "Health Auto Export", sessionId: request.headers.get("session-id") };
-			return Response.json(await db((client) => saveAppleHealth(client, result.parsed, push)), { headers: NO_STORE });
+			const result = await db((client) => ingestAppleHealth(client, body, push));
+			return result.ok ? Response.json(result.counts, { headers: NO_STORE }) : Response.json({ error: result.error }, { status: result.status, headers: NO_STORE });
 		}
 		if (path === "/nights" && request.method === "GET") {
 			const to = url.searchParams.get("to") ?? today();
