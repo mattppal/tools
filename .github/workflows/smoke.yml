@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: smoke-${{ inputs.target || 'production' }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   smoke:
