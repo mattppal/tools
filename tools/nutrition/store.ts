@@ -3,7 +3,7 @@ import { addDays, today } from "./dates.ts";
 import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
 import { parseSource } from "./sources.ts";
-import { type DayView, type FoodEntry, type HistoryDay, macroProgress, type SourceKind, type Targets, type Totals, type WeightRow } from "./types.ts";
+import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type Targets, type Totals, type WeightRow } from "./types.ts";
 
 export class Rejected extends Error {}
 
@@ -262,24 +262,36 @@ export async function getPhase(client: Database, date = today()): Promise<PhaseV
 	const weights: WeightPoint[] = (
 		await client.query<Row>("select measured_on::text as date, rolling_7d, rolling_14d from nutrition.weight_trend where measured_on >= $1 order by measured_on", [addDays(since, -28)])
 	).rows.map((weight) => ({ date: String(weight["date"]), rolling7d: num(weight["rolling_7d"]), rolling14d: num(weight["rolling_14d"]) }));
-	const days: LoggedDay[] = (await client.query<Row>("select day::text as date, kcal from nutrition.day_totals where closed and kcal > 0 and day >= $1", [since])).rows.map((day) => ({
-		date: String(day["date"]),
-		kcal: num(day["kcal"]),
-	}));
+	const days: LoggedDay[] = (
+		await client.query<Row>(`select t.day::text as date, t.entries, t.kcal, ${DAY_KCAL_TARGET} as kcal_target from nutrition.day_totals t where t.closed and t.kcal > 0 and t.day >= $1`, [since])
+	).rows
+		.filter((day) => !isPartialDay({ closed: true, entries: num(day["entries"]), kcal: num(day["kcal"]), kcalTarget: numOrNull(day["kcal_target"]) }))
+		.map((day) => ({ date: String(day["date"]), kcal: num(day["kcal"]) }));
 	return { kind: settings.kind, startDate: settings.startDate, settings, summary: phaseSummary(settings, weights, days, date) };
 }
 
+const DAY_KCAL_TARGET = `coalesce(
+	(select (v.kcal_min + v.kcal_max) / 2.0 from nutrition.plan_versions v where v.effective_from <= t.day order by v.effective_from desc limit 1),
+	(select k.current_kcal_target from nutrition.phases p join nutrition.phase_trackers k on k.phase_id = p.id where p.start_date <= t.day and (p.end_date is null or p.end_date >= t.day))
+)`;
+
 export async function getHistory(client: Database): Promise<HistoryDay[]> {
-	const { rows } = await client.query<Row>("select day::text as date, closed, entries, kcal, protein_g, carbs_g, fat_g from nutrition.day_totals order by day desc limit 400");
-	return rows.map((row) => ({
-		date: String(row["date"]),
-		closed: row["closed"] === true,
-		entries: num(row["entries"]),
-		kcal: num(row["kcal"]),
-		protein_g: num(row["protein_g"]),
-		carbs_g: num(row["carbs_g"]),
-		fat_g: num(row["fat_g"]),
-	}));
+	const { rows } = await client.query<Row>(
+		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target from nutrition.day_totals t order by t.day desc limit 400`,
+	);
+	return rows.map((row) => {
+		const day = {
+			date: String(row["date"]),
+			closed: row["closed"] === true,
+			entries: num(row["entries"]),
+			kcal: num(row["kcal"]),
+			protein_g: num(row["protein_g"]),
+			carbs_g: num(row["carbs_g"]),
+			fat_g: num(row["fat_g"]),
+			kcalTarget: numOrNull(row["kcal_target"]),
+		};
+		return { ...day, partial: isPartialDay(day) };
+	});
 }
 
 export async function getWeights(client: Database): Promise<WeightRow[]> {

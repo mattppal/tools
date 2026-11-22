@@ -93,6 +93,12 @@ test("reading a day writes nothing", async () => {
 	expect((await getHistory(client)).map((day) => day.date)).toEqual(["2026-11-21", "2026-11-20"]);
 });
 
+test("a closed day under half its kcal target is partial", async () => {
+	const history = await getHistory(client);
+	expect(history.find((day) => day.date === "2026-11-20")).toMatchObject({ kcal: 52, kcalTarget: 2750, partial: true });
+	expect(history.find((day) => day.date === "2026-11-21")).toMatchObject({ entries: 0, partial: false });
+});
+
 test("plan versions are never edited", async () => {
 	const input = { effective_from: "2026-11-01", kcal: { min: 1, max: 2 }, protein_g: { min: 1, max: 2 }, fat_g: { min: 1, max: 2 }, carbs_g: { min: 1, max: 2 }, change: "x" };
 	await expect(addTargets(client, input, "bot")).rejects.toBeInstanceOf(Rejected);

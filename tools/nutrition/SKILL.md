@@ -12,7 +12,7 @@ Matt logs food here and the nutrition bot logs it over MCP. Both write through `
 Four views nest under Nutrition in the sidebar as sections (`VIEWS` in `ui.tsx`). None of them use status dots. States show as words or as bar color.
 
 - Today (`/nutrition`, `?date=YYYY-MM-DD` for another day). Four range bars for kcal, protein, fat, and carbs, each reading "N to go", "in range", or "+N over". Under them is the bot's check-in line, then the entries. A row opens the right panel to edit or delete it. Add food is one labeled button under the entries, pinned to the bottom of the screen while the list scrolls. It and each row open the same right panel, which holds only the entry form so it can move to another container. Saves show at once and roll back with an error in the panel if the request fails. Close day locks the entries and fires the webhook. Reopen unlocks them.
-- History (`/nutrition/history`). One row per day, newest first, with "Open" on days that aren't closed.
+- History (`/nutrition/history`). One row per day, newest first, with "Open" on days that aren't closed. A three-way filter, saved in the browser, picks what shows. Logged, the default, shows days with entries that aren't partial. With partial adds partial days, marked in the row's muted text with their share of the target. All days adds days with no entries. A muted line under the list says how many days are hidden. A day is partial when it is closed and its kcal is under `PARTIAL_DAY_SHARE` (50%, in `types.ts`) of its target: the midpoint of that day's plan range, or the phase tracker's kcal target when no plan version covers it.
 - Weight (`/nutrition/weight`). One range drives everything on the page: 90 days, 1 year, all, a From and To date, or a mouse drag across the chart. Under the controls is a summary of the range: start and end average, change, mean weight, and weekly rate. The chart draws the 7-day, 14-day, or 28-day average in `--chart-accent` over muted weigh-ins, and either layer can be hidden. The table below lists date, weight, the chosen average, and the change from the previous weigh-in, 50 rows a page, sortable by any column. Under 640 px each row stacks onto two lines. A source filter appears only when the data has more than one source. The page loads every weigh-in once and filters in the browser.
 - Phase (`/nutrition/phase`). The open phase's verdict and suggested kcal for next week, then the weekly rows.
 
@@ -26,7 +26,7 @@ All routes are under `/api/tools/nutrition` and sit behind Cloudflare Access.
 | `POST /day/food` | `{ date, add?, edit?, remove? }`. Each add takes a `client_key`, so a retry doesn't log twice. |
 | `POST /day/close` | Closes the day and queues the webhook. |
 | `POST /day/reopen` | Reopens the day. |
-| `GET /history` | The last 400 days with totals. |
+| `GET /history` | The last 400 days with totals, kcal target, and the partial flag. |
 | `GET /weights` | Every weigh-in with its source and 7, 14, and 28 day averages, oldest first. |
 | `GET /phase` | The open phase, its tracker settings, and the weekly summary. |
 | `POST /mcp` | The bot's MCP server. |
@@ -63,7 +63,7 @@ Schema `nutrition`. See `migrations/0001-create-schema.sql`.
 - `days`, `food_entries`, `plan_versions`, `phases`, `phase_trackers`, `weigh_ins`, `deliveries`.
 - Views: `daily_weights` takes one weigh-in a day, preferring Withings, then the bot, then the sheet, then the daily files. `weight_trend` adds unrounded rolling averages, and `day_totals` sums the entries.
 - Plan versions are never edited. A change starts a new version on its `effective_from` date.
-- `phase.ts` reproduces the sheet's Phase tracker: compounding planned weight, calendar-window averages, and a 28-day TDEE. Only closed days with kcal count as logged. `phase.test.ts` pins it to the sheet.
+- `phase.ts` reproduces the sheet's Phase tracker: compounding planned weight, calendar-window averages, and a 28-day TDEE. Only closed days with kcal that aren't partial count as logged, so a half-logged day doesn't drag the averages or the TDEE down. The sheet counted those days. `phase.test.ts` pins it to the sheet.
 
 ## Import
 
