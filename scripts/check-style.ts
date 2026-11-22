@@ -15,6 +15,7 @@ const problems: Problem[] = [];
 
 const COMMENT_FIX = "Delete it. If it states a constraint, encode the constraint as a type, a check, or a test.";
 const DOT_FIX = 'Say the state in words instead (tools-styling, "No status dots").';
+const PILL_FIX = 'Say the state in plain text in the surrounding style instead (tools-styling, "No status pills").';
 
 function lineAt(text: string, index: number): number {
 	let line = 1;
@@ -141,11 +142,18 @@ function cssDots(file: string, text: string): void {
 		}
 		const radius = declarations.get("border-radius");
 		if (radius === undefined || !FULL_RADIUS.test(radius)) continue;
+		const selector = (block[1] ?? "").trim().split("\n").at(-1)?.trim() ?? "";
+		const line = lineAt(text, block.index + (block[1] ?? "").length);
+		const background = declarations.get("background") ?? declarations.get("background-color");
+		const padded = [...declarations.keys()].some((name) => name.startsWith("padding"));
+		if (padded && background !== undefined && background !== "transparent" && background !== "none" && declarations.get("cursor") !== "pointer") {
+			problems.push({ file, line, message: `${selector} draws a status pill (fully rounded, padded, filled, not clickable). ${PILL_FIX}` });
+			continue;
+		}
 		const width = px(declarations.get("width") ?? declarations.get("inline-size"));
 		const height = px(declarations.get("height") ?? declarations.get("block-size"));
 		if (width === null || height === null || width > DOT_MAX_PX || height > DOT_MAX_PX) continue;
-		const selector = (block[1] ?? "").trim().split("\n").at(-1)?.trim() ?? "";
-		problems.push({ file, line: lineAt(text, block.index + (block[1] ?? "").length), message: `${selector} draws a status dot (${width}x${height}px, fully rounded). ${DOT_FIX}` });
+		problems.push({ file, line, message: `${selector} draws a status dot (${width}x${height}px, fully rounded). ${DOT_FIX}` });
 	}
 }
 
