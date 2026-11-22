@@ -99,6 +99,36 @@ function useVisibleInterval(callback: () => void, ms: number): void {
 	}, [ms]);
 }
 
+const COPIED_MS = 1500;
+
+function CopyLink({ url }: { url: string }) {
+	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+	useEffect(() => {
+		if (state === "idle") return;
+		const timer = setTimeout(() => setState("idle"), COPIED_MS);
+		return () => clearTimeout(timer);
+	}, [state]);
+	return (
+		<Button
+			size="sm"
+			variant="quiet"
+			className={styles.copyLink}
+			aria-label={state === "idle" ? "Copy link to post" : undefined}
+			onClick={() => navigator.clipboard.writeText(url).then(() => setState("copied"), () => setState("failed"))}
+		>
+			<span aria-live="polite">{state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy" : "Copy link"}</span>
+		</Button>
+	);
+}
+
+function PostLink({ post, children }: { post: OwnerPost; children: string }) {
+	return (
+		<a className={styles.postLink} href={post.url} target="_blank" rel="noreferrer" title={`${when(post.createdAt)}, open on X`}>
+			<time dateTime={post.createdAt}>{children}</time>
+		</a>
+	);
+}
+
 function LivePost({ post, now, fresh }: { post: OwnerPost; now: number; fresh: boolean }) {
 	const metrics = [count(post.metrics.likes, "like", "likes"), count(post.metrics.reposts, "repost", "reposts"), count(post.metrics.replies, "reply", "replies"), count(post.metrics.quotes, "quote", "quotes"), count(post.metrics.impressions, "view", "views")].filter(
 		(part): part is string => part !== null,
@@ -106,22 +136,18 @@ function LivePost({ post, now, fresh }: { post: OwnerPost; now: number; fresh: b
 	const state = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined}>
-			<p className={styles.liveHead}>
-				<span className={styles.liveName}>{post.name || post.handle}</span>
-				<span>@{post.handle}</span>
-				<time dateTime={post.createdAt} title={when(post.createdAt)}>
-					{ago(post.createdAt, now)}
-				</time>
-			</p>
+			<div className={styles.postHead}>
+				<p className={styles.liveHead}>
+					<span className={styles.liveName}>{post.name || post.handle}</span>
+					<span>@{post.handle}</span>
+					<PostLink post={post}>{ago(post.createdAt, now)}</PostLink>
+				</p>
+				<CopyLink url={post.url} />
+			</div>
 			<p className={styles.text}>{post.text}</p>
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
 			<p className={styles.meta}>
 				{[...metrics, ...state].join(" · ")}
-			</p>
-			<p className={styles.meta}>
-				<a href={post.url} target="_blank" rel="noreferrer">
-					{post.url.replace("https://", "")}
-				</a>
 			</p>
 		</li>
 	);
@@ -252,17 +278,20 @@ function PostItem({ post, canDecide, onDecided }: { post: OwnerPost; canDecide: 
 			setBusy(null);
 		}
 	}
-	const meta = [`@${post.handle}`, when(post.createdAt), post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	const meta = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return (
 		<li className={styles.postRow}>
-			<p className={styles.meta}>
-				<a href={post.url} target="_blank" rel="noreferrer">
-					{post.name}
-				</a>{" "}
-				{meta.join(" · ")}
-			</p>
+			<div className={styles.postHead}>
+				<p className={styles.liveHead}>
+					<span className={styles.liveName}>{post.name || post.handle}</span>
+					<span>@{post.handle}</span>
+					<PostLink post={post}>{when(post.createdAt)}</PostLink>
+				</p>
+				<CopyLink url={post.url} />
+			</div>
 			<p className={styles.text}>{post.text}</p>
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
+			<p className={styles.meta}>{meta.join(" · ")}</p>
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
 					<Button size="sm" loading={busy === "approve"} disabled={busy !== null} onClick={() => void decide("approve")}>
