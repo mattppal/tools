@@ -47,7 +47,7 @@ export const BOTS = {
 	},
 	gtd: {
 		serviceToken: "gtd-bot",
-		clientId: null,
+		clientId: "acfc8c269c4412bc69e52f3f59d9d965.access",
 		bearer: null,
 		tools: { goals: "all" },
 	},

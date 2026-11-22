@@ -45,7 +45,7 @@ A service token gets 403 on the page routes.
 | `set_north_star` | Set one year's north star, 1 to 500 characters, or remove it with `clear: true`. Idempotent. |
 | `get_year` | The north star and every goal of one year. Read-only. |
 
-gtd bot authenticates with its Access service token alone: `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `gtd-bot` token, and an explicit `User-Agent`. There is no bearer. The gate in `worker/access.ts` maps the token's client ID to the `gtd` entry in `BOTS`, scoped to `goals` only. Any other tool answers it with 403 `Forbidden: bot gtd may not call <route> on <tool>`. gtd bot keeps the pair as `TOOLS_GOALS_CLIENT_ID` and `TOOLS_GOALS_CLIENT_SECRET`; the 1Password item `tools-gtd-bot` holds the same values.
+gtd bot authenticates with its Access service token alone: `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `gtd-bot` token, and an explicit `User-Agent`. There is no bearer. The gate in `worker/access.ts` maps the token's client ID to the `gtd` entry in `BOTS`, scoped to `goals` only. Any other tool answers it with 403 `Forbidden: bot gtd may not call <route> on <tool>`. gtd bot keeps the pair as `TOOLS_GOALS_CLIENT_ID` and `TOOLS_GOALS_CLIENT_SECRET`. Agents keep it in the 1Password item `tools-gtd-bot`; to replace the secret, rotate the token through the Cloudflare API and store the new value there.
 
 Rules:
 

@@ -73,9 +73,9 @@ test("during the window, each bearer alone opens the same scopes as its bot's id
 	}
 });
 
-test("smoke and the reserved gtd bot have no bearer, and gtd has no Access client", () => {
+test("smoke and gtd have no bearer, and gtd reaches only goals", () => {
 	expect(BOTS.smoke).toMatchObject({ serviceToken: "tools-agent-verify", clientId: "3764ccd9a5d87214d1032418b8c228ed.access", bearer: null });
-	expect(BOTS.gtd).toMatchObject({ serviceToken: "gtd-bot", clientId: null, bearer: null });
+	expect(BOTS.gtd).toEqual({ serviceToken: "gtd-bot", clientId: "acfc8c269c4412bc69e52f3f59d9d965.access", bearer: null, tools: { goals: "all" } });
 });
 
 test("logs which credential let the bot in, by name only", async () => {

@@ -77,6 +77,7 @@ test("the production allowlist is exactly the registry's Access clients", () => 
 		"9f5386b746c91cbc0774e9f806a081fa.access": "coordinator",
 		"3764ccd9a5d87214d1032418b8c228ed.access": "smoke",
 		"9ae32c65cfb73a1cf83b0196b682ba65.access": "apple-health",
+		"acfc8c269c4412bc69e52f3f59d9d965.access": "gtd",
 	});
 	expect(Object.values(BOTS).map((bot) => bot.serviceToken)).toEqual(["nutrition-bot", "coach-bot", "tools-coordinator", "tools-agent-verify", "apple-health-export", "gtd-bot"]);
 });
