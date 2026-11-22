@@ -1,4 +1,4 @@
-import { type PointerEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type PointerEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { Input } from "../../src/kit/input.tsx";
 import { Skeleton } from "../../src/kit/skeleton.tsx";
@@ -7,7 +7,8 @@ import { addDays, dayNumber, isIsoDate, isoDate, today } from "./dates.ts";
 import styles from "./nutrition.module.css";
 import type { WeightRow } from "./types.ts";
 import { dayLabel, tenths, useJson, VIEWS, whole } from "./ui.tsx";
-import { type Average, type DateRange, inRange, type Preset, presetRange, type Sort, type SortKey, sortEntries, summarize, type WeightEntry, withChanges } from "./weights.ts";
+import type { PhaseView } from "./store.ts";
+import { type Average, changeTone, type DateRange, inRange, nearestIndex, type Tone, toneStrength, type Preset, presetRange, type Sort, type SortKey, sortEntries, summarize, type WeightEntry, withChanges } from "./weights.ts";
 
 const PRESETS: { id: Preset; label: string }[] = [
 	{ id: "90d", label: "90 days" },
@@ -36,6 +37,17 @@ const PAGE_SIZE = 50;
 const HEIGHT = 280;
 const PAD = { top: 12, right: 8, bottom: 24, left: 40 };
 const MIN_BRUSH_PX = 8;
+const LABEL_GAP = 13;
+const FLAT_CHANGE = 0.05;
+const FLAT_RATE = 0.005;
+const FULL_ENTRY_CHANGE = 2;
+const FULL_RANGE_CHANGE = 3;
+const FULL_WEEKLY_RATE = 1;
+
+function tint(change: number, phaseKind: string | null, flatBelow: number, full: number): { "data-tone": Tone; style: CSSProperties } {
+	return { "data-tone": changeTone(change, phaseKind, flatBelow), style: { "--tone-strength": `${Math.round(toneStrength(change, full) * 100)}%` } as CSSProperties };
+}
+const DATE_HALF_WIDTH = 40;
 
 const signed = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
 const signedRate = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: "exceptZero" });
@@ -62,6 +74,7 @@ type ChartProps = { rows: WeightRow[]; average: Average; showPoints: boolean; sh
 function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 	const [ref, width] = useWidth();
 	const [brush, setBrush] = useState<{ start: number; end: number } | null>(null);
+	const [hover, setHover] = useState<number | null>(null);
 	const first = rows[0];
 	const last = rows.at(-1);
 	if (first === undefined || last === undefined) return <p className={styles.empty}>No weigh-ins in this range.</p>;
@@ -79,15 +92,32 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 	const ticks = [low, (low + high) / 2, high];
 	const local = (event: PointerEvent<SVGSVGElement>) => event.clientX - event.currentTarget.getBoundingClientRect().left;
 
+	const snap = (px: number) => setHover(nearestIndex(rows, startDay + ((px - PAD.left) / inner) * span));
+
 	const begin = (event: PointerEvent<SVGSVGElement>) => {
-		if (event.pointerType === "touch" || event.button !== 0 || span < 2) return;
+		if (event.pointerType === "touch") {
+			snap(local(event));
+			return;
+		}
+		if (event.button !== 0 || span < 2) return;
 		event.currentTarget.setPointerCapture(event.pointerId);
 		const at = local(event);
 		setBrush({ start: at, end: at });
+		setHover(null);
 	};
 	const move = (event: PointerEvent<SVGSVGElement>) => {
 		if (brush !== null) setBrush({ ...brush, end: local(event) });
+		else snap(local(event));
 	};
+	const leave = (event: PointerEvent<SVGSVGElement>) => {
+		if (event.pointerType !== "touch") setHover(null);
+	};
+	const hovered = hover === null || brush !== null ? undefined : rows[hover];
+	const hoverX = hovered === undefined ? 0 : x(hovered.date);
+	const weightY = hovered === undefined ? 0 : y(hovered.weight);
+	const trendY = hovered === undefined ? 0 : y(hovered[average]);
+	const trendLabelY = Math.abs(trendY - weightY) >= LABEL_GAP ? trendY : weightY + (trendY >= weightY ? LABEL_GAP : -LABEL_GAP);
+	const clearOf = (tickY: number) => hovered === undefined || (Math.abs(tickY - weightY) >= LABEL_GAP && Math.abs(tickY - trendLabelY) >= LABEL_GAP);
 	const finish = () => {
 		if (brush === null) return;
 		setBrush(null);
@@ -108,24 +138,48 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 					onPointerDown={begin}
 					onPointerMove={move}
 					onPointerUp={finish}
+					onPointerLeave={leave}
 					onPointerCancel={() => setBrush(null)}
 				>
 					{ticks.map((tick) => (
 						<g key={tick}>
 							<line x1={PAD.left} x2={width - PAD.right} y1={y(tick)} y2={y(tick)} className={styles.gridLine} />
-							<text x={PAD.left - 6} y={y(tick)} className={styles.axis} textAnchor="end" dominantBaseline="middle">
-								{tenths(tick)}
-							</text>
+							{clearOf(y(tick)) ? (
+								<text x={PAD.left - 6} y={y(tick)} className={styles.axis} textAnchor="end" dominantBaseline="middle">
+									{tenths(tick)}
+								</text>
+							) : null}
 						</g>
 					))}
-					<text x={PAD.left} y={HEIGHT - 6} className={styles.axis}>
-						{longDate(first.date)}
-					</text>
-					<text x={width - PAD.right} y={HEIGHT - 6} className={styles.axis} textAnchor="end">
-						{longDate(last.date)}
-					</text>
+					{hovered === undefined ? (
+						<>
+							<text x={PAD.left} y={HEIGHT - 6} className={styles.axis}>
+								{longDate(first.date)}
+							</text>
+							<text x={width - PAD.right} y={HEIGHT - 6} className={styles.axis} textAnchor="end">
+								{longDate(last.date)}
+							</text>
+						</>
+					) : null}
 					{showPoints ? rows.map((row) => <circle key={row.date} cx={x(row.date)} cy={y(row.weight)} r={rows.length > 400 ? 1 : 1.75} className={styles.point} />) : null}
 					{showTrend ? <path d={line} className={styles.trend} /> : null}
+					{hovered === undefined ? null : (
+						<g>
+							<line x1={hoverX} x2={hoverX} y1={PAD.top} y2={bottom} className={styles.crosshair} />
+							<line x1={PAD.left} x2={width - PAD.right} y1={weightY} y2={weightY} className={styles.crosshair} />
+							<circle cx={hoverX} cy={weightY} r={3} className={styles.hoverWeight} />
+							<circle cx={hoverX} cy={trendY} r={3} className={styles.hoverTrend} />
+							<text x={PAD.left - 6} y={weightY} className={styles.axisWeight} textAnchor="end" dominantBaseline="middle">
+								{tenths(hovered.weight)}
+							</text>
+							<text x={PAD.left - 6} y={trendLabelY} className={styles.axisTrend} textAnchor="end" dominantBaseline="middle">
+								{tenths(hovered[average])}
+							</text>
+							<text x={Math.min(Math.max(hoverX, PAD.left + DATE_HALF_WIDTH), width - PAD.right - DATE_HALF_WIDTH)} y={HEIGHT - 6} className={styles.axisWeight} textAnchor="middle">
+								{longDate(hovered.date)}
+							</text>
+						</g>
+					)}
 					{brush === null ? null : (
 						<rect x={Math.min(brush.start, brush.end)} y={PAD.top} width={Math.abs(brush.end - brush.start)} height={bottom - PAD.top} className={styles.brush} />
 					)}
@@ -135,31 +189,33 @@ function Chart({ rows, average, showPoints, showTrend, onBrush }: ChartProps) {
 	);
 }
 
-function Summary({ rows, average }: { rows: WeightRow[]; average: Average }) {
+function Summary({ rows, average, phaseKind }: { rows: WeightRow[]; average: Average; phaseKind: string | null }) {
 	const summary = summarize(rows, average);
 	if (summary === null) return null;
-	const items = [
+	const items: { label: string; value: string; tone?: ReturnType<typeof tint> }[] = [
 		{ label: "Start", value: `${tenths(summary.start)} lb` },
 		{ label: "End", value: `${tenths(summary.end)} lb` },
-		{ label: "Change", value: `${signedTenths(summary.change)} lb` },
+		{ label: "Change", value: `${signedTenths(summary.change)} lb`, tone: tint(summary.change, phaseKind, FLAT_CHANGE, FULL_RANGE_CHANGE) },
 		{ label: "Average", value: `${tenths(summary.average)} lb` },
-		{ label: "Weekly rate", value: summary.days < 7 ? "Under a week" : `${signedHundredths(summary.weeklyRate)} lb a week` },
+		summary.days < 7
+			? { label: "Weekly rate", value: "Under a week" }
+			: { label: "Weekly rate", value: `${signedHundredths(summary.weeklyRate)} lb a week`, tone: tint(summary.weeklyRate, phaseKind, FLAT_RATE, FULL_WEEKLY_RATE) },
 	];
 	return (
 		<dl className={styles.summary}>
 			{items.map((item) => (
 				<div key={item.label}>
 					<dt>{item.label}</dt>
-					<dd>{item.value}</dd>
+					<dd {...item.tone}>{item.value}</dd>
 				</div>
 			))}
 		</dl>
 	);
 }
 
-type TableProps = { rows: WeightEntry[]; average: Average; sort: Sort; onSort: (key: SortKey) => void; page: number; onPage: (page: number) => void };
+type TableProps = { rows: WeightEntry[]; average: Average; phaseKind: string | null; sort: Sort; onSort: (key: SortKey) => void; page: number; onPage: (page: number) => void };
 
-function WeightTable({ rows, average, sort, onSort, page, onPage }: TableProps) {
+function WeightTable({ rows, average, phaseKind, sort, onSort, page, onPage }: TableProps) {
 	const pages = Math.max(Math.ceil(rows.length / PAGE_SIZE), 1);
 	const current = Math.min(page, pages - 1);
 	const visible = sortEntries(rows, sort, average).slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
@@ -188,7 +244,7 @@ function WeightTable({ rows, average, sort, onSort, page, onPage }: TableProps) 
 							<td>{longDate(row.date)}</td>
 							<td className={styles.weightCell}>{tenths(row.weight)}</td>
 							<td data-label={label}>{tenths(row[average])}</td>
-							<td data-label="Change">{row.change === null ? "" : signedTenths(row.change)}</td>
+							<td data-label="Change">{row.change === null ? "" : <span {...tint(row.change, phaseKind, FLAT_CHANGE, FULL_ENTRY_CHANGE)}>{signedTenths(row.change)}</span>}</td>
 						</tr>
 					))}
 				</tbody>
@@ -214,6 +270,8 @@ type Selection = { preset: Preset | null; range: DateRange | null };
 
 export function Weight() {
 	const [load, , reload] = useJson<WeightRow[]>("/weights");
+	const [phase] = useJson<PhaseView>("/phase");
+	const phaseKind = phase.status === "ready" ? (phase.data?.kind ?? null) : null;
 	const [selection, setSelection] = useState<Selection>({ preset: "90d", range: null });
 	const [average, setAverage] = useState<Average>("rolling7d");
 	const [showPoints, setShowPoints] = useState(true);
@@ -307,10 +365,10 @@ export function Weight() {
 					</div>
 				) : (
 					<>
-						<Summary rows={selected} average={average} />
+						<Summary rows={selected} average={average} phaseKind={phaseKind} />
 						<Chart rows={selected} average={average} showPoints={showPoints} showTrend={showTrend} onBrush={(next) => choose({ preset: null, range: next })} />
 						<p className={styles.hint}>Drag across the chart to zoom in.</p>
-						<WeightTable rows={selected} average={average} sort={sort} onSort={sortBy} page={page} onPage={setPage} />
+						<WeightTable rows={selected} average={average} phaseKind={phaseKind} sort={sort} onSort={sortBy} page={page} onPage={setPage} />
 					</>
 				)}
 			</div>

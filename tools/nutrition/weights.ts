@@ -45,6 +45,34 @@ export function summarize(rows: WeightRow[], average: Average): WeightSummary | 
 	};
 }
 
+export type Tone = "good" | "bad" | "down" | "up" | "flat";
+
+export function changeTone(change: number, phaseKind: string | null, flatBelow: number): Tone {
+	if (Math.abs(change) < flatBelow) return "flat";
+	const loss = change < 0;
+	if (phaseKind === "cut") return loss ? "good" : "bad";
+	if (phaseKind === "gain") return loss ? "bad" : "good";
+	return loss ? "down" : "up";
+}
+
+export function toneStrength(change: number, full: number): number {
+	return Math.min(Math.max(Math.abs(change) / full, 0.3), 1);
+}
+
+export function nearestIndex(rows: WeightRow[], day: number): number {
+	let low = 0;
+	let high = rows.length - 1;
+	while (low < high) {
+		const middle = (low + high) >> 1;
+		if (dayNumber(rows[middle]?.date ?? "") < day) low = middle + 1;
+		else high = middle;
+	}
+	const before = rows[low - 1];
+	const at = rows[low];
+	if (before !== undefined && at !== undefined && day - dayNumber(before.date) <= dayNumber(at.date) - day) return low - 1;
+	return low;
+}
+
 export function sortEntries(rows: WeightEntry[], sort: Sort, average: Average): WeightEntry[] {
 	const value = (row: WeightEntry): number | string => {
 		if (sort.key === "date") return row.date;

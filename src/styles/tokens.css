@@ -55,6 +55,10 @@
 	--warning: light-dark(#a3570a, #f5a524);
 
 	--chart-accent: light-dark(#4a6a94, #8fa8c9);
+	--change-good: light-dark(#3d7356, #86bd9d);
+	--change-bad: light-dark(#9a5446, #d49a8c);
+	--change-down: light-dark(#4a6a94, #8fa8c9);
+	--change-up: light-dark(#8a6326, #d0a86c);
 
 
 

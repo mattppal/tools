@@ -14,7 +14,7 @@
 }
 
 .bar {
-	--fill: var(--text-1);
+	--fill: var(--change-down);
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-1);
@@ -22,11 +22,11 @@
 }
 
 .bar[data-status="in"] {
-	--fill: var(--success);
+	--fill: var(--change-good);
 }
 
 .bar[data-status="over"] {
-	--fill: var(--warning);
+	--fill: var(--change-bad);
 }
 
 .barTop {
@@ -47,8 +47,9 @@
 	white-space: nowrap;
 }
 
+.bar[data-status="in"] .barStatus,
 .bar[data-status="over"] .barStatus {
-	color: var(--warning);
+	color: var(--fill);
 }
 
 .barValue {
@@ -377,6 +378,64 @@
 	stroke-width: 2;
 	stroke-linejoin: round;
 	stroke-linecap: round;
+}
+
+.crosshair {
+	stroke: var(--line-strong);
+	stroke-width: 1;
+	stroke-dasharray: 3 3;
+	pointer-events: none;
+}
+
+.hoverWeight {
+	fill: var(--text-1);
+}
+
+.hoverTrend {
+	fill: var(--chart-accent);
+}
+
+.axisWeight,
+.axisTrend {
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	paint-order: stroke;
+	stroke: var(--panel-bg);
+	stroke-width: 4px;
+	stroke-linejoin: round;
+}
+
+.axisWeight {
+	fill: var(--text-1);
+}
+
+.axisTrend {
+	fill: var(--chart-accent);
+	font-weight: var(--weight-ui);
+}
+
+[data-tone] {
+	color: color-mix(in oklab, var(--tone) var(--tone-strength, 100%), var(--text-2));
+}
+
+[data-tone="good"] {
+	--tone: var(--change-good);
+}
+
+[data-tone="bad"] {
+	--tone: var(--change-bad);
+}
+
+[data-tone="down"] {
+	--tone: var(--change-down);
+}
+
+[data-tone="up"] {
+	--tone: var(--change-up);
+}
+
+[data-tone="flat"] {
+	color: inherit;
 }
 
 .brush {

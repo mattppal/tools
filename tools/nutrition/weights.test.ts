@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WeightRow } from "./types.ts";
-import { inRange, presetRange, sortEntries, summarize, withChanges } from "./weights.ts";
+import { changeTone, inRange, nearestIndex, presetRange, sortEntries, summarize, toneStrength, withChanges } from "./weights.ts";
 
 const row = (date: string, weight: number, rolling7d: number, source = "sheet"): WeightRow => ({ date, weight, rolling7d, rolling14d: rolling7d + 0.5, rolling28d: rolling7d + 1, source });
 
@@ -30,6 +30,30 @@ describe("weights", () => {
 		expect(summary?.weeklyRate).toBeCloseTo(-0.9);
 		expect(summarize(rows, "rolling28d")?.start).toBe(183.4);
 		expect(summarize([], "rolling7d")).toBeNull();
+	});
+
+	test("tones a change by the phase goal, and neutral outside a cut or gain", () => {
+		expect(changeTone(-0.4, "cut", 0.05)).toBe("good");
+		expect(changeTone(0.4, "cut", 0.05)).toBe("bad");
+		expect(changeTone(0.4, "gain", 0.05)).toBe("good");
+		expect(changeTone(-0.4, "maintain", 0.05)).toBe("down");
+		expect(changeTone(0.4, null, 0.05)).toBe("up");
+		expect(changeTone(0.04, "cut", 0.05)).toBe("flat");
+	});
+
+	test("tint strength scales with the change and stays between 30% and full", () => {
+		expect(toneStrength(-0.1, 2)).toBe(0.3);
+		expect(toneStrength(1, 2)).toBe(0.5);
+		expect(toneStrength(-5, 2)).toBe(1);
+	});
+
+	test("snaps to the nearest weigh-in, earlier on a tie", () => {
+		const day = (date: string) => Date.parse(`${date}T00:00:00Z`) / 86_400_000;
+		expect(nearestIndex(rows, day("2025-12-01"))).toBe(0);
+		expect(nearestIndex(rows, day("2026-01-05"))).toBe(1);
+		expect(nearestIndex(rows, day("2026-01-06"))).toBe(2);
+		expect(nearestIndex(rows, day("2026-01-11"))).toBe(2);
+		expect(nearestIndex(rows, day("2026-03-01"))).toBe(3);
 	});
 
 	test("sorts by column and breaks ties by date in the same direction", () => {
