@@ -43,7 +43,7 @@ Read every TLC result with the pstack `/statechart` skill. It shows a violation 
 | Model (`delivery.tla`) | Code |
 | --- | --- |
 | `Claim` in `claim` | `claimOne` in `worker/webhooks.ts`: one `update ... set claimed_until, claim_id ... returning` on a row that is undelivered and unclaimed or whose claim expired. A cron run needs `next_attempt_at <= now()`. A first attempt or "Send again" names the id in `only`. |
-| `Send` | `sendWebhook`, with no transaction open. |
+| `Send` | `webhookBody`, then `sendWebhook`, with no transaction open. A payload whose `event` the webhook's `envelope` doesn't declare skips the send and is recorded like a `Rejected` answer. |
 | `Accepted`, `Rejected` | The `update` that records `attempts`, `delivered_at` and `next_attempt_at` and clears the claim, `where claim_id` is still this sender's. A sender whose claim was taken over writes nothing. |
 | `Crash` | The Worker dies mid-send. The claim stays until `claimed_until` passes. |
 | `ClaimExpires` | `claimed_until < now()`. With `SlowSenders`, that can happen while the holder is still sending. |
@@ -71,7 +71,7 @@ Change `delivery.tla` in the same PR as the code, so that `claim.cfg` and `claim
 | `tools/nutrition/store.ts` | `closeDayFromUi` (insert) |
 | `tools/nutrition/api.ts` | `deliverSoon` after close |
 
-Last confirmed against commit `d2b057e`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
+Last confirmed against commit `2f42587`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
 
 ## Not covered
 
