@@ -44,31 +44,8 @@
 	color: var(--text-2);
 }
 
-.status {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-}
-
-.dot {
-	flex: none;
-	width: 6px;
-	height: 6px;
-	border-radius: var(--radius-full);
-	background: var(--text-3);
-	transition: background-color var(--duration-hover) ease;
-}
-
-.status[data-state="ok"] .dot {
-	background: var(--success);
-}
-
 .status[data-state="down"] {
 	color: var(--danger);
-}
-
-.status[data-state="down"] .dot {
-	background: var(--danger);
 }
 
 .filter {

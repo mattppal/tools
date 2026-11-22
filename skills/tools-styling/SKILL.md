@@ -9,11 +9,12 @@ Read `skills/emil-design-eng/SKILL.md` before UI work.
 
 ## Primitives and tokens
 
-- `src/kit/` is a copy of poaster's kit (Base UI + Tailwind 4 + `cva`). Use `Button`, `IconButton`, `Input`, `ScrollArea`, `Sheet`, `Tooltip`, and the `Sidebar*` parts before writing new ones.
+- `src/kit/` is a copy of poaster's kit (Base UI + Tailwind 4 + `cva`). Use `Button`, `IconButton`, `Input`, `Popover`, `ScrollArea`, `Sheet`, `Tooltip`, and the `Sidebar*` parts before writing new ones.
 - Tokens live in `src/styles/tokens.css` and `src/styles/hairline.css`. Use them for color, space, radius, type, and motion: `var(--space-3)`, `var(--text-sm)`, `var(--radius-md)`, `var(--duration-hover)`. Don't hard-code colors; every color token works in light and dark.
 - The look is poaster's Hairline preset. Its values (space, type, radius, elevation, 1px `--border-width`, no shadows) live only in `src/styles/presets/hairline.json`. `bun run hairline` generates `src/styles/hairline.css` from it, and `bun run build` fails when they drift. To change one of those tokens, edit the JSON and regenerate; don't redefine them in `tokens.css` or a module. To adopt a newer poaster preset, copy poaster's `src/web/ui/kit-gallery/presets/hairline.json` over ours and run `bun run hairline`.
 - Tailwind utilities map to the same tokens (`bg-chrome`, `text-muted-foreground`, `h-control-md`). CSS modules are fine; poaster uses both.
 - Icons come from `src/shell/icons.tsx` (Hugeicons). Add a glyph there to use a new one.
+- No status dots, at any width. Don't show state with a colored dot or light; when state matters, say it in words, like the home page's database line.
 
 ## Edges
 
@@ -37,7 +38,7 @@ Every page renders `ToolLayout` from `src/shell/tool-layout.tsx`:
 ```
 
 - Primary sidebar: the tool list. The shell owns it. It collapses with the header button or Cmd/Ctrl+S and remembers its state.
-- Secondary sidebar (`sidebar`): optional second column for the tool's own navigation. Call `close()` after a selection so the phone drawer shuts.
+- Secondary sidebar (`sidebar`): optional second column for the tool's own navigation. It starts open at 1024px and wider and collapsed below, so a landscape phone keeps a usable main column. Call `close()` after a selection so the phone drawer shuts.
 - Right panel (`panel`): optional. Docks at 1024px and wider; below that it opens as a sheet from the right, like poaster's comment panel.
 
 ## Mobile
@@ -57,4 +58,6 @@ Every page renders `ToolLayout` from `src/shell/tool-layout.tsx`:
 ## PWA
 
 - `public/manifest.webmanifest` is linked with `crossorigin="use-credentials"` because the site sits behind Cloudflare Access.
+- App icons and favicons are generated from `src/assets/logo.png` by `bun run icons`. Replace the PNG and rerun; never edit the PNGs in `public/` by hand.
+- Install is offered only on phones and tablets (`pointer: coarse`), never on desktop. The sidebar footer's install button comes from `useInstall()` in `src/shell/install.ts`: it opens the browser's install prompt on Android and shows an Add to Home Screen hint on iOS and iPadOS.
 - `src/sw/sw.ts` caches only same-origin `/assets/*` and icons, and only 200 responses that were not redirected. It never caches navigations or `/api/*`, so Access login pages never end up in the cache. Keep it that way.

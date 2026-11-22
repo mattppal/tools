@@ -17,6 +17,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
+| `bun run icons` | Regenerate the favicons and app icons in `public/` from `src/assets/logo.png`. |
 | `bun run deploy` | Build and deploy to production. Workers Builds does this on push to `main`. |
 | `bun run preview` | Build and upload a preview with `wrangler preview`. |
 | `bunx wrangler types` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc`. |

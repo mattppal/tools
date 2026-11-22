@@ -73,28 +73,9 @@
 }
 
 .foot {
+	justify-content: flex-end;
 	gap: var(--space-1);
 	padding-block-start: var(--space-2);
-}
-
-.footSpace {
-	flex: 1;
-}
-
-.health {
-	width: 8px;
-	height: 8px;
-	margin-inline: var(--sidebar-row-x);
-	border-radius: var(--radius-full);
-	background: var(--chrome-text-3);
-}
-
-.health[data-state="ok"] {
-	background: var(--success);
-}
-
-.health[data-state="down"] {
-	background: var(--danger);
 }
 
 .navSheet {

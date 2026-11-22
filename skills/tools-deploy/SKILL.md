@@ -19,6 +19,10 @@ There is one exception, for bots. An agent may create a bot's Access service tok
 - `bun run deploy` and `bun run preview` do the same from a machine with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set.
 - `vite build` writes `.wrangler/deploy/config.json`, which points wrangler at the built Worker in `dist/tools/`. That is why plain `wrangler deploy` works from the root after a build.
 
+## Routing
+
+Built files in `dist/client` are served as they are. Every other request reaches `worker/index.ts`: `/api/*` goes to the API, a missing `/assets/*` file gets a 404, and any other path gets `index.html` for the client router. Don't add `not_found_handling` to `wrangler.jsonc`. It would answer missing assets with `index.html`, which `public/_headers` marks immutable under `/assets/*`.
+
 ## Where it runs
 
 | URL | Notes |

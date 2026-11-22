@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "check:skills": "bun scripts/check-skills.ts",
     "hairline": "bun scripts/hairline.ts",
+    "icons": "bun scripts/icons.ts",
     "new-tool": "bun scripts/new-tool.ts",
     "deploy": "bun run build && wrangler deploy",
     "preview": "bun run build && wrangler preview",

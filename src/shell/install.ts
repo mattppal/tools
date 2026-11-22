@@ -2,9 +2,10 @@ import { useSyncExternalStore } from "react";
 
 type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
-export type InstallWay = "prompt" | "ios" | "mac-safari" | null;
+export type InstallWay = "prompt" | "ios" | null;
 
 const STANDALONE = "(display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: fullscreen)";
+const HANDHELD = "(pointer: coarse)";
 
 const listeners = new Set<() => void>();
 let deferred: InstallPrompt | null = null;
@@ -38,16 +39,10 @@ function appleTouch(): boolean {
 	return /iPhone|iPad|iPod/.test(agent) || (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1);
 }
 
-function macSafari(): boolean {
-	const agent = navigator.userAgent;
-	return /Macintosh/.test(agent) && /Version\/[\d.]+.*Safari\//.test(agent) && navigator.maxTouchPoints === 0;
-}
-
 function currentWay(): InstallWay {
-	if (installed()) return null;
+	if (installed() || !window.matchMedia(HANDHELD).matches) return null;
 	if (deferred !== null) return "prompt";
 	if (appleTouch()) return "ios";
-	if (macSafari()) return "mac-safari";
 	return null;
 }
 

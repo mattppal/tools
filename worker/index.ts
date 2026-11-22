@@ -55,8 +55,10 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, with
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		if (!new URL(request.url).pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-		return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
+		const url = new URL(request.url);
+		if (url.pathname.startsWith("/api/")) return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
+		if (url.pathname.startsWith("/assets/")) return new Response("Not found", { status: 404 });
+		return env.ASSETS.fetch(new Request(new URL("/", url), request));
 	},
 	async scheduled(_controller, env, ctx): Promise<void> {
 		await withRequestDb(env.DB, ctx, async (withDb) => {

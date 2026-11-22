@@ -28,7 +28,6 @@ function DbStatus() {
 	const health = useHealth();
 	return (
 		<span className={styles.status} data-state={health.state} role="status">
-			<span className={styles.dot} aria-hidden="true" />
 			{healthText(health)}
 		</span>
 	);

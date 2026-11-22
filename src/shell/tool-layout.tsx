@@ -112,7 +112,7 @@ function Panel({ panel }: { panel: RightPanel }) {
 
 export function ToolLayout({ title, actions, sidebar, panel, bodyClassName, children }: ToolLayoutProps) {
 	const { layout } = useShell();
-	const [secondaryOpen, setSecondaryOpen] = useState(layout !== "compact");
+	const [secondaryOpen, setSecondaryOpen] = useState(layout === "expanded");
 	return (
 		<div className={styles.layout}>
 			{sidebar === undefined ? null : <Secondary sidebar={sidebar} open={secondaryOpen} onOpenChange={setSecondaryOpen} />}
