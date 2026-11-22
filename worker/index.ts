@@ -1,6 +1,7 @@
 import { accessGate } from "./access.ts";
 import { type WithDb, withRequestDb } from "./db.ts";
 import { debugReport } from "./debug.ts";
+import { bundledMigrations, checkMigrations, type MigrationDrift } from "./migrations.ts";
 import type { ToolApi, ToolCron } from "./tool-api.ts";
 import type { ToolDebug } from "./tool-debug.ts";
 import { withScriptNonce, withSecurityHeaders } from "./security-headers.ts";
@@ -27,19 +28,26 @@ const gate = accessGate();
 
 const TOOL_API_PATH = /^\/api\/tools\/([a-z0-9-]+)(\/.*)?$/;
 
+const MIGRATIONS = bundledMigrations(import.meta.glob<string>("../tools/*/migrations/*.sql", { query: "?raw", import: "default", eager: true }));
+
 export type HealthReport =
-	| { ok: true; db: { latencyMs: number; connectMs: number; queryMs: number } }
+	| { ok: boolean; db: { latencyMs: number; connectMs: number; queryMs: number }; migrations: MigrationDrift }
 	| { ok: false; db: { latencyMs: number; error: string } };
 
 async function checkDb(withDb: WithDb): Promise<HealthReport> {
 	const started = Date.now();
 	try {
-		const [connected, queried] = await withDb(async (db): Promise<[number, number]> => {
+		const [connected, queried, migrations] = await withDb(async (db): Promise<[number, number, MigrationDrift]> => {
 			const connectedAt = Date.now();
 			await db.query("select now()");
-			return [connectedAt, Date.now()];
+			const queriedAt = Date.now();
+			return [connectedAt, queriedAt, await checkMigrations(db, MIGRATIONS)];
 		});
-		return { ok: true, db: { latencyMs: queried - started, connectMs: connected - started, queryMs: queried - connected } };
+		return {
+			ok: migrations.pending.length === 0 && migrations.changed.length === 0,
+			db: { latencyMs: queried - started, connectMs: connected - started, queryMs: queried - connected },
+			migrations,
+		};
 	} catch (error) {
 		return { ok: false, db: { latencyMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) } };
 	}
