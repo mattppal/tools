@@ -7,9 +7,22 @@ import { authorizeUrl, credentials, exchangeCode, type Fetch } from "./withings.
 
 const NO_STORE = { "cache-control": "no-store" };
 const RECENT_DAYS = 7;
+const STATE_COOKIE = "withings_state";
+const STATE_COOKIE_PATH = "/api/withings/callback";
+const STATE_COOKIE_MAX_AGE_S = 15 * 60;
+const CLEAR_STATE = `${STATE_COOKIE}=; Path=${STATE_COOKIE_PATH}; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+const OAUTH_ERROR = /^[a-z_]{1,64}$/;
 
-function text(body: string, status = 200): Response {
-	return new Response(body, { status, headers: { ...NO_STORE, "content-type": "text/plain; charset=utf-8" } });
+function text(body: string, status = 200, headers: Record<string, string> = {}): Response {
+	return new Response(body, { status, headers: { ...NO_STORE, "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff", ...headers } });
+}
+
+function stateCookie(request: Request): string | null {
+	for (const part of (request.headers.get("cookie") ?? "").split(";")) {
+		const [name, ...value] = part.trim().split("=");
+		if (name === STATE_COOKIE) return value.join("=");
+	}
+	return null;
 }
 
 export function activityApi(fetcher: Fetch = fetch) {
@@ -20,18 +33,30 @@ export function activityApi(fetcher: Fetch = fetch) {
 			const code = url.searchParams.get("code");
 			const error = url.searchParams.get("error");
 			if (request.method !== "GET" || (code === null && error === null)) return text("Withings callback for tools.mattpalmer.io.");
-			if (error !== null) return text(`Withings did not connect: ${error}. Try again from /api/withings/connect.`, 400);
+			const clear = { "set-cookie": CLEAR_STATE };
+			if (error !== null) return text(`Withings did not connect: ${OAUTH_ERROR.test(error) ? error : "unknown error"}. Try again from /api/withings/connect.`, 400, clear);
 			const creds = credentials(env);
-			if (creds === null) return text("WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the Worker.", 503);
-			if (!(await verifyState(creds.clientSecret, url.searchParams.get("state") ?? ""))) return text("This link expired or did not start here. Start again from /api/withings/connect.", 400);
+			if (creds === null) return text("WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the Worker.", 503, clear);
+			const state = url.searchParams.get("state") ?? "";
+			if (state !== stateCookie(request) || !(await verifyState(creds.clientSecret, state))) {
+				return text("This link expired or did not start in this browser. Start again from /api/withings/connect.", 400, clear);
+			}
 			const tokens = await exchangeCode(fetcher, creds, code ?? "");
 			await db((client) => saveConnection(client, creds.clientSecret, tokens, addDays(today(), -RECENT_DAYS)));
-			return new Response(null, { status: 302, headers: { ...NO_STORE, location: "/settings" } });
+			return new Response(null, { status: 302, headers: { ...NO_STORE, ...clear, location: "/settings" } });
 		}
 		if (path === "/withings/connect" && request.method === "GET") {
 			const creds = credentials(env);
 			if (creds === null) return text("WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the Worker yet.", 503);
-			return new Response(null, { status: 302, headers: { ...NO_STORE, location: authorizeUrl(creds, await signState(creds.clientSecret)) } });
+			const state = await signState(creds.clientSecret);
+			return new Response(null, {
+				status: 302,
+				headers: {
+					...NO_STORE,
+					location: authorizeUrl(creds, state),
+					"set-cookie": `${STATE_COOKIE}=${state}; Path=${STATE_COOKIE_PATH}; Max-Age=${STATE_COOKIE_MAX_AGE_S}; HttpOnly; Secure; SameSite=Lax`,
+				},
+			});
 		}
 		if (path === "/days" && request.method === "GET") {
 			const to = url.searchParams.get("to") ?? today();

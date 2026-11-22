@@ -54,8 +54,9 @@ const hit = (path: string, init?: RequestInit) => api(new Request(`https://tools
 
 async function connect(): Promise<void> {
 	const state = await signState(creds.clientSecret);
-	const response = await hit(`/callback?code=abc&state=${encodeURIComponent(state)}`);
+	const response = await hit(`/callback?code=abc&state=${encodeURIComponent(state)}`, { headers: { cookie: `withings_state=${state}` } });
 	expect(response.status).toBe(302);
+	expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
 }
 
 beforeEach(async () => {
@@ -82,10 +83,38 @@ test("connect redirects to Withings with the activity scope and a signed state",
 });
 
 test("the callback rejects a forged or expired state", async () => {
-	expect((await hit("/callback?code=abc&state=1.2.3")).status).toBe(400);
+	expect((await hit("/callback?code=abc&state=1.2.3", { headers: { cookie: "withings_state=1.2.3" } })).status).toBe(400);
 	const old = await signState(creds.clientSecret, Date.now() - 60 * 60_000);
-	expect((await hit(`/callback?code=abc&state=${encodeURIComponent(old)}`)).status).toBe(400);
+	expect((await hit(`/callback?code=abc&state=${encodeURIComponent(old)}`, { headers: { cookie: `withings_state=${old}` } })).status).toBe(400);
 	expect(calls).toHaveLength(0);
+});
+
+test("connect binds its state to this browser with a short-lived callback-only cookie", async () => {
+	const response = await hit("/connect");
+	const state = new URL(response.headers.get("location") ?? "").searchParams.get("state");
+	const cookie = response.headers.get("set-cookie") ?? "";
+	expect(cookie).toStartWith(`withings_state=${state};`);
+	for (const attribute of ["Path=/api/withings/callback", "Max-Age=900", "HttpOnly", "Secure", "SameSite=Lax"]) expect(cookie).toContain(attribute);
+});
+
+test("a valid state from another browser is refused, so nobody can connect their own Withings account here", async () => {
+	const state = await signState(creds.clientSecret);
+	const other = await signState(creds.clientSecret);
+	for (const cookie of [null, "", `withings_state=${other}`, `withings_state=${state}x`]) {
+		const response = await hit(`/callback?code=abc&state=${encodeURIComponent(state)}`, cookie === null ? {} : { headers: { cookie } });
+		expect(response.status).toBe(400);
+		expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+	}
+	expect(calls).toHaveLength(0);
+	expect(await readConnection(client)).toBeNull();
+});
+
+test("the callback never echoes Withings' error text back as markup", async () => {
+	const response = await hit(`/callback?error=${encodeURIComponent("<script>alert(1)</script>")}`);
+	expect(response.status).toBe(400);
+	expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+	expect(await response.text()).not.toContain("<script>");
+	expect(await (await hit("/callback?error=access_denied")).text()).toContain("access_denied");
 });
 
 test("the callback stores tokens encrypted", async () => {
