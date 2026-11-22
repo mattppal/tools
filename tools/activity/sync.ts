@@ -2,7 +2,8 @@ import type { Database } from "../../worker/db.ts";
 import { addDays, today } from "./dates.ts";
 import { unseal } from "./secrets.ts";
 import { claimConnection, releaseConnection, type SyncProgress, saveTokens, upsertWithingsDays } from "./store.ts";
-import { type Credentials, type Fetch, getActivity, refreshTokens, WithingsError } from "./withings.ts";
+import { saveWeighins, toWeighins } from "./weights.ts";
+import { type Credentials, type Fetch, getActivity, getWeights, refreshTokens, WithingsError } from "./withings.ts";
 
 export const BACKFILL_FLOOR = "2009-01-01";
 const BACKFILL_WINDOW_DAYS = 180;
@@ -26,6 +27,10 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 		backfillOffset: connection.backfillOffset,
 		backfillDone: false,
 		recentSynced: false,
+		measLastupdate: connection.measLastupdate,
+		measPendingLastupdate: connection.measPendingLastupdate,
+		measOffset: connection.measOffset,
+		weightsSynced: false,
 		error: null,
 	};
 	let calls = 0;
@@ -49,6 +54,22 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 				offset = page.more ? page.offset : 0;
 			} while (offset > 0 && calls < CALLS_PER_RUN);
 			progress.recentSynced = offset === 0;
+		}
+
+		const weightsDue = progress.measOffset > 0 || connection.weightsSyncedAt === null || now.getTime() - Date.parse(connection.weightsSyncedAt) >= RECENT_EVERY_MS;
+		while (weightsDue && calls < CALLS_PER_RUN && !progress.weightsSynced) {
+			const page = await getWeights(fetcher, accessToken, progress.measLastupdate ?? 0, progress.measOffset);
+			calls++;
+			changed += await saveWeighins(client, toWeighins(page.groups));
+			progress.measPendingLastupdate ??= page.updatetime;
+			if (page.more && page.offset > 0) {
+				progress.measOffset = page.offset;
+				continue;
+			}
+			progress.measLastupdate = progress.measPendingLastupdate;
+			progress.measPendingLastupdate = null;
+			progress.measOffset = 0;
+			progress.weightsSynced = true;
 		}
 
 		while (calls < CALLS_PER_RUN && progress.backfillCursor !== null) {

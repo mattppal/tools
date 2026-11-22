@@ -27,6 +27,10 @@ export type Connection = {
 	recentSyncedAt: string | null;
 	lastError: string | null;
 	lastErrorAt: string | null;
+	measLastupdate: number | null;
+	measPendingLastupdate: number | null;
+	measOffset: number;
+	weightsSyncedAt: string | null;
 };
 
 const numOrNull = (value: unknown): number | null => (value === null || value === undefined ? null : Number(value));
@@ -48,11 +52,15 @@ function toConnection(row: Row): Connection {
 		recentSyncedAt: isoOrNull(row["recent_synced_at"]),
 		lastError: textOrNull(row["last_error"]),
 		lastErrorAt: isoOrNull(row["last_error_at"]),
+		measLastupdate: numOrNull(row["meas_lastupdate"]),
+		measPendingLastupdate: numOrNull(row["meas_pending_lastupdate"]),
+		measOffset: Number(row["meas_offset"]),
+		weightsSyncedAt: isoOrNull(row["weights_synced_at"]),
 	};
 }
 
 const CONNECTION_COLUMNS = `userid, scope, access_token, refresh_token, access_expires_at, connected_at, refreshed_at, backfill_cursor::text as backfill_cursor,
-	backfill_offset, backfill_done_at, recent_synced_at, last_error, last_error_at`;
+	backfill_offset, backfill_done_at, recent_synced_at, last_error, last_error_at, meas_lastupdate, meas_pending_lastupdate, meas_offset, weights_synced_at`;
 
 export async function readConnection(client: Database): Promise<Connection | null> {
 	const row = (await client.query<Row>(`select ${CONNECTION_COLUMNS} from activity.withings where id`)).rows[0];
@@ -70,7 +78,10 @@ export async function saveConnection(client: Database, secret: string, tokens: T
 			backfill_cursor = case when activity.withings.userid = excluded.userid then activity.withings.backfill_cursor else excluded.backfill_cursor end,
 			backfill_offset = case when activity.withings.userid = excluded.userid then activity.withings.backfill_offset else 0 end,
 			backfill_done_at = case when activity.withings.userid = excluded.userid then activity.withings.backfill_done_at else null end,
-			recent_synced_at = null`,
+			recent_synced_at = null,
+			meas_lastupdate = case when activity.withings.userid = excluded.userid then activity.withings.meas_lastupdate else null end,
+			meas_pending_lastupdate = case when activity.withings.userid = excluded.userid then activity.withings.meas_pending_lastupdate else null end,
+			meas_offset = case when activity.withings.userid = excluded.userid then activity.withings.meas_offset else 0 end`,
 		[tokens.userid, tokens.scope, await seal(secret, tokens.accessToken), await seal(secret, tokens.refreshToken), tokens.expiresAt, backfillFrom],
 	);
 }
@@ -95,7 +106,17 @@ export async function saveTokens(client: Database, secret: string, tokens: Token
 	]);
 }
 
-export type SyncProgress = { backfillCursor: string | null; backfillOffset: number; backfillDone: boolean; recentSynced: boolean; error: string | null };
+export type SyncProgress = {
+	backfillCursor: string | null;
+	backfillOffset: number;
+	backfillDone: boolean;
+	recentSynced: boolean;
+	measLastupdate: number | null;
+	measPendingLastupdate: number | null;
+	measOffset: number;
+	weightsSynced: boolean;
+	error: string | null;
+};
 
 export async function releaseConnection(client: Database, progress: SyncProgress): Promise<void> {
 	await client.query(
@@ -104,9 +125,21 @@ export async function releaseConnection(client: Database, progress: SyncProgress
 			backfill_done_at = case when $3 and backfill_done_at is null then now() else backfill_done_at end,
 			recent_synced_at = case when $4 then now() else recent_synced_at end,
 			last_error = $5, last_error_at = case when $5::text is null then last_error_at else now() end,
+			meas_lastupdate = $6, meas_pending_lastupdate = $7, meas_offset = $8,
+			weights_synced_at = case when $9 then now() else weights_synced_at end,
 			claimed_until = null
 		where id`,
-		[progress.backfillCursor, progress.backfillOffset, progress.backfillDone, progress.recentSynced, progress.error],
+		[
+			progress.backfillCursor,
+			progress.backfillOffset,
+			progress.backfillDone,
+			progress.recentSynced,
+			progress.error,
+			progress.measLastupdate,
+			progress.measPendingLastupdate,
+			progress.measOffset,
+			progress.weightsSynced,
+		],
 	);
 }
 

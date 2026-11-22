@@ -2,6 +2,7 @@ import { defineToolApi } from "../../worker/tool-api.ts";
 import { addDays, isIsoDate, today } from "./dates.ts";
 import { signState, verifyState } from "./secrets.ts";
 import { listDays, readConnection, saveConnection } from "./store.ts";
+import { weightReport } from "./weights.ts";
 import { authorizeUrl, credentials, exchangeCode, type Fetch } from "./withings.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -46,6 +47,12 @@ export function activityApi(fetcher: Fetch = fetch) {
 					{ headers: NO_STORE },
 				);
 			});
+		}
+		if (path === "/weights" && request.method === "GET") {
+			const to = url.searchParams.get("to") ?? today();
+			const from = url.searchParams.get("from") ?? addDays(to, -29);
+			if (!isIsoDate(from) || !isIsoDate(to) || from > to) return Response.json({ error: "Use dates like 2026-11-22, from on or before to" }, { status: 400 });
+			return Response.json(await db((client) => weightReport(client, from, to)), { headers: NO_STORE });
 		}
 		return Response.json({ error: "Not found" }, { status: 404 });
 	});

@@ -19,6 +19,15 @@ export default defineToolDebug(async ({ env, db }) => {
 			label: "Backfill",
 			value: connection.backfillCursor === null ? `Done${connection.backfillDoneAt === null ? "" : ` ${utc(connection.backfillDoneAt)}`}` : `In progress, next window ends ${connection.backfillCursor}`,
 		},
+		{
+			label: "Weights",
+			value:
+				connection.weightsSyncedAt === null
+					? connection.measOffset > 0
+						? "History in progress"
+						: "Not synced yet"
+					: `Synced ${utc(connection.weightsSyncedAt)}${connection.measOffset > 0 ? ", history in progress" : ""}`,
+		},
 	];
 	if (connection.lastError !== null) rows.push({ label: "Sync error", value: `${connection.lastError}${connection.lastErrorAt === null ? "" : ` (${utc(connection.lastErrorAt)})`}` });
 	return rows;

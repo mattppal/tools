@@ -96,6 +96,16 @@ export async function refreshTokens(fetcher: Fetch, creds: Credentials, refreshT
 	return toTokens(body, now);
 }
 
+export type MeasureGroup = { grpid: number; attrib: number; date: number; category?: number; model?: string | null; measures: { value: number; type: number; unit: number }[] };
+export type MeasurePage = { groups: MeasureGroup[]; more: boolean; offset: number; updatetime: number };
+
+export async function getWeights(fetcher: Fetch, accessToken: string, lastupdate: number, offset: number): Promise<MeasurePage> {
+	const form: Record<string, string> = { action: "getmeas", meastypes: "1,6,8", category: "1", lastupdate: String(lastupdate) };
+	if (offset > 0) form["offset"] = String(offset);
+	const body = await call<{ measuregrps?: MeasureGroup[]; more?: boolean | number; offset?: number; updatetime: number }>(fetcher, "/measure", form, accessToken);
+	return { groups: body.measuregrps ?? [], more: Boolean(body.more), offset: body.offset ?? 0, updatetime: body.updatetime };
+}
+
 export async function getActivity(fetcher: Fetch, accessToken: string, from: string, to: string, offset: number): Promise<ActivityPage> {
 	const form: Record<string, string> = { action: "getactivity", startdateymd: from, enddateymd: to, data_fields: DATA_FIELDS };
 	if (offset > 0) form["offset"] = String(offset);
