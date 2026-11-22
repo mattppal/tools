@@ -176,7 +176,7 @@ const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && r
 
 const REACHABLE: Record<string, readonly string[]> = {
 	nutrition: [...APP_ROUTES.filter(([tool, route]) => tool === "nutrition" && (route.startsWith("GET ") || route === "POST /mcp")).map(([tool, route]) => `${tool} ${route}`), "activity GET /days", "activity GET /weights", "activity GET /health"],
-	coach: [...APP_ROUTES.filter(([tool]) => tool === "workouts").map(([tool, route]) => `${tool} ${route}`), "activity GET /workouts"],
+	coach: [...APP_ROUTES.filter(([tool]) => tool === "workouts").map(([tool, route]) => `${tool} ${route}`), "activity GET /workouts", "activity GET /apple-health/workouts"],
 	coordinator: ["liaison GET /deliveries", "liaison POST /notices"],
 	smoke: [...SMOKE_READS, "nutrition POST /mcp"],
 	"apple-health": ["activity POST /apple-health"],
