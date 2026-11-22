@@ -312,7 +312,7 @@ export async function getExpenditure(client: Database, from: string, to: string)
 		`select avg(steps)::float as avg_steps, count(steps)::integer as step_days from (
 			select coalesce(a.steps, d.steps) as steps
 			from activity.daily_activity a full join nutrition.days d on d.day = a.day
-			where coalesce(a.day, d.day) between $1 and $2
+			where coalesce(a.day, d.day) between $1 and $2 and coalesce(a.steps, d.steps) > 0
 		) s`,
 		[from, to],
 	);
@@ -322,7 +322,7 @@ export async function getExpenditure(client: Database, from: string, to: string)
 
 export async function getHistory(client: Database): Promise<HistoryDay[]> {
 	const { rows } = await client.query<Row>(
-		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target, coalesce(a.steps, d.steps) as steps
+		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target, nullif(coalesce(a.steps, d.steps), 0) as steps
 		from nutrition.day_totals t join nutrition.days d on d.day = t.day left join activity.daily_activity a on a.day = t.day
 		order by t.day desc limit 400`,
 	);
