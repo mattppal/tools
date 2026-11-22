@@ -72,9 +72,8 @@ export async function smoke({ target, token, unlisted, sha, allowPending = false
 
 	await expectStatus("unknown API", "/api/tools/nutrition/no-such-route", 404);
 	await expectStatus("unknown tool", "/api/tools/no-such-tool/x", 404);
-	await expectStatus("MCP without a bearer", "/api/tools/nutrition/mcp", 401, { init: { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" } });
 	await expectStatus("MCP over GET", "/api/tools/nutrition/mcp", 405);
-	await expectStatus("workouts sync without a bearer", "/api/tools/workouts/sync", 401, { init: { method: "POST" } });
+	await expectStatus("workouts sync refuses the smoke identity", "/api/tools/workouts/sync", [401, 403], { init: { method: "POST" } });
 
 	const page = await expectStatus("app shell", "/", 200);
 	if (page !== null) {

@@ -21,7 +21,7 @@ function worker(overrides: Record<string, number> = {}): { fetcher: typeof fetch
 		if (pathname === "/build.json") return Response.json({ sha: SHA, branch: "main" });
 		if (pathname === "/api/health") return Response.json({ ok: true, db: {}, migrations: { pending: [], changed: [], unknown: [] } });
 		if (READ_ROUTES.includes(pathname)) return Response.json({});
-		if (pathname === "/api/tools/nutrition/mcp") return new Response(null, { status: request.method === "POST" ? 401 : 405 });
+		if (pathname === "/api/tools/nutrition/mcp") return new Response(null, { status: 405 });
 		if (pathname === "/api/tools/workouts/sync") return new Response(null, { status: 401 });
 		if (pathname === "/") return new Response('<link rel="icon" href="/favicon-32.png"><script type="module" src="/assets/index-x.js"></script>');
 		if (pathname === "/assets/index-x.js") return new Response('const logo="/assets/logo-x.png"');
