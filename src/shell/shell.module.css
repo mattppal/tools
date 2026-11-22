@@ -27,8 +27,6 @@
 	min-height: 0;
 	border-start-start-radius: var(--radius-xl);
 	border-end-start-radius: var(--radius-xl);
-	border: 0;
-	box-shadow: var(--shadow-raised);
 	background: var(--panel-bg);
 	color: var(--text-1);
 	overflow: hidden;
@@ -129,6 +127,5 @@
 @media (max-width: 767px) {
 	.panel {
 		border-radius: 0;
-		box-shadow: none;
 	}
 }

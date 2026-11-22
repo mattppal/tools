@@ -20,6 +20,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
 | `bun run check:style` | Fail on code comments, status dots and pills, and a tool that imports `withRequestDb`. `bun run build` runs it too. |
+| `bun run check:borderless` | Fail on a border or shadow that doesn't read the style tokens, a style token set outside `src/styles/hairline.css`, and any border on the shell's panes. `bun run build` runs it too. |
 | `bun run verify:webhooks` | Model-check webhook delivery with TLC. Needs Java 11 or newer. `skills/tools-verify-webhooks/SKILL.md` explains the results. |
 | `bun run notify [<for>] <label> --subject <text>` | Send a coordinator notice to the tools liaison (for the liaison itself unless `<for>` names a bot or `all`), body from stdin or `--body-file`. `--list` shows recent liaison deliveries. See `tools/liaison/SKILL.md`. |
 | `bun run icons` | Regenerate the favicons and app icons in `public/` from `src/assets/logo.png`. |

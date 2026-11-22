@@ -20,8 +20,10 @@ Read `skills/emil-design-eng/SKILL.md` before UI work.
 
 ## Edges
 
-- Hairlines by default: surfaces, cards, fields, buttons, and popovers draw `border: var(--border-width) solid var(--border-color)`, or the kit's `edge-surface` / `edge-raised` / `edge-overlay` utilities. Don't hard-code `1px solid`.
-- The shell's columns are the exception. The sidebar, the main pane, and the Details panel are separated by shade alone (`--chrome-bg`, `--panel-bg`, `--sunken-bg`) with no border, and so are their phone sheets. Don't add a line there.
+- Hairlines by default: surfaces, cards, fields, buttons, popovers, and dividers draw `border: var(--border-width) solid var(--border-color)` (or one side of it), or the kit's `edge-surface` / `edge-raised` / `edge-overlay` utilities. `edge-quiet` is the same width in transparent, for a row that gains an edge when active without shifting. A shadow reads `var(--shadow-surface|raised|overlay)`. Don't hard-code `1px solid`, `var(--line)` in a border, or a shadow of your own. Hairline ships the tokens as 1px `var(--line)` with every shadow `none`.
+- The shell's columns are the exception. The sidebar, the main pane, and the Details panel are separated by shade alone (`--chrome-bg`, `--panel-bg`, `--sunken-bg`) with no border or shadow, and so are their phone sheets. Don't add a line there.
+- `bun run check:borderless` holds these rules: a border or shadow passes only when it reads the tokens, only `src/styles/hairline.css` sets them, and `src/shell/shell.module.css` and `src/shell/tool-layout.module.css` take no border but `0` or `transparent`. `scripts/hairline.test.ts` pins Hairline's values.
+- Keyboard focus is a fill, not a ring. `--focus-ring` is `none`; `src/styles/focus.css` shifts a focused button or link to `--focus-fill` (default `--focus-bg`) and a field to `--field-focus`. A variant whose resting fill matches that sets `[--focus-fill:var(--…)]`. Only a target a fill can't mark, like a chart's SVG, gets `outline: 2px solid var(--focus-line)` on `:focus-visible`.
 - Before adding a border, check that the neighbor doesn't already draw one, so you never get a doubled line. Check light and dark at desktop and 390px.
 
 ## Layout
