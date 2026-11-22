@@ -1,3 +1,4 @@
+import logo from "../assets/logo.png";
 import { IconButton } from "../kit/button.tsx";
 import {
 	SidebarContent,
@@ -64,7 +65,7 @@ export function Nav({ onNavigate, onClose }: NavProps) {
 			<SidebarHeader>
 				<div className={styles.brand}>
 					<Link href="/" className={styles.brandLink} onClick={onNavigate}>
-						<img src="/favicon.svg" alt="" width={24} height={24} className={styles.logo} />
+						<img src={logo} alt="" width={24} height={24} />
 						<span>Tools</span>
 					</Link>
 					{onClose === undefined ? (

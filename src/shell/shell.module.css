@@ -56,10 +56,6 @@
 	text-decoration: none;
 }
 
-.logo {
-	border-radius: var(--radius-sm);
-}
-
 .brandAction {
 	margin-inline-start: auto;
 }
