@@ -32,6 +32,69 @@ export const BOT_READ_ROUTES = [
 const IMAGE_PATH = /["'`(](\/[\w./-]+\.(?:png|svg|webp|avif|jpe?g|gif|ico))["'`)]/g;
 const SCRIPT_PATH = /<script[^>]+src="(\/assets\/[\w.-]+\.js)"/g;
 
+export const TEST_DAY = "2099-01-01";
+export const SMOKE_TOOLS = ["discard_test_day", "get_phase_summary", "log_food", "update_day", "update_targets"];
+
+type McpResult = { isError?: boolean; content?: { text?: string }[]; structuredContent?: Record<string, unknown>; tools?: { name: string; inputSchema: Schema }[] };
+type Schema = { type?: string; additionalProperties?: unknown; properties?: Record<string, Schema>; items?: Schema; anyOf?: Schema[]; oneOf?: Schema[]; allOf?: Schema[] };
+type Get = (path: string, options?: { init?: RequestInit & { headers?: Record<string, string> } }) => Promise<Response>;
+type Recorder = (name: string, ok: boolean | null, detail: string) => void;
+
+function openObjects(schema: Schema, path: string): string[] {
+	const here = schema.type === "object" && schema.additionalProperties !== false ? [path] : [];
+	const children = [
+		...Object.entries(schema.properties ?? {}).map(([key, child]) => openObjects(child, `${path}.${key}`)),
+		...(schema.items === undefined ? [] : [openObjects(schema.items, `${path}[]`)]),
+		...[...(schema.anyOf ?? []), ...(schema.oneOf ?? []), ...(schema.allOf ?? [])].map((child) => openObjects(child, path)),
+	];
+	return [...here, ...children.flat()];
+}
+
+async function mcpChecks({ get, record }: { get: Get; record: Recorder }): Promise<void> {
+	let id = 0;
+	async function rpc(method: string, params?: unknown): Promise<McpResult> {
+		const response = await get("/api/tools/nutrition/mcp", {
+			init: { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }) },
+		});
+		if (response.status !== 200) throw new Error(`${method} answered HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`);
+		const body = (await response.json()) as { result?: McpResult; error?: { message?: string } };
+		if (body.result === undefined) throw new Error(`${method} answered a JSON-RPC error: ${body.error?.message ?? "no message"}`);
+		return body.result;
+	}
+	const call = (name: string, args: Record<string, unknown>) => rpc("tools/call", { name, arguments: args });
+	const text = (result: McpResult) => result.content?.[0]?.text ?? "";
+	const discard = async (name: string) => {
+		const result = await call("discard_test_day", { date: TEST_DAY });
+		record(name, result.isError !== true, result.isError === true ? text(result) : JSON.stringify(result.structuredContent));
+		return result.structuredContent;
+	};
+	const clientKey = `smoke:${crypto.randomUUID()}`;
+	try {
+		await discard("MCP discards leftovers first");
+		const listed = (await rpc("tools/list")).tools ?? [];
+		const names = listed.map((tool) => tool.name).toSorted();
+		record("MCP tools/list", JSON.stringify(names) === JSON.stringify(SMOKE_TOOLS), names.join(", "));
+		const open = listed.flatMap((tool) => openObjects(tool.inputSchema, tool.name));
+		record("MCP schemas are strict", open.length === 0, open.length === 0 ? "every object has additionalProperties: false" : `open: ${open.join(", ")}`);
+		const unknown = await call("update_day", { date: TEST_DAY, bodyweight: 180 });
+		record("MCP rejects an unknown argument", unknown.isError === true && text(unknown).startsWith("MCP error -32602") && text(unknown).includes("Unrecognized key"), text(unknown));
+		const realDay = await call("update_day", {});
+		record("MCP smoke identity refuses a real day", realDay.isError === true && text(realDay).includes(`only works on test days, ${TEST_DAY} or later`), text(realDay));
+		const food = { food: "TEST smoke check", qty: 1, unit: "g", kcal: 1, protein_g: 0, carbs_g: 0, fat_g: 0, client_key: clientKey };
+		await call("log_food", { date: TEST_DAY, add: [food] });
+		const retried = await call("log_food", { date: TEST_DAY, add: [food] });
+		const entries = (retried.structuredContent?.["entries"] as unknown[] | undefined)?.length;
+		record("MCP retried add is a no-op", retried.isError !== true && entries === 1, retried.isError === true ? text(retried) : `${entries} entries after two adds with one client_key`);
+		const weighed = await call("update_day", { date: TEST_DAY, bodyweight_lb: 180 });
+		record("MCP update_day writes a test day", weighed.isError !== true, weighed.isError === true ? text(weighed) : "bodyweight set");
+		const counts = await discard("MCP discards the test day");
+		record("MCP discard removed exactly what smoke wrote", counts?.["entries"] === 1 && counts["weighIns"] === 1 && counts["days"] === 1, JSON.stringify(counts));
+	} catch (error) {
+		record("MCP checks", false, error instanceof Error ? error.message : String(error));
+		await call("discard_test_day", { date: TEST_DAY }).catch((cleanup: unknown) => record("MCP cleanup after a failure", false, String(cleanup)));
+	}
+}
+
 export type Outcome = { name: string; ok: boolean | null; detail: string };
 export type SmokeOptions = { target: URL; token: AccessToken; unlisted: AccessToken | null; sha: string | null; allowPending?: boolean; fetcher?: typeof fetch };
 
@@ -78,7 +141,8 @@ export async function smoke({ target, token, unlisted, sha, allowPending = false
 	await expectStatus("unknown tool", "/api/tools/no-such-tool/x", 404);
 	await expectStatus("MCP over GET", "/api/tools/nutrition/mcp", 405);
 	for (const path of BOT_READ_ROUTES) await expectStatus(`bot read ${path} refuses the smoke identity`, path, [401, 403]);
-	await expectStatus("workouts sync refuses the smoke identity", "/api/tools/workouts/sync", [401, 403], { init: { method: "POST" } });
+	await expectStatus("workouts sync refuses the smoke identity", "/api/tools/workouts/sync", 403, { init: { method: "POST" } });
+	await mcpChecks({ get, record });
 
 	const page = await expectStatus("app shell", "/", 200);
 	if (page !== null) {

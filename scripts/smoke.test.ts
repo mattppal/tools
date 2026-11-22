@@ -1,5 +1,32 @@
+import { PGlite } from "@electric-sql/pglite";
 import { expect, test } from "bun:test";
-import { BOT_READ_ROUTES, isToolsOrigin, previewOrigin, READ_ROUTES, smoke, USER_AGENT } from "./smoke.ts";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import nutrition from "../tools/nutrition/api.ts";
+import type { Database, WithDb } from "../worker/db.ts";
+import { BOT_READ_ROUTES, isToolsOrigin, previewOrigin, READ_ROUTES, smoke, TEST_DAY, USER_AGENT } from "./smoke.ts";
+
+const pg = new PGlite();
+for (const slug of ["nutrition", "activity", "liaison"]) {
+	const dir = join(import.meta.dirname, "..", "tools", slug, "migrations");
+	const files = await Promise.all((await readdir(dir)).toSorted().map((name) => readFile(join(dir, name), "utf-8")));
+	await pg.exec(`create schema ${slug}; set search_path to ${slug}; ${files.join(";\n")}; set search_path to public;`);
+}
+const client = {
+	query: async (text: string, values?: unknown[]) => {
+		const result = await pg.query(text, values);
+		return { ...result, rowCount: result.affectedRows ?? result.rows.length };
+	},
+} as unknown as Database;
+const db: WithDb = (work) => work(client);
+
+async function rowsOnTestDay(): Promise<number> {
+	const { rows } = await pg.query<{ n: number }>(
+		"select (select count(*) from nutrition.days where day = $1) + (select count(*) from nutrition.food_entries where day = $1) + (select count(*) from nutrition.weigh_ins where measured_on = $1) as n",
+		[TEST_DAY],
+	);
+	return Number(rows[0]?.n);
+}
 
 const target = new URL("https://tools.example");
 const token = { id: "verify.access", secret: "s" };
@@ -22,8 +49,8 @@ function worker(overrides: Record<string, number> = {}): { fetcher: typeof fetch
 		if (pathname === "/api/health") return Response.json({ ok: true, db: {}, migrations: { pending: [], changed: [], unknown: [] } });
 		if (READ_ROUTES.includes(pathname)) return Response.json({});
 		if (BOT_READ_ROUTES.includes(pathname)) return Response.json({ error: "Forbidden: bot smoke may not call this route" }, { status: 403 });
-		if (pathname === "/api/tools/nutrition/mcp") return new Response(null, { status: 405 });
-		if (pathname === "/api/tools/workouts/sync") return new Response(null, { status: 401 });
+		if (pathname === "/api/tools/nutrition/mcp") return nutrition(request, { env: {} as Env, ctx: { waitUntil() {} } as never, path: "/mcp", db, caller: { kind: "bot", bot: "smoke" } });
+		if (pathname === "/api/tools/workouts/sync") return Response.json({ error: "Forbidden: bot smoke may not call POST /sync on workouts" }, { status: 403 });
 		if (pathname === "/") return new Response('<link rel="icon" href="/favicon-32.png"><script type="module" src="/assets/index-x.js"></script>');
 		if (pathname === "/assets/index-x.js") return new Response('const logo="/assets/logo-x.png"');
 		if (pathname.endsWith(".png")) return new Response(PNG, { headers: { "content-type": "image/png" } });
@@ -38,6 +65,27 @@ test("a healthy deploy passes every check and every request names itself", async
 	expect(outcomes.filter((outcome) => outcome.ok !== true)).toEqual([]);
 	expect(outcomes.map((outcome) => outcome.name)).toEqual(expect.arrayContaining(["image /favicon-32.png", "image /assets/logo-x.png", "unlisted service token", "no Access credentials"]));
 	expect(seen.every((request) => request.headers.get("user-agent") === USER_AGENT)).toBe(true);
+});
+
+test("the MCP checks clean up a cancelled run's leftovers first and leave nothing behind", async () => {
+	await pg.query("insert into nutrition.days (day) values ($1) on conflict do nothing", [TEST_DAY]);
+	const { fetcher } = worker();
+	const outcomes = await smoke({ target, token, unlisted, sha: SHA, fetcher });
+	const mcp = outcomes.filter((outcome) => outcome.name.startsWith("MCP") && outcome.name !== "MCP over GET");
+	expect(mcp.filter((outcome) => outcome.ok !== true)).toEqual([]);
+	expect(mcp.map((outcome) => outcome.name)).toEqual([
+		"MCP discards leftovers first",
+		"MCP tools/list",
+		"MCP schemas are strict",
+		"MCP rejects an unknown argument",
+		"MCP smoke identity refuses a real day",
+		"MCP retried add is a no-op",
+		"MCP update_day writes a test day",
+		"MCP discards the test day",
+		"MCP discard removed exactly what smoke wrote",
+	]);
+	expect(mcp[0]?.detail).toContain('"days":1');
+	expect(await rowsOnTestDay()).toBe(0);
 });
 
 test("a broken route and a stale deploy each fail by name", async () => {
