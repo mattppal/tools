@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isToolsOrigin, previewOrigin, READ_ROUTES, smoke, USER_AGENT } from "./smoke.ts";
+import { BOT_READ_ROUTES, isToolsOrigin, previewOrigin, READ_ROUTES, smoke, USER_AGENT } from "./smoke.ts";
 
 const target = new URL("https://tools.example");
 const token = { id: "verify.access", secret: "s" };
@@ -21,6 +21,7 @@ function worker(overrides: Record<string, number> = {}): { fetcher: typeof fetch
 		if (pathname === "/build.json") return Response.json({ sha: SHA, branch: "main" });
 		if (pathname === "/api/health") return Response.json({ ok: true, db: {}, migrations: { pending: [], changed: [], unknown: [] } });
 		if (READ_ROUTES.includes(pathname)) return Response.json({});
+		if (BOT_READ_ROUTES.includes(pathname)) return Response.json({ error: "Forbidden: bot smoke may not call this route" }, { status: 403 });
 		if (pathname === "/api/tools/nutrition/mcp") return new Response(null, { status: 405 });
 		if (pathname === "/api/tools/workouts/sync") return new Response(null, { status: 401 });
 		if (pathname === "/") return new Response('<link rel="icon" href="/favicon-32.png"><script type="module" src="/assets/index-x.js"></script>');
@@ -40,9 +41,9 @@ test("a healthy deploy passes every check and every request names itself", async
 });
 
 test("a broken route and a stale deploy each fail by name", async () => {
-	const { fetcher } = worker({ "/api/tools/activity/sleep": 500 });
+	const { fetcher } = worker({ "/api/tools/nutrition/phase": 500, "/api/tools/activity/sleep": 200 });
 	const failed = (await smoke({ target, token, unlisted, sha: "b".repeat(40), fetcher })).filter((outcome) => outcome.ok === false).map((outcome) => outcome.name);
-	expect(failed).toEqual(["build sha", "read /api/tools/activity/sleep"]);
+	expect(failed).toEqual(["build sha", "read /api/tools/nutrition/phase", "bot read /api/tools/activity/sleep refuses the smoke identity"]);
 });
 
 test("only production and tools previews get the Access token", () => {

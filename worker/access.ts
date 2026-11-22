@@ -20,7 +20,7 @@ export const BOTS = {
 		serviceToken: "coach-bot",
 		clientId: "e7234384aca5ccf0fe162d8a112c76b5.access",
 		bearer: "BOT_TOKEN_COACH",
-		tools: { workouts: "all", activity: ["GET /workouts"] },
+		tools: { workouts: "all", activity: ["GET /workouts", "GET /apple-health/workouts"] },
 	},
 	coordinator: {
 		serviceToken: "tools-coordinator",

@@ -27,6 +27,8 @@ No page. `tool.ts` is hidden, so the sidebar and home skip it, and its debug row
 | `GET /api/tools/activity/apple-health/workouts?from=&to=` | Apple Health workouts, with `withingsId` set when a Withings workout overlaps it in time. Default the last 30 days. |
 | `GET /api/tools/activity/weights?from=&to=` | Withings weigh-ins in the withings-weight plugin's shape: `daily` like its `get_weights`, and `trend` with `daily` and `summary` like its `trend_weight`. Default the last 30 days. |
 
+The GET routes above are for bots only and call `requireBot(request, context, "activity")`. The `activity` scope of each bot in `BOTS` in `worker/access.ts` lists the routes it may read: nutrition gets `/days`, `/weights` and `/health`, and coach gets `/workouts` and `/apple-health/workouts`. No bot reads `/sleep`, `/measures` or `/intraday`. A caller with no bot identity, Matt's browser included, gets 401, and a known bot outside its scope gets 403. To grant a route, add it to that bot's scope in `BOTS`.
+
 `worker/index.ts` maps `/api/withings/*` onto this tool's API, because the callback URL registered with Withings is fixed at `https://tools.mattpalmer.io/api/withings/callback`. Preview deployments can't connect.
 
 Secrets: `WITHINGS_CLIENT_ID` and `WITHINGS_CLIENT_SECRET`, set by Matt. While either is unset, connect answers 503, the cron does nothing, and Settings says so.

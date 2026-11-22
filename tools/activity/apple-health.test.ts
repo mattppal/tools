@@ -32,7 +32,7 @@ function post(body: string, authorization: string | null = `Bearer ${TOKEN}`, pa
 }
 
 async function get(path: string): Promise<Response> {
-	return api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`), { env, ctx, path: path.split("?")[0] ?? path, db, caller: { kind: "local" } });
+	return api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`), { env, ctx, path: path.split("?")[0] ?? path, db, caller: { kind: "bot", bot: "coach" } });
 }
 
 const rows = async (sql: string) => (await pg.query<Record<string, unknown>>(sql)).rows;

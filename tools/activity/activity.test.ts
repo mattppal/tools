@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
+import type { BotName } from "../../worker/access.ts";
 import { activityApi } from "./api.ts";
 import { addDays, today } from "./dates.ts";
 import { dailyHealth, dayStart, downsample, intradayDay, linkWorkouts, listMeasures, listSleep, listWorkouts, refreshWorkoutLinks } from "./health.ts";
@@ -63,6 +64,15 @@ const fakeWithings: Fetch = async (url, init) => {
 const api = activityApi(fakeWithings);
 const ctx = {} as ExecutionContext;
 const hit = (path: string, init?: RequestInit) => api(new Request(`https://tools.mattpalmer.io/api/withings${path}`, init), { env, ctx, path: `/withings${path.split("?")[0]}`, db, caller: { kind: "owner", email: "mattppalmer@gmail.com" } });
+
+const read = (path: string, caller: BotName | "owner") =>
+	api(new Request(`https://tools.mattpalmer.io/api/tools/activity${path}`), {
+		env,
+		ctx,
+		path: path.split("?")[0] ?? path,
+		db,
+		caller: caller === "owner" ? { kind: "owner", email: "mattppalmer@gmail.com" } : { kind: "bot", bot: caller },
+	});
 
 async function connect(): Promise<void> {
 	const state = await signState(creds.clientSecret);
@@ -446,7 +456,7 @@ test("workout links are rebuilt from the training log and shown on the workout",
 	await pg.query("insert into workouts.repo_files (path, kind, content, sha) values ('sessions/2026-11-18-run.json', 'session', $1, 'x')", [JSON.stringify({ date: "2026-11-18T06:10:00-08:00" })]);
 	expect(await refreshWorkoutLinks(client)).toBe(1);
 	expect((await listWorkouts(client, "2026-11-18", "2026-11-18"))[0]?.session).toEqual({ path: "sessions/2026-11-18-run.json", status: "matched", candidates: ["sessions/2026-11-18-run.json"] });
-	const response = await api(new Request("https://tools.mattpalmer.io/api/tools/activity/workouts?from=2026-11-18&to=2026-11-18"), { env, ctx, path: "/workouts", db, caller: { kind: "owner", email: "mattppalmer@gmail.com" } });
+	const response = await read("/workouts?from=2026-11-18&to=2026-11-18", "coach");
 	expect(((await response.json()) as { workouts: { session: { path: string } }[] }).workouts[0]?.session.path).toBe("sessions/2026-11-18-run.json");
 });
 
@@ -456,3 +466,14 @@ async function saveWorkoutsFromRun(): Promise<void> {
 	feedFor = (form) => (form.get("action") === "getworkouts" ? { series: [run], more: false, offset: 0 } : form.get("action") === "getsummary" ? { series: [], more: false, offset: 0 } : { measuregrps: [], more: false, offset: 0, updatetime: 1 });
 	await syncWithings(client, creds, fakeWithings);
 }
+
+test("activity reads are for bots, and each bot reads only its routes", async () => {
+	const routes = ["/days", "/weights", "/health", "/workouts", "/apple-health/workouts", "/sleep", "/measures", "/intraday"];
+	const status = async (caller: BotName | "owner") => Object.fromEntries(await Promise.all(routes.map(async (route) => [route, (await read(route, caller)).status])));
+	expect(await status("owner")).toEqual(Object.fromEntries(routes.map((route) => [route, 401])));
+	expect(await status("nutrition")).toEqual({ "/days": 200, "/weights": 200, "/health": 200, "/workouts": 403, "/apple-health/workouts": 403, "/sleep": 403, "/measures": 403, "/intraday": 403 });
+	expect(await status("coach")).toEqual({ "/days": 403, "/weights": 403, "/health": 403, "/workouts": 200, "/apple-health/workouts": 200, "/sleep": 403, "/measures": 403, "/intraday": 403 });
+	expect(Object.values(await status("apple-health")).every((code) => code === 403)).toBe(true);
+	expect(await (await read("/intraday", "coach")).json()).toEqual({ error: "Forbidden: bot coach may not call GET /intraday on activity" });
+	expect((await hit("/connect")).status).toBe(302);
+});

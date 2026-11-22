@@ -15,6 +15,7 @@ const STATE_COOKIE_PATH = "/api/withings/callback";
 const STATE_COOKIE_MAX_AGE_S = 15 * 60;
 const CLEAR_STATE = `${STATE_COOKIE}=; Path=${STATE_COOKIE_PATH}; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
 const OAUTH_ERROR = /^[a-z_]{1,64}$/;
+const BOT_READS = new Set(["/days", "/weights", "/health", "/workouts", "/sleep", "/measures", "/intraday", "/apple-health/workouts"]);
 
 function text(body: string, status = 200, headers: Record<string, string> = {}): Response {
 	return new Response(body, { status, headers: { ...NO_STORE, "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff", ...headers } });
@@ -65,6 +66,10 @@ export function activityApi(fetcher: Fetch = fetch) {
 					"set-cookie": `${STATE_COOKIE}=${state}; Path=${STATE_COOKIE_PATH}; Max-Age=${STATE_COOKIE_MAX_AGE_S}; HttpOnly; Secure; SameSite=Lax`,
 				},
 			});
+		}
+		if (request.method === "GET" && BOT_READS.has(path)) {
+			const bot = await requireBot(request, context, "activity");
+			if (bot instanceof Response) return bot;
 		}
 		if (path === "/days" && request.method === "GET") {
 			const to = url.searchParams.get("to") ?? today();
