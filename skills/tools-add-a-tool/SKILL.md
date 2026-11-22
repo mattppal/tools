@@ -15,6 +15,23 @@ description: How to add, change, or remove a tool in the tools repo. Covers the 
 
 The shell finds the tool by itself. Don't edit the sidebar, the homepage, or the router.
 
+## Reference tools
+
+Workouts and Nutrition are the working examples. Copy from the file that already does what you need.
+
+| Pattern | Look at |
+| --- | --- |
+| Sections, one page per path | `tools/nutrition/ui.tsx` (`VIEWS`) and `tools/nutrition/index.tsx` (`useToolPath()`) |
+| Details panel opened from your own control | `tools/nutrition/today.tsx` (entry form), `tools/workouts/session.tsx` (Review) |
+| API routes with input checks | `tools/workouts/api.ts`, `tools/nutrition/api.ts` |
+| Migrations and a tool schema | `tools/workouts/migrations/`, `tools/nutrition/migrations/` |
+| Bot MCP endpoint | `tools/nutrition/bot.ts` |
+| Bot-only HTTP route | `POST /sync` in `tools/workouts/api.ts` |
+| Webhook to a bot | `tools/workouts/webhook.ts`, `tools/nutrition/webhook.ts` |
+| Cron job | `tools/workouts/cron.ts` |
+| Debug rows on `/settings` | `tools/workouts/debug.ts` |
+| Tests against PGlite | `tools/workouts/workouts.test.ts`, `tools/nutrition/store.test.ts` |
+
 ## Folder contract
 
 | File | Required | Purpose |

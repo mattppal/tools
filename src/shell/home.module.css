@@ -21,12 +21,6 @@
 	letter-spacing: var(--tracking-display);
 }
 
-.lede {
-	margin: 0;
-	color: var(--text-2);
-	text-wrap: pretty;
-}
-
 .meta {
 	display: flex;
 	flex-wrap: wrap;
