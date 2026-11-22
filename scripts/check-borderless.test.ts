@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { findings } from "./check-borderless.ts";
+import { findings, listClasses } from "./check-borderless.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const css = (body: string) => `.probe {\n\t${body};\n}\n`;
@@ -38,10 +38,23 @@ describe("borderless gate", () => {
 		["a divide-y class", "tools/probe/index.tsx", "<ul className=\"flex flex-col divide-y\" />\n", "a row divider class"],
 		["a border-b class", "tools/probe/index.tsx", "<li className=\"border-b py-2\" />\n", "a row divider class"],
 		["an inline shadow", "tools/probe/index.tsx", "<div style={{ boxShadow: \"0 1px 2px black\" }} />\n", "a shadow"],
+		["a divider above the first item", "tools/probe/probe.module.css", ".goal:first-child {\n\tborder-top: var(--border-width) solid var(--border-color);\n}\n", "a row divider"],
+		["a divider between siblings", "tools/probe/probe.module.css", ".goal + .goal {\n\tborder-top: var(--border-width) solid var(--border-color);\n}\n", "a row divider"],
 	])("refuses %s", (_, file, source, mentions) => {
 		const found = findings(file, source);
 		expect(found).toHaveLength(1);
 		expect(found[0]).toContain(mentions);
+	});
+
+	test("refuses a divider on a class the markup puts on a list item or list", () => {
+		const markup = 'import styles from "./probe.module.css";\n<ul className={styles.goals}>\n\t<li key={id} className={cn(styles.goal, styles.open)}>\n</ul>\n<div className={styles.card} />\n';
+		const rows = listClasses(markup, "probe.module.css");
+		expect(rows).toEqual(["goals", "goal", "open"]);
+		const source = ".goal {\n\tborder-bottom: var(--border-width) solid var(--border-color);\n}\n.goals {\n\tborder-top: var(--border-width) solid var(--border-color);\n}\n.card {\n\tborder-bottom: var(--border-width) solid var(--border-color);\n}\n";
+		const found = findings("tools/probe/probe.module.css", source, rows);
+		expect(found).toHaveLength(2);
+		expect(found.every((line) => line.includes("a row divider"))).toBe(true);
+		expect(listClasses(markup, "other.module.css")).toEqual([]);
 	});
 
 	test("the repository passes", () => {

@@ -20,7 +20,7 @@ function Themes({ overview }: { overview: Overview }) {
 						{years.map((year) => {
 							const inYear = goals.filter((goal) => goal.area === area && goal.year === year);
 							return (
-								<div key={year} className={styles.themeYear}>
+								<div key={year} className={styles.themeRow}>
 									<dt>{year}</dt>
 									<dd>
 										{inYear.length === 0 ? (

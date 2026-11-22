@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -17,7 +17,9 @@ const EDGE_COLOR = /^(var\(--border-color\)|transparent)$/;
 const TOKEN_SHADOW = /^var\(--shadow-(surface|raised|overlay)\)$/;
 const ROW = /(^|[\s>+~])(tr|td|th|li|thead|tbody|tfoot)(?![\w-])|\.[\w-]*(row|Row|line|Line|entry|Entry|entries|Entries)(?![\w-])/;
 const TABLE_PART = /(^|[\s>+~.#:[\]])(tr|td|th|thead|tbody|tfoot)(?![\w-])/;
+const SIBLING = /[+~]|:(first|last|nth|only)-(child|of-type)|:nth-last-/;
 const HORIZONTAL = /^border-(top|bottom|block)/;
+const LIST_MARKUP = /<(ul|ol|dl|li|dt|dd|table|thead|tbody|tfoot|tr|td|th)\b[^>]*?className=\{([^}]*)\}/g;
 const ROW_CLASS = /(?<=["'`\s])(divide-[\w[\]()-]+|border-[tby](-[\w[\]()-]+)?)(?=["'`\s])/;
 
 type Declaration = { selector: string; property: string; value: string; offset: number };
@@ -57,29 +59,42 @@ function tokenBorder(property: string, value: string): boolean {
 	return width === "var(--border-width)" && style === "solid" && EDGE_COLOR.test(color.join(" "));
 }
 
-function rowSelector(selector: string, property: string): boolean {
-	const pattern = HORIZONTAL.test(property) ? ROW : TABLE_PART;
-	return selector.split(",").some((part) => pattern.test(part.trim().split(/\s*[\s>+~]\s*/).at(-1) ?? ""));
+export function listClasses(source: string, stylesheet: string): string[] {
+	const name = /import (\w+) from "\.\/([^"]+\.module\.css)"/.exec(source);
+	if (name?.[2] !== stylesheet) return [];
+	const used = new RegExp(`\\b${name[1]}\\.(\\w+)`, "g");
+	return [...source.matchAll(LIST_MARKUP)].flatMap((match) => [...(match[2] ?? "").matchAll(used)].map((found) => found[1] ?? ""));
+}
+
+function rowSelector(selector: string, property: string, rows: Set<string>): boolean {
+	const horizontal = HORIZONTAL.test(property);
+	return selector.split(",").some((part) => {
+		const last = part.trim().split(/\s*[\s>+~]\s*/).at(-1) ?? "";
+		if (!horizontal) return TABLE_PART.test(last);
+		const classes = [...last.matchAll(/\.([\w-]+)/g)].map((found) => found[1] ?? "");
+		return ROW.test(last) || SIBLING.test(part) || classes.some((name) => rows.has(name));
+	});
 }
 
 function drawsLine(value: string): boolean {
 	return !NO_BORDER.test(value) && !/\btransparent\b/.test(value);
 }
 
-function reason({ selector, property, value }: Declaration, file: string): string | null {
+function reason({ selector, property, value }: Declaration, file: string, rows: Set<string>): string | null {
 	if (STYLE_TOKEN.test(property)) return file === TOKENS ? null : `a style token set outside ${TOKENS}`;
 	if (BORDER.test(property) && PANES.has(file)) return NO_BORDER.test(value) || value === "transparent" ? null : "a pane edge border; the sidebar, main pane and Details panel separate by shade only";
-	if (BORDER.test(property) && rowSelector(selector, property) && drawsLine(value)) return `a row divider on "${selector}"; separate rows with spacing and the hover fill`;
+	if (BORDER.test(property) && rowSelector(selector, property, rows) && drawsLine(value)) return `a row divider on "${selector}"; separate rows with spacing and the hover fill`;
 	if (BORDER.test(property)) return NO_BORDER.test(value) || tokenBorder(property, value) ? null : "a border that doesn't read the style tokens";
 	if (SHADOW.test(property)) return NO_SHADOW.test(value) || TOKEN_SHADOW.test(value) ? null : "a shadow that doesn't read the style tokens";
 	if (/drop-shadow\(/.test(value)) return "a shadow";
 	return null;
 }
 
-export function findings(file: string, source: string): string[] {
+export function findings(file: string, source: string, rows: Iterable<string> = []): string[] {
 	if (file.endsWith(".css")) {
+		const rowClasses = new Set(rows);
 		return declarations(source).flatMap((declaration) => {
-			const found = reason(declaration, file);
+			const found = reason(declaration, file, rowClasses);
 			return found === null ? [] : [`${file}:${lineAt(source, declaration.offset)} uses ${found} in "${declaration.property}: ${declaration.value}"`];
 		});
 	}
@@ -92,7 +107,9 @@ export function findings(file: string, source: string): string[] {
 
 if (import.meta.main) {
 	const files = process.argv.length > 2 ? process.argv.slice(2).map((file) => relative(ROOT, resolve(file))) : SCANNED.flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: ROOT, onlyFiles: true })]).filter((file) => !/\.test\.tsx?$/.test(file));
-	const found = files.sort().flatMap((file) => findings(file, readFileSync(resolve(ROOT, file), "utf8")));
+	const markup = SCANNED.flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: ROOT, onlyFiles: true })]).filter((file) => file.endsWith(".tsx"));
+	const rowsOf = (stylesheet: string) => markup.filter((file) => dirname(file) === dirname(stylesheet)).flatMap((file) => listClasses(readFileSync(join(ROOT, file), "utf8"), basename(stylesheet)));
+	const found = files.sort().flatMap((file) => findings(file, readFileSync(resolve(ROOT, file), "utf8"), file.endsWith(".module.css") ? rowsOf(file) : []));
 	if (found.length > 0) {
 		console.error(found.join("\n"));
 		console.error(`\n${found.length} borders or shadows found. A border reads the style tokens: border: var(--border-width) solid var(--border-color), or an edge-* utility from src/styles/kit.css. A shadow reads var(--shadow-surface|raised|overlay). Only ${TOKENS}, generated from src/styles/presets/hairline.json, sets them; they ship as Hairline, 1px var(--line) with no shadows and no focus ring. The shell's panes in ${[...PANES].join(" and ")} take no border at all, and table rows and list rows take no dividers.`);
