@@ -264,17 +264,79 @@
 	height: 48px;
 }
 
-.weightHead {
+.controls {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: flex-end;
+	align-items: center;
 	justify-content: space-between;
-	gap: var(--space-3);
+	gap: var(--space-2) var(--space-3);
 }
 
 .segmented {
 	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-1);
+}
+
+.dates {
+	display: flex;
+	gap: var(--space-2);
+}
+
+.dateField {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+}
+
+.dateField input {
+	width: auto;
+	font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 767px) {
+	.dates {
+		width: 100%;
+	}
+
+	.dateField {
+		flex: 1;
+	}
+
+	.dateField input {
+		flex: 1;
+		font-size: 16px;
+	}
+}
+
+.summary {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: var(--space-3);
+	margin: var(--space-2) 0 0;
+}
+
+.summary dt {
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+}
+
+.summary dd {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+	.summary {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
 }
 
 .chart {
@@ -285,6 +347,150 @@
 .chart svg {
 	display: block;
 	overflow: visible;
+	touch-action: pan-y;
+	user-select: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.chart svg {
+		cursor: crosshair;
+	}
+}
+
+.hint {
+	display: none;
+	margin: calc(-1 * var(--space-2)) 0 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.hint {
+		display: block;
+	}
+}
+
+.trend {
+	fill: none;
+	stroke: var(--chart-accent);
+	stroke-width: 2;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+}
+
+.areaTop {
+	stop-color: var(--chart-accent);
+	stop-opacity: 0.16;
+}
+
+.areaBottom {
+	stop-color: var(--chart-accent);
+	stop-opacity: 0;
+}
+
+.brush {
+	fill: var(--chart-accent);
+	opacity: 0.12;
+}
+
+.weightTable {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin-top: var(--space-3);
+}
+
+.sortButton {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+	transition: color var(--duration-hover) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.sortButton:hover {
+		color: var(--text-1);
+	}
+}
+
+.sortMark {
+	display: inline-block;
+	width: 1ch;
+}
+
+th[aria-sort] .sortButton {
+	color: var(--text-1);
+}
+
+.weightCell {
+	color: var(--text-1);
+}
+
+.weightTable .table th:last-child,
+.weightTable .table td:last-child {
+	text-align: right;
+}
+
+.pager {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+@media (max-width: 639px) {
+	.weightTable .table,
+	.weightTable .table tbody {
+		display: block;
+	}
+
+	.weightTable .table thead tr {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1) var(--space-4);
+		padding-bottom: var(--space-2);
+		border-bottom: var(--border-width) solid var(--border-color);
+	}
+
+	.weightTable .table th {
+		padding: 0;
+		border: 0;
+	}
+
+	.weightTable .table tbody tr {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		padding: var(--space-2) var(--space-1);
+		border-bottom: var(--border-width) solid var(--border-color);
+	}
+
+	.weightTable .table td {
+		padding: 0;
+		border: 0;
+		text-align: left;
+	}
+
+	.weightTable .table td:nth-child(2),
+	.weightTable .table td:nth-child(4) {
+		text-align: right;
+	}
+
+	.weightTable .table td[data-label] {
+		font-size: var(--text-xs);
+		line-height: var(--leading-xs);
+		color: var(--text-3);
+	}
+
+	.weightTable .table td[data-label]::before {
+		content: attr(data-label) " ";
+	}
 }
 
 .chartSkeleton {
@@ -305,31 +511,6 @@
 .point {
 	fill: var(--text-3);
 	opacity: 0.55;
-}
-
-.trend7,
-.trend14,
-.trend28 {
-	fill: none;
-	stroke-linejoin: round;
-	stroke-linecap: round;
-}
-
-.trend7 {
-	stroke: var(--text-1);
-	stroke-width: 2;
-}
-
-.trend14 {
-	stroke: var(--text-2);
-	stroke-width: 1.25;
-	opacity: 0.6;
-}
-
-.trend28 {
-	stroke: var(--text-3);
-	stroke-width: 1.25;
-	opacity: 0.45;
 }
 
 .card {

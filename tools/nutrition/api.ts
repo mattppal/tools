@@ -2,13 +2,12 @@ import { z } from "zod";
 import { defineToolApi } from "../../worker/tool-api.ts";
 import { deliverSoon } from "../../worker/webhooks.ts";
 import { nutritionMcp } from "./bot.ts";
-import { addDays, today } from "./dates.ts";
+import { today } from "./dates.ts";
 import { foodChanges, isoDate } from "./schemas.ts";
 import { changeFood, closeDayFromUi, getDay, getHistory, getPhase, getWeights, Rejected, updateDay } from "./store.ts";
 import webhook from "./webhook.ts";
 
 const dated = z.object({ date: isoDate });
-const RANGES: Record<string, number | null> = { "90d": 90, "1y": 365, all: null };
 
 async function body<T extends z.ZodType>(request: Request, schema: T): Promise<z.infer<T>> {
 	const parsed = schema.safeParse(await request.json().catch(() => undefined));
@@ -47,11 +46,8 @@ export default defineToolApi(async (request, context) => {
 			}
 			case "GET /history":
 				return Response.json(await db(getHistory));
-			case "GET /weights": {
-				const days = RANGES[url.searchParams.get("range") ?? "90d"];
-				if (days === undefined) throw new Rejected("Range is 90d, 1y, or all");
-				return Response.json(await db((client) => getWeights(client, days === null ? null : addDays(today(), -days))));
-			}
+			case "GET /weights":
+				return Response.json(await db(getWeights));
 			case "GET /phase":
 				return Response.json(await db((client) => getPhase(client)));
 			default:

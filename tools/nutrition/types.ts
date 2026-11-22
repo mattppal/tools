@@ -48,7 +48,7 @@ export type DayView = {
 
 export type HistoryDay = { date: string; closed: boolean; entries: number } & Record<Macro, number>;
 
-export type WeightRow = { date: string; weight: number; rolling7d: number; rolling14d: number; rolling28d: number };
+export type WeightRow = { date: string; weight: number; rolling7d: number; rolling14d: number; source: string };
 
 export function macroProgress(totals: Totals, targets: Targets): Record<Macro, MacroProgress> {
 	const progress = {} as Record<Macro, MacroProgress>;
