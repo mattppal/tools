@@ -359,7 +359,7 @@
 	width: 20px;
 	height: 20px;
 	border-radius: 50%;
-	background: var(--hover-bg);
+	background: color-mix(in oklab, var(--text-1) 14%, transparent);
 	object-fit: cover;
 }
 
