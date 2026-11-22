@@ -67,6 +67,7 @@ gh run download "$run" --repo mattppal/tools --name screenshots --dir <dir>
 ```
 
 - To get screenshots of something else, such as a preview or a new page, a worker can't dispatch the workflow, because its `gh` is read-only. Ask the coordinator to dispatch `screenshots` with the `target` and `only` you need, then fetch that run the same way, using `--event workflow_dispatch` in place of `--branch main`. A new `SHOTS` entry is captured on the next push to `main` after it lands.
+- The app ships no webfont. It asks for a locally installed Inter first, so the workflow installs `fonts-inter`. Each shot fails unless Chrome actually rendered `<main>` in Inter; run it locally only where Inter is installed.
 - A failed shot fails the run, but the artifact still holds every shot that worked.
 
 ## Bot credentials

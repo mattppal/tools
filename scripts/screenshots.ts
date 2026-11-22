@@ -23,6 +23,7 @@ export const SHOTS: Shot[] = [
 ];
 
 const SCALE = 2;
+export const FONT = "Inter";
 const START_TIMEOUT_MS = 30_000;
 const PAGE_TIMEOUT_MS = 20_000;
 const SETTLE_MS = 800;
@@ -82,6 +83,19 @@ async function openChrome(port: number): Promise<{ send: (method: string, params
 	};
 }
 
+async function renderedFonts(send: (method: string, params?: object) => Promise<Message>): Promise<string[]> {
+	await send("DOM.enable");
+	await send("CSS.enable");
+	const root = (await send("DOM.getDocument", { depth: 0 })).result?.["root"] as { nodeId: number };
+	const { nodeIds } = (await send("DOM.querySelectorAll", { nodeId: root.nodeId, selector: "main *" })).result as { nodeIds: number[] };
+	const used = new Set<string>();
+	for (const nodeId of nodeIds.slice(0, 40)) {
+		const fonts = (await send("CSS.getPlatformFontsForNode", { nodeId })).result?.["fonts"] as { familyName: string }[] | undefined;
+		for (const font of fonts ?? []) used.add(font.familyName);
+	}
+	return [...used];
+}
+
 export async function screenshots({ target, token, out, only }: { target: URL; token: { id: string; secret: string }; out: string; only: string | null }): Promise<string[]> {
 	const proxy = serveLiveProxy({ port: 0, target, token });
 	const base = `http://127.0.0.1:${proxy.port}`;
@@ -120,6 +134,8 @@ export async function screenshots({ target, token, out, only }: { target: URL; t
 					for (const text of shot.waitFor ?? []) await button(text, false);
 					await evaluate("document.fonts.ready.then(() => true)");
 					await Bun.sleep(SETTLE_MS);
+					const used = await renderedFonts(browser.send);
+					if (!used.some((family) => family.startsWith(FONT))) throw new Error(`Chrome rendered ${shot.path} in ${used.join(", ") || "no font"}, not ${FONT}. Install ${FONT} first.`);
 					const capture = await browser.send("Page.captureScreenshot", { format: "png" });
 					await writeFile(join(out, file), Buffer.from(String(capture.result?.["data"]), "base64"));
 					written.push(file);

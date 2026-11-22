@@ -33,6 +33,11 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      - name: Install Inter, the font the app asks for first
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends fonts-inter
+          fc-match Inter | grep -q Inter
       - name: Screenshot the live app as tools-agent-verify
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
