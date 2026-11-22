@@ -19,11 +19,14 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
 | `bun run icons` | Regenerate the favicons and app icons in `public/` from `src/assets/logo.png`. |
+| `bun run land <pr>` | Merge a PR: fast-forward `main` to its head once it contains `main` and every check is green, then confirm GitHub shows it merged. |
 | `bun run deploy` | Build and deploy to production. Workers Builds does this on push to `main`. |
 | `bun run preview` | Build and upload a preview with `wrangler preview`. |
 | `bunx wrangler types` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc`. |
 
-Run `bun run build`, `bun run typecheck`, and `bun run test` before you push.
+Run `bun run build`, `bun run typecheck`, and `bun run test` before you push. The `checks` workflow runs the same three on every PR and on `main`.
+
+Land a PR only with `bun run land <pr>`. Pushing anything else to `main`, such as a local squash, leaves GitHub showing the PR closed instead of merged.
 
 ## Database
 
