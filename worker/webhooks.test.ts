@@ -34,11 +34,12 @@ const db: WithDb = (work) =>
 const received: { authorization: string | null; delivery: string | null; body: unknown }[] = [];
 let respondWith = 200;
 let respondBody: string | null = null;
+let respondHeaders: Record<string, string> = {};
 const server = Bun.serve({
 	port: 0,
 	async fetch(request) {
 		received.push({ authorization: request.headers.get("authorization"), delivery: request.headers.get("x-test-delivery"), body: await request.json() });
-		return new Response(respondBody, { status: respondWith });
+		return new Response(respondBody, { status: respondWith, headers: respondHeaders });
 	},
 });
 afterAll(() => server.stop(true));
@@ -59,6 +60,7 @@ beforeEach(async () => {
 	received.length = 0;
 	respondWith = 200;
 	respondBody = null;
+	respondHeaders = {};
 	await pg.exec("delete from hooks.deliveries");
 	await pg.query("insert into hooks.deliveries (delivery_id, payload, next_attempt_at) values ($1, $2, now() + interval '1 minute')", [ID, { event: "test", deliveryId: ID }]);
 });
@@ -115,6 +117,28 @@ test("an event the envelope doesn't declare is recorded as an error and never se
 	const { last_error } = (await pg.query<{ last_error: string }>("select last_error from hooks.deliveries where delivery_id = $1", [ID])).rows[0] ?? { last_error: "" };
 	expect(last_error).toBe('Payload event "test" is not one of hooks\'s events: other');
 	expect(await row()).toMatchObject({ attempts: 1, last_status: null, delivered_at: null });
+});
+
+async function lastError(): Promise<string> {
+	return (await pg.query<{ last_error: string }>("select last_error from hooks.deliveries where delivery_id = $1", [ID])).rows[0]?.last_error ?? "";
+}
+
+test("never follows a redirect, so the key only goes to the configured URL", async () => {
+	respondWith = 307;
+	respondHeaders = { location: new URL("/elsewhere", server.url).href };
+	expect(await deliverDue(db, webhook, env, [ID])).toBe(0);
+	expect(received).toHaveLength(1);
+	expect(await row()).toMatchObject({ attempts: 1, last_status: 307, delivered_at: null });
+	expect(await lastError()).toStartWith("HTTP 307: redirects are not followed");
+});
+
+test("refuses a plain-http or credentialed URL without sending the key", async () => {
+	for (const url of ["http://hooks.example/run", "https://user:pass@hooks.example/run", "not a url"]) {
+		await pg.exec("update hooks.deliveries set next_attempt_at = now(), attempts = 0");
+		expect(await deliverDue(db, webhook, { TEST_WEBHOOK_URL: url, TEST_WEBHOOK_KEY: KEY } as Env, [ID])).toBe(0);
+		expect(await lastError()).toStartWith("Webhook URL");
+	}
+	expect(received).toHaveLength(0);
 });
 
 test("waits without a target", async () => {

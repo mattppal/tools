@@ -16,6 +16,7 @@ const CLAIM_SECONDS = 60;
 const BATCH_SIZE = 20;
 const SEND_TIMEOUT_MS = 10_000;
 const ERROR_DETAIL_CHARS = 200;
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 export function defineWebhook(webhook: Webhook): Webhook {
 	return webhook;
@@ -40,14 +41,33 @@ export function retryDelayMinutes(attempts: number): number {
 	return BACKOFF_MINUTES[Math.min(Math.max(attempts, 1), BACKOFF_MINUTES.length) - 1] ?? 60;
 }
 
+export function unsafeTargetUrl(url: string): string | null {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return "Webhook URL is not a valid URL";
+	}
+	if (parsed.username !== "" || parsed.password !== "") return "Webhook URL must not carry credentials; the key goes in its own secret";
+	if (parsed.protocol === "https:" || (parsed.protocol === "http:" && LOOPBACK.has(parsed.hostname))) return null;
+	return "Webhook URL must use https, so the key is never sent in the clear";
+}
+
 export async function sendWebhook(target: WebhookTarget, deliveryId: string, body: unknown): Promise<Attempt> {
+	const unsafe = unsafeTargetUrl(target.url);
+	if (unsafe !== null) return { status: null, error: unsafe };
 	try {
 		const response = await fetch(target.url, {
 			method: "POST",
 			headers: { authorization: `Bearer ${target.key}`, [target.deliveryHeader]: deliveryId, "content-type": "application/json" },
 			body: JSON.stringify(body),
+			redirect: "manual",
 			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
 		});
+		if (response.status >= 300 && response.status < 400) {
+			await response.body?.cancel();
+			return { status: response.status, error: `HTTP ${response.status}: redirects are not followed, so the key stays with the configured URL. Set the webhook URL to the final address.` };
+		}
 		if (response.ok) {
 			await response.body?.cancel();
 			return { status: response.status, error: null };
