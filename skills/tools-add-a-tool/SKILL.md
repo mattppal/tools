@@ -29,10 +29,10 @@ Keep everything a tool needs inside its folder. Shared code goes in `src/` only 
 
 ## API and data
 
-`api.ts` receives `(request, { env, ctx, path, db })`. `path` is the part after `/api/tools/<slug>`. `db(async (client) => ...)` opens a Postgres connection through Hyperdrive and closes it afterwards.
+`api.ts` receives `(request, { env, ctx, path, db })`. `path` is the part after `/api/tools/<slug>`. `db(async (client) => ...)` runs on the request's single Postgres connection through Hyperdrive. The first call opens it, and the Worker closes it after the response, so finish database work before the handler returns.
 
-Only add tables a tool needs. Prefix them with the slug (`<slug>_items`) so tools don't collide. Write the DDL as `create table if not exists` in `tools/<slug>/schema.sql`, apply it with `psql` against the `tools` database, and document each table in the tool's `SKILL.md`.
+Only add tables a tool needs. A tool's tables live in its own schema, named after the slug with `-` replaced by `_`. Write each change as a numbered file in `tools/<slug>/migrations/` (`0001-create-items.sql`), apply it with `bun run migrate`, and never edit an applied file. Qualify table names with the schema in queries (`my_tool.items`). Document each table in the tool's `SKILL.md`. `docs/database.md` has the full rules.
 
 ## Remove a tool
 
-Delete `tools/<slug>/`. Drop its tables if it had any.
+Delete `tools/<slug>/`. If it had migrations, run `drop schema <schema> cascade`.

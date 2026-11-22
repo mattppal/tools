@@ -19,6 +19,8 @@ This repo is one Cloudflare Worker that serves a homepage and a directory of too
 | Task | Skill |
 | --- | --- |
 | Run, build, deploy, preview, local database | `skills/tools-commands/SKILL.md` |
+| Tables, queries, migrations, connections | `docs/database.md`, then PlanetScale's `skills/postgres/SKILL.md` |
+| Review the PlanetScale database: safety, query load, Traffic Control | `skills/planetscale-postgres-safety-review/SKILL.md` |
 | Add or change a tool | `skills/tools-add-a-tool/SKILL.md` |
 | Layout, sidebars, styling, mobile, PWA | `skills/tools-styling/SKILL.md` |
 | Deploys, domain, Access, previews | `skills/tools-deploy/SKILL.md` |

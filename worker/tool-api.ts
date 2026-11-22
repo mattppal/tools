@@ -1,10 +1,10 @@
-import type { Database } from "./db.ts";
+import type { WithDb } from "./db.ts";
 
 export type ToolApiContext = {
 	env: Env;
 	ctx: ExecutionContext;
 	path: string;
-	db: <T>(work: (db: Database) => Promise<T>) => Promise<T>;
+	db: WithDb;
 };
 
 export type ToolApi = (request: Request, context: ToolApiContext) => Response | Promise<Response>;

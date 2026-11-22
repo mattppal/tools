@@ -1,4 +1,4 @@
-import { withDb } from "./db.ts";
+import { type WithDb, withRequestDb } from "./db.ts";
 import type { ToolApi } from "./tool-api.ts";
 
 const apis = import.meta.glob<{ default: ToolApi }>("../tools/*/api.ts", { eager: true });
@@ -13,32 +13,46 @@ const TOOL_APIS = new Map(
 
 const TOOL_API_PATH = /^\/api\/tools\/([a-z0-9-]+)(\/.*)?$/;
 
-async function health(env: Env): Promise<Response> {
+export type HealthReport =
+	| { ok: true; db: { latencyMs: number; connectMs: number; queryMs: number } }
+	| { ok: false; db: { latencyMs: number; error: string } };
+
+async function checkDb(withDb: WithDb): Promise<HealthReport> {
 	const started = Date.now();
 	try {
-		const row = await withDb(env, async (db) => {
-			const result = await db.query<{ now: Date; version: string }>("select now() as now, current_setting('server_version') as version");
-			return result.rows[0];
+		const [connected, queried] = await withDb(async (db): Promise<[number, number]> => {
+			const connectedAt = Date.now();
+			await db.query("select now()");
+			return [connectedAt, Date.now()];
 		});
-		return Response.json({ ok: true, db: { ok: true, latencyMs: Date.now() - started, now: row?.now, version: row?.version } });
+		return { ok: true, db: { latencyMs: queried - started, connectMs: connected - started, queryMs: queried - connected } };
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return Response.json({ ok: false, db: { ok: false, latencyMs: Date.now() - started, error: message } }, { status: 503 });
+		return { ok: false, db: { latencyMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) } };
+	}
+}
+
+async function handleApi(request: Request, env: Env, ctx: ExecutionContext, withDb: WithDb): Promise<Response> {
+	const { pathname } = new URL(request.url);
+	if (pathname === "/api/health") {
+		const report = await checkDb(withDb);
+		return Response.json(report, { status: report.ok ? 200 : 503, headers: { "cache-control": "no-store" } });
+	}
+	const match = TOOL_API_PATH.exec(pathname);
+	if (match === null) return Response.json({ error: "Not found" }, { status: 404 });
+	const [, slug = "", rest = "/"] = match;
+	const api = TOOL_APIS.get(slug);
+	if (api === undefined) return Response.json({ error: `No API for tool "${slug}"` }, { status: 404 });
+	try {
+		return await api(request, { env, ctx, path: rest, db: withDb });
+	} catch (error) {
+		console.error(`Tool API ${slug} failed on ${request.method} ${rest}`, error);
+		return Response.json({ error: "Internal error" }, { status: 500 });
 	}
 }
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		const url = new URL(request.url);
-		if (url.pathname === "/api/health") return health(env);
-		const match = TOOL_API_PATH.exec(url.pathname);
-		if (match !== null) {
-			const [, slug = "", rest = "/"] = match;
-			const api = TOOL_APIS.get(slug);
-			if (api === undefined) return Response.json({ error: `No API for tool "${slug}"` }, { status: 404 });
-			return api(request, { env, ctx, path: rest, db: (work) => withDb(env, work) });
-		}
-		if (url.pathname.startsWith("/api/")) return Response.json({ error: "Not found" }, { status: 404 });
-		return env.ASSETS.fetch(request);
+		if (!new URL(request.url).pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+		return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
 	},
 } satisfies ExportedHandler<Env>;

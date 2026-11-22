@@ -16,7 +16,7 @@
 		{
 			"binding": "DB",
 			"id": "1fce713944994e84ada0aefed7e29dec",
-			"localConnectionString": "postgresql://postgres@127.0.0.1:5432/postgres"
+			"localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
 		}
 	],
 	"previews": {

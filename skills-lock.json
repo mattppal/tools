@@ -141,6 +141,34 @@
       "skillPath": "harness/pstack/claude-code/skills/no-comments/SKILL.md",
       "computedHash": "f3479cfe3a44633cf6973aa33810bd52c72ce0aada00bff9aaaef512c67245c0"
     },
+    "planetscale-postgres-safety-review": {
+      "source": "planetscale/skills",
+      "commit": "999045cfbad79222f38a99599eb96bc736feabee",
+      "sourceType": "github",
+      "skillPath": "planetscale-postgres-safety-review/SKILL.md",
+      "computedHash": "b5aff982810dc058c1fe456b7b9504bc2ed48bb0252c20e1588f0df05afbdf69"
+    },
+    "planetscale-query-insights-and-tags": {
+      "source": "planetscale/skills",
+      "commit": "999045cfbad79222f38a99599eb96bc736feabee",
+      "sourceType": "github",
+      "skillPath": "planetscale-query-insights-and-tags/SKILL.md",
+      "computedHash": "41c3b4531a5e3c48f65f3ef98d06d000ff411d7c94b97aebb0059f30b72ef88b"
+    },
+    "planetscale-traffic-control-recommendations": {
+      "source": "planetscale/skills",
+      "commit": "999045cfbad79222f38a99599eb96bc736feabee",
+      "sourceType": "github",
+      "skillPath": "planetscale-traffic-control-recommendations/SKILL.md",
+      "computedHash": "430c044f62d8f411ea510fd531155af51267d4ed04a8d67a3fa21bffe7688042"
+    },
+    "postgres": {
+      "source": "planetscale/database-skills",
+      "commit": "f6ed002d03084cb39c01d1d58904d47a36f5322a",
+      "sourceType": "github",
+      "skillPath": "skills/postgres/SKILL.md",
+      "computedHash": "16e451102fbc0c5daf2f8fe01c860b68a7fd272207f8f59ccf8dbfda98254442"
+    },
     "poteto-help": {
       "source": "cursor/plugins",
       "commit": "7a583913eb1b8d1a0ee76753d1a2cf072e7b54f9",

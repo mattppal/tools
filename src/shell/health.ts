@@ -1,34 +1,61 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+import type { HealthReport } from "../../worker/index.ts";
 
-export type Health =
-	| { state: "checking" }
-	| { state: "ok"; latencyMs: number; version: string | undefined }
-	| { state: "down"; error: string };
+export type Health = { state: "checking" } | { state: "ok"; latencyMs: number } | { state: "down"; error: string };
 
-type HealthBody = { ok: boolean; db?: { latencyMs?: number; version?: string; error?: string } };
+const RECHECK_AFTER_MS = 30_000;
+
+function isHealthReport(body: unknown): body is HealthReport {
+	if (typeof body !== "object" || body === null || !("ok" in body) || !("db" in body)) return false;
+	const { ok, db } = body;
+	if (typeof db !== "object" || db === null) return false;
+	return ok === true ? "latencyMs" in db && typeof db.latencyMs === "number" : ok === false && "error" in db && typeof db.error === "string";
+}
 
 export async function checkHealth(): Promise<Health> {
 	try {
 		const response = await fetch("/api/health", { cache: "no-store" });
-		const body: HealthBody = await response.json();
-		if (body.ok) return { state: "ok", latencyMs: body.db?.latencyMs ?? 0, version: body.db?.version };
-		return { state: "down", error: body.db?.error ?? `HTTP ${response.status}` };
+		const body: unknown = response.headers.get("content-type")?.includes("application/json") ? await response.json() : null;
+		if (!isHealthReport(body)) return { state: "down", error: `Unexpected response (HTTP ${response.status})` };
+		return body.ok ? { state: "ok", latencyMs: body.db.latencyMs } : { state: "down", error: body.db.error };
 	} catch (error) {
 		return { state: "down", error: error instanceof Error ? error.message : "Network error" };
 	}
 }
 
-let shared: Promise<Health> | null = null;
+let current: Health = { state: "checking" };
+let checkedAt = 0;
+let inflight: Promise<void> | null = null;
+const listeners = new Set<() => void>();
+
+function recheck(): void {
+	inflight ??= checkHealth().then((next) => {
+		current = next;
+		checkedAt = Date.now();
+		inflight = null;
+		for (const listener of listeners) listener();
+	});
+}
+
+function recheckIfStale(): void {
+	if (document.visibilityState === "visible" && Date.now() - checkedAt >= RECHECK_AFTER_MS) recheck();
+}
+
+function subscribe(listener: () => void): () => void {
+	listeners.add(listener);
+	if (listeners.size === 1) {
+		window.addEventListener("online", recheck);
+		document.addEventListener("visibilitychange", recheckIfStale);
+	}
+	recheckIfStale();
+	return () => {
+		listeners.delete(listener);
+		if (listeners.size > 0) return;
+		window.removeEventListener("online", recheck);
+		document.removeEventListener("visibilitychange", recheckIfStale);
+	};
+}
 
 export function useHealth(): Health {
-	const [health, setHealth] = useState<Health>({ state: "checking" });
-	useEffect(() => {
-		let live = true;
-		shared ??= checkHealth();
-		void shared.then((next) => live && setHealth(next));
-		return () => {
-			live = false;
-		};
-	}, []);
-	return health;
+	return useSyncExternalStore(subscribe, () => current);
 }
