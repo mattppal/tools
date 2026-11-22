@@ -67,7 +67,7 @@ export default defineToolApi(async (request, { env, ctx, path, db }) => {
 			const today = pacificToday();
 			const requested = new URL(request.url).searchParams.get("week");
 			const { log, sessions, sync } = await db(async (client) => ({ log: await trainingLog(client), sessions: await listSessions(client, 500), sync: await readSyncState(client) }));
-			const weeks = weekRefs(log.programs);
+			const weeks = weekRefs(log);
 			const current = currentWeek(weeks, today);
 			const ref = weeks.find((week) => week.key === requested) ?? current;
 			return json({

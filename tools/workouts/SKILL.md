@@ -22,13 +22,18 @@ training-log is the source of truth, and the `workouts` schema holds a read mode
 `sync.ts` keeps the mirror current. `cron.ts` runs it on the Worker's one-minute trigger through `defineToolCron`, and bots can force a run with `POST /sync`. `debug.ts` shows the synced commit, the last check, and any sync error under Workouts on `/settings`.
 
 1. `GET /repos/mattppal/training-log/commits/main` with `Accept: application/vnd.github.sha` and `If-None-Match` set to the stored ETag. A 304 ends the run and doesn't count against the rate limit.
-2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json` and `sessions/*.json`.
+2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json` and `sessions/*.json`, plus any `sessions/*.md` that has no `.json` twin. Some rest days exist only as a Markdown note; `parseSessionNote` keeps its frontmatter, heading, and body. A forced sync (`POST /sync?force=1`) picks up files that a filter change newly includes while HEAD stays the same.
 3. Fetch only the blobs whose SHA differs from `repo_files.sha`, at most 40 per run to stay under the Worker's subrequest limit.
 4. In one transaction, under an advisory lock, upsert those files, delete paths that left the tree, and record `head_sha`. When more than 40 blobs changed, the run saves its batch, clears the ETag, and leaves `head_sha` alone, so the next minute picks up the rest.
 
 The token is `TRAINING_LOG_TOKEN`, a fine-grained token with read-only Contents access. A failed run records `last_error` and leaves the mirror as it was. Files that aren't valid JSON are stored with `parse_error` and skipped by the reader. There is no git clone, since Workers have no filesystem.
 
-`schedule.ts` builds the screens from the mirror. Every week of every block file is listed in date order, so past weeks and weeks coach builds ahead all show. A repo session file belongs to a day by its `blockId`, `weekId`, and `dayId` fields, or else by a name like `YYYY-MM-DD-<x>-w<N>-d<N>.json` dated inside a block.
+`schedule.ts` builds the screens from the mirror, and every session file in it shows up somewhere.
+
+- Weeks come from `calendar.weeks` in a block file. Blocks without one, such as Blocks A and B, get Monday-start weeks built from their logged sessions, labeled with the sessions' `weekId` (`rebuild`, `deload`).
+- Planned days come from `calendar.weekPattern`. A slot that matches `days[].id` is a lift day. A slot that matches the block's `conditioning` entry is a run, shown with its duration, effort, and format. `rest` slots aren't shown.
+- A repo session fills the planned day with its `blockId`, `weekId`, and `dayId`, or else the one its file name (`YYYY-MM-DD-<x>-w<N>-d<N>`) points to. A session that matches no planned day, such as a deload recovery day, a swapped run, or a rest note, shows as its own day under its `name`.
+- Only lift days can be started in the app. Coach logs runs, so a planned run has no button, and a run whose date has passed without a log says so.
 
 `program.ts` turns a block file into days. The week comes from `calendar.weeks` and the date from `calendar.weekPattern`. Each lift resolves to one prescription:
 
@@ -42,8 +47,8 @@ A text load, such as `"find a weight"` or `"+42.5"`, is shown as text and never 
 
 ## Screens
 
-- **Today** shows the first day from the current week on that isn't logged in the repo or the app, with **Start session**, or **Continue logging** if one is open.
-- **Week** opens on the current week, with arrows to every earlier and later week in the mirror. A day's button says what's left to do: **Start session**, **Continue logging**, or **View session**. Days already in training-log have no button and show the logged sets as the repo has them.
+- **Today** shows the first planned day from the current week on that isn't logged in the repo or the app. A missed lift day stays until it's logged, and a run counts only from its date on. It comes with **Start session**, or **Continue logging** if one is open.
+- **Week** opens on the current week, with arrows to every earlier and later week in the mirror. A day's button says what's left to do: **Start session**, **Continue logging**, or **View session**. Days already in training-log have no button and show the logged sets as the repo has them: weight × reps @RIR for lifts, distance and duration for cardio, and **Skipped** for skipped work.
 - Today and Week end with a quiet line, `Synced <sha> · <time>`, plus the last sync error if there is one.
 - **History** lists sessions logged in the app, with the delivery state in plain words. Test sessions start with "Test ·".
 - **Logging** shows one exercise at a time. Each set has weight and reps fields, an **As written** button, and RIR chips from 0 to 6. Every change saves at once, and a failed save shows **Retry**. The bottom bar moves between exercises. **Review** opens the right panel, where Matt adds a session note, finishes, or discards the session.

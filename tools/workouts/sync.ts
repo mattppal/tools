@@ -9,6 +9,7 @@ declare global {
 const API = "https://api.github.com/repos/mattppal/training-log";
 const BRANCH = "main";
 const MIRRORED = /^(program|sessions)\/[^/]+\.json$/;
+const SESSION_NOTE = /^sessions\/[^/]+\.md$/;
 export const BLOB_BATCH = 40;
 const BLOB_CONCURRENCY = 6;
 
@@ -39,7 +40,23 @@ async function github<T>(fetcher: Fetcher, env: Env, path: string, accept = "app
 }
 
 export function mirroredEntries(tree: TreeEntry[]): TreeEntry[] {
-	return tree.filter((entry) => entry.type === "blob" && MIRRORED.test(entry.path));
+	const blobs = tree.filter((entry) => entry.type === "blob");
+	const json = new Set(blobs.filter((entry) => MIRRORED.test(entry.path)).map((entry) => entry.path));
+	return blobs.filter((entry) => json.has(entry.path) || (SESSION_NOTE.test(entry.path) && !json.has(entry.path.replace(/\.md$/, ".json"))));
+}
+
+export function parseSessionNote(text: string): Record<string, unknown> {
+	const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
+	if (match === null) throw new Error("no frontmatter");
+	const [, front = "", body = ""] = match;
+	const fields: Record<string, unknown> = {};
+	for (const line of front.split(/\r?\n/)) {
+		const pair = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line);
+		if (pair?.[1] !== undefined) fields[pair[1]] = (pair[2] ?? "").replace(/^(["'])(.*)\1$/, "$2");
+	}
+	const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim();
+	const notes = body.replace(/^#\s+.+$/m, "").trim();
+	return { ...fields, ...(heading === undefined ? {} : { name: heading }), ...(notes === "" ? {} : { notes }), exercises: [], format: "markdown" };
 }
 
 function kindOf(path: string): "program" | "session" {
@@ -71,7 +88,7 @@ async function fetchBlob(fetcher: Fetcher, env: Env, entry: TreeEntry): Promise<
 	const blob = await github<{ content: string; encoding: string }>(fetcher, env, `/git/blobs/${entry.sha}`);
 	const text = blob.encoding === "base64" ? decode(blob.content) : blob.content;
 	try {
-		return { path: entry.path, sha: entry.sha, content: JSON.parse(text), parseError: null };
+		return { path: entry.path, sha: entry.sha, content: entry.path.endsWith(".md") ? parseSessionNote(text) : JSON.parse(text), parseError: null };
 	} catch (error) {
 		return { path: entry.path, sha: entry.sha, content: null, parseError: error instanceof Error ? error.message : String(error) };
 	}

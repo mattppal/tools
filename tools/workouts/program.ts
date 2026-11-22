@@ -23,8 +23,10 @@ export type PrescribedExercise = {
 export type ProgramDay = {
 	weekId: string;
 	dayId: string;
+	kind: string;
 	title: string;
 	date: string;
+	plan: string[];
 	exercises: PrescribedExercise[];
 };
 
@@ -34,7 +36,7 @@ export type Program = {
 	id: string;
 	name: string;
 	starts: string;
-	ends: string;
+	ends: string | null;
 	unit: Unit;
 	raw: Json;
 };
@@ -64,10 +66,9 @@ export function addDays(date: string, days: number): string {
 export function parseProgram(raw: unknown): Program | null {
 	if (!isRecord(raw)) return null;
 	const id = text(raw.id);
-	const starts = text(raw.starts);
-	const ends = text(raw.ends);
-	if (id === null || starts === null || ends === null) return null;
-	return { id, name: text(raw.name) ?? id, starts, ends, unit: asUnit(raw.unit, "lb"), raw };
+	const starts = text(raw.starts) ?? (isRecord(raw.calendar) ? text(raw.calendar.week1Start) : null);
+	if (id === null || starts === null) return null;
+	return { id, name: text(raw.name) ?? id, starts, ends: text(raw.ends), unit: asUnit(raw.unit, "lb"), raw };
 }
 
 function weekStarts(program: Program): [string, string][] {
@@ -181,20 +182,41 @@ export function resolveLift(program: Program, lift: Json, weekId: string, positi
 	return { ...base, load: loadOf(lift.load), sets: setsFor(program, lift, weekId), reps: repsOf(lift, null), notes: [], source: `days.${id}` };
 }
 
+function conditioningSlots(program: Program): Map<string, Json> {
+	const raw = program.raw.conditioning;
+	const entries = Array.isArray(raw) ? raw.filter(isRecord) : isRecord(raw) ? [raw] : [];
+	return new Map(entries.flatMap((entry) => [text(entry.slot), text(entry.id)].filter((slot) => slot !== null).map((slot) => [slot, entry] as const)));
+}
+
+function conditioningPlan(entry: Json): string[] {
+	const minutes = entry.durationMinutes;
+	const duration = Array.isArray(minutes) && minutes.length === 2 ? `${minutes[0]}–${minutes[1]} min` : num(minutes) === null ? null : `${minutes} min`;
+	return [duration, text(entry.effort), text(entry.format)].filter((line) => line !== null);
+}
+
 export function programDays(program: Program, weekId: string): ProgramDay[] {
 	const start = weekStarts(program).find(([id]) => id === weekId)?.[1];
 	if (start === undefined) return [];
 	const days = new Map(liftingDays(program).map((day) => [text(day.id) ?? "", day]));
+	const conditioning = conditioningSlots(program);
 	const out: ProgramDay[] = [];
 	weekPattern(program).forEach((slot, index) => {
+		const date = addDays(start, index);
+		const cardio = conditioning.get(slot);
+		if (cardio !== undefined) {
+			out.push({ weekId, dayId: slot, kind: "conditioning", title: text(cardio.name) ?? slot, date, plan: conditioningPlan(cardio), exercises: [] });
+			return;
+		}
 		const day = days.get(slot);
 		if (day === undefined) return;
 		const lifts = Array.isArray(day.lifts) ? day.lifts.filter(isRecord) : [];
 		out.push({
 			weekId,
 			dayId: slot,
+			kind: "lift",
 			title: text(day.title) ?? slot,
-			date: addDays(start, index),
+			date,
+			plan: [],
 			exercises: lifts.map((lift, position) => resolveLift(program, lift, weekId, position)),
 		});
 	});

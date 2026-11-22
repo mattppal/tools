@@ -59,6 +59,17 @@ function SyncLine({ sync }: { sync: SyncState }) {
 }
 
 function ExerciseList({ day }: { day: ScheduleDay }) {
+	if (day.logged !== null && day.logged.length === 0) return <p className={styles.dayNote}>{day.kind === "rest" ? "Rest day" : "Logged without sets"}</p>;
+	if (day.logged === null && day.kind !== "lift")
+		return (
+			<ul className={styles.exerciseList}>
+				{day.plan.map((line) => (
+					<li key={line} className={styles.exerciseLine}>
+						<span className={styles.exerciseName}>{line}</span>
+					</li>
+				))}
+			</ul>
+		);
 	if (day.logged !== null)
 		return (
 			<ol className={styles.exerciseList}>
@@ -82,6 +93,23 @@ function ExerciseList({ day }: { day: ScheduleDay }) {
 	);
 }
 
+function DayAction({ day, today, busy, onStart, onOpen, size }: { day: ScheduleDay; today: string; busy: boolean; onStart: (day: ScheduleDay) => void; onOpen: (id: string) => void; size: "sm" | "md" }) {
+	if (day.state === "logged") return null;
+	if (day.kind !== "lift") return <p className={styles.dayNote}>{day.date < today ? "Not logged" : "Coach logs runs when you tell it how it went."}</p>;
+	const cta = size === "md" ? styles.cta : undefined;
+	if (day.sessionId !== null)
+		return (
+			<Button size={size === "sm" ? "sm" : undefined} variant={size === "md" && day.state === "open" ? "primary" : size === "md" ? "secondary" : undefined} className={cta} onClick={() => day.sessionId !== null && onOpen(day.sessionId)}>
+				{day.state === "open" ? "Continue logging" : "View session"}
+			</Button>
+		);
+	return (
+		<Button size={size === "sm" ? "sm" : undefined} variant={size === "md" ? "primary" : undefined} className={cta} loading={busy} onClick={() => onStart(day)}>
+			Start session
+		</Button>
+	);
+}
+
 function DayCard({ day, today, busy, onStart, onOpen }: { day: ScheduleDay; today: string; busy: boolean; onStart: (day: ScheduleDay) => void; onOpen: (id: string) => void }) {
 	const when = day.date === today ? "Today" : formatDate(day.date);
 	return (
@@ -95,15 +123,7 @@ function DayCard({ day, today, busy, onStart, onOpen }: { day: ScheduleDay; toda
 				</div>
 			</header>
 			<ExerciseList day={day} />
-			{day.state === "logged" ? null : day.sessionId !== null ? (
-				<Button variant={day.state === "open" ? "primary" : "secondary"} className={styles.cta} onClick={() => day.sessionId !== null && onOpen(day.sessionId)}>
-					{day.state === "open" ? "Continue logging" : "View session"}
-				</Button>
-			) : (
-				<Button variant="primary" className={styles.cta} loading={busy} onClick={() => onStart(day)}>
-					Start session
-				</Button>
-			)}
+			<DayAction day={day} today={today} busy={busy} onStart={onStart} onOpen={onOpen} size="md" />
 		</section>
 	);
 }
@@ -284,24 +304,19 @@ export default function Workouts() {
 										</Button>
 									)}
 									{program.data.week.days.map((day) => (
-										<details key={day.dayId} className={styles.weekDay} open={day.dayId === next?.dayId && day.weekId === next.weekId && day.blockId === next.blockId}>
+										<details key={day.repoFile ?? `${day.dayId}/${day.date}`} className={styles.weekDay} open={day.dayId === next?.dayId && day.weekId === next.weekId && day.blockId === next.blockId}>
 											<summary className={styles.weekSummary}>
 												<span className={styles.historyMain}>
 													<span className={styles.exerciseName}>{day.title}</span>
-													<span className={styles.exerciseRx}>{formatDate(day.date)}</span>
+													<span className={styles.exerciseRx}>
+														{formatDate(day.date)}
+														{day.repoStatus === "skipped" ? " · Skipped" : null}
+													</span>
 												</span>
 											</summary>
 											<div className={styles.weekBody}>
 												<ExerciseList day={day} />
-												{day.state === "logged" ? null : day.sessionId !== null ? (
-													<Button size="sm" onClick={() => day.sessionId !== null && open(day.sessionId)}>
-														{day.state === "open" ? "Continue logging" : "View session"}
-													</Button>
-												) : (
-													<Button size="sm" loading={starting === busyKey(day)} onClick={() => void start(day)}>
-														Start session
-													</Button>
-												)}
+												<DayAction day={day} today={program.data.today} busy={starting === busyKey(day)} onStart={(target) => void start(target)} onOpen={open} size="sm" />
 											</div>
 										</details>
 									))}
