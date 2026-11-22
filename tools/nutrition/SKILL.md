@@ -24,7 +24,7 @@ All routes are under `/api/tools/nutrition` and sit behind Cloudflare Access.
 | --- | --- |
 | `GET /day?date=` | The day with entries, totals, targets, progress, and check-in. Defaults to today in America/Los_Angeles. |
 | `POST /day/food` | `{ date, add?, edit?, remove? }`. Each add takes a `client_key`, so a retry doesn't log twice. |
-| `POST /day/close` | Closes the day and queues the webhook. |
+| `POST /day/close` | `{ date, test? }`. Closes the day and queues the webhook. |
 | `POST /day/reopen` | Reopens the day. |
 | `GET /history` | The last 400 days with totals, kcal target, and the partial flag. |
 | `GET /weights` | Every weigh-in with its source and 7, 14, and 28 day averages, oldest first. |
@@ -51,10 +51,11 @@ The bot sends three headers: `CF-Access-Client-Id` and `CF-Access-Client-Secret`
 Closing a day in the UI POSTs to `NUTRITION_WEBHOOK_URL`. Closing it through `update_day` sends nothing, because the bot already knows.
 
 - Headers: `Authorization: Bearer <NUTRITION_WEBHOOK_KEY>`, where the secret holds the raw key and `worker/webhooks.ts` adds `Bearer `, `X-Nutrition-Delivery: <uuid>`, and `content-type: application/json`.
-- Body: `{ event: "day.closed", deliveryId, date, closedAt, estimated, entries, totals, targets, progress }`.
+- Body: `{ app: "nutrition", event: "day.closed", data: { event, deliveryId, date, closedAt, estimated, entries, totals, targets, progress, test? } }`. The receiver rejects a body without `app` or `data`. `webhook.ts` declares the app and its events with `envelope`, and `worker/webhooks.ts` wraps the stored payload as `data` on every send, so retries of older rows go out in this shape too. `targets` and `progress` are null when no plan covers the day.
+- `test: true` sits in `data` only for a test close, `POST /day/close` with `{ date, test: true }`. A real close has no `test` key.
 - `closeDayFromUi` writes the delivery row in the same transaction as the close. The route then tries it once with `deliverSoon`, and the every-minute cron in `worker/webhooks.ts` retries it with backoff until a 2xx. Every retry keeps the same delivery ID.
 - `nutrition.deliveries` shows each delivery's attempts, last status, and when it landed.
-- A live test uses a far-future day such as 2099-01-01 and removes it as soon as the check is done, so it never shows in History. Delete its `deliveries` rows, then its `food_entries`, then the `days` row; the foreign keys need that order.
+- A live test closes a far-future day such as 2099-01-01 with `test: true`, or inserts a `deliveries` row whose payload has `test: true`, and removes it as soon as the check is done, so it never shows in History. Delete its `deliveries` rows, then its `food_entries`, then the `days` row; the foreign keys need that order.
 
 ## Data
 

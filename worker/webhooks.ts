@@ -2,7 +2,9 @@ import { type WithDb, withRequestDb } from "./db.ts";
 
 type StringSecret = { [Name in keyof Env]-?: NonNullable<Env[Name]> extends string ? Name : never }[keyof Env];
 
-export type Webhook = { table: string; urlSecret: StringSecret; keySecret: StringSecret; deliveryHeader: string };
+export type Envelope = { app: string; events: readonly string[] };
+
+export type Webhook = { table: string; urlSecret: StringSecret; keySecret: StringSecret; deliveryHeader: string; envelope?: Envelope };
 
 export type WebhookTarget = { url: string; key: string; deliveryHeader: string };
 
@@ -25,16 +27,25 @@ export function webhookTarget(webhook: Webhook, env: Env): WebhookTarget | null 
 	return url && key ? { url, key, deliveryHeader: webhook.deliveryHeader } : null;
 }
 
+export function webhookBody(webhook: Webhook, payload: unknown): { body: unknown } | { error: string } {
+	if (webhook.envelope === undefined) return { body: payload };
+	const event = typeof payload === "object" && payload !== null && "event" in payload ? payload.event : undefined;
+	if (typeof event !== "string" || !webhook.envelope.events.includes(event)) {
+		return { error: `Payload event ${JSON.stringify(event ?? null)} is not one of ${webhook.envelope.app}'s events: ${webhook.envelope.events.join(", ")}` };
+	}
+	return { body: { app: webhook.envelope.app, event, data: payload } };
+}
+
 export function retryDelayMinutes(attempts: number): number {
 	return BACKOFF_MINUTES[Math.min(Math.max(attempts, 1), BACKOFF_MINUTES.length) - 1] ?? 60;
 }
 
-export async function sendWebhook(target: WebhookTarget, deliveryId: string, payload: unknown): Promise<Attempt> {
+export async function sendWebhook(target: WebhookTarget, deliveryId: string, body: unknown): Promise<Attempt> {
 	try {
 		const response = await fetch(target.url, {
 			method: "POST",
 			headers: { authorization: `Bearer ${target.key}`, [target.deliveryHeader]: deliveryId, "content-type": "application/json" },
-			body: JSON.stringify(payload),
+			body: JSON.stringify(body),
 			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
 		});
 		if (response.ok) {
@@ -89,7 +100,8 @@ export async function deliverDue(db: WithDb, webhook: Webhook, env: Env, only: r
 		const delivery = await claimOne(db, webhook, claimId, only, tried);
 		if (delivery === undefined) break;
 		tried.push(delivery.delivery_id);
-		const attempt = await sendWebhook(target, delivery.delivery_id, delivery.payload);
+		const built = webhookBody(webhook, delivery.payload);
+		const attempt = "error" in built ? { status: null, error: built.error } : await sendWebhook(target, delivery.delivery_id, built.body);
 		const ok = attempt.error === null;
 		const recorded = await db((client) =>
 			client.query(

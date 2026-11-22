@@ -178,7 +178,7 @@ export async function updateDay(client: Database, date: string, update: DayUpdat
 
 type DayClosed = { day: DayView; deliveryId: string | null };
 
-export async function closeDayFromUi(client: Database, date: string): Promise<DayClosed> {
+export async function closeDayFromUi(client: Database, date: string, test = false): Promise<DayClosed> {
 	return transaction(client, async () => {
 		await client.query("insert into nutrition.days (day) values ($1) on conflict (day) do nothing", [date]);
 		const { rows } = await client.query<Row>("update nutrition.days set closed_at = now() where day = $1 and closed_at is null returning closed_at", [date]);
@@ -196,6 +196,7 @@ export async function closeDayFromUi(client: Database, date: string): Promise<Da
 			totals: day.totals,
 			targets: day.targets === null ? null : { kcal: day.targets.kcal, protein_g: day.targets.protein_g, carbs_g: day.targets.carbs_g, fat_g: day.targets.fat_g },
 			progress: day.progress,
+			...(test ? { test: true } : {}),
 		};
 		await client.query("insert into nutrition.deliveries (delivery_id, day, payload) values ($1, $2, $3)", [deliveryId, date, payload]);
 		return { day, deliveryId };

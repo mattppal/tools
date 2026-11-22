@@ -102,6 +102,21 @@ test("keeps the start of a rejection body with the key masked", async () => {
 	expect(last_error).toBe('HTTP 401: {"error":"invalid key", "got":"[key]"}');
 });
 
+test("a webhook with an envelope wraps the payload as data under its app and event", async () => {
+	const enveloped = defineWebhook({ ...webhook, envelope: { app: "hooks", events: ["test"] } });
+	expect(await deliverDue(db, enveloped, env, [ID])).toBe(1);
+	expect(received.map((delivery) => delivery.body)).toEqual([{ app: "hooks", event: "test", data: { event: "test", deliveryId: ID } }]);
+});
+
+test("an event the envelope doesn't declare is recorded as an error and never sent", async () => {
+	const enveloped = defineWebhook({ ...webhook, envelope: { app: "hooks", events: ["other"] } });
+	expect(await deliverDue(db, enveloped, env, [ID])).toBe(0);
+	expect(received).toHaveLength(0);
+	const { last_error } = (await pg.query<{ last_error: string }>("select last_error from hooks.deliveries where delivery_id = $1", [ID])).rows[0] ?? { last_error: "" };
+	expect(last_error).toBe('Payload event "test" is not one of hooks\'s events: other');
+	expect(await row()).toMatchObject({ attempts: 1, last_status: null, delivered_at: null });
+});
+
 test("waits without a target", async () => {
 	expect(await deliverDue(db, webhook, { TEST_WEBHOOK_URL: server.url.href } as Env, [ID])).toBe(0);
 	expect(await deliverDue(db, webhook, { TEST_WEBHOOK_KEY: KEY } as Env, [ID])).toBe(0);

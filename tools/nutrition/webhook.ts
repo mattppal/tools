@@ -12,4 +12,5 @@ export default defineWebhook({
 	urlSecret: "NUTRITION_WEBHOOK_URL",
 	keySecret: "NUTRITION_WEBHOOK_KEY",
 	deliveryHeader: "X-Nutrition-Delivery",
+	envelope: { app: "nutrition", events: ["day.closed"] },
 });

@@ -35,8 +35,8 @@ export default defineToolApi(async (request, context) => {
 				return Response.json(await db((client) => changeFood(client, date, changes, "ui")));
 			}
 			case "POST /day/close": {
-				const { date } = await body(request, dated);
-				const { day, deliveryId } = await db((client) => closeDayFromUi(client, date));
+				const { date, test } = await body(request, dated.extend({ test: z.boolean().optional() }));
+				const { day, deliveryId } = await db((client) => closeDayFromUi(client, date, test === true));
 				if (deliveryId !== null) deliverSoon(ctx, env, webhook, [deliveryId]);
 				return Response.json(day);
 			}

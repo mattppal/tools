@@ -72,14 +72,28 @@ test("closing from the UI queues one delivery that sends the key as a Bearer tok
 	expect(received[0]?.authorization).toBe(`Bearer ${KEY}`);
 	expect(received[0]?.delivery).toBe(first.deliveryId);
 	expect(received[0]?.body).toMatchObject({
+		app: "nutrition",
 		event: "day.closed",
-		deliveryId: first.deliveryId,
-		date: "2026-11-20",
-		totals: { kcal: 52 },
-		targets: { kcal: { min: 2650, max: 2850 } },
-		progress: { kcal: { total: 52, status: "under" } },
+		data: {
+			event: "day.closed",
+			deliveryId: first.deliveryId,
+			date: "2026-11-20",
+			totals: { kcal: 52 },
+			targets: { kcal: { min: 2650, max: 2850 } },
+			progress: { kcal: { total: 52, status: "under" } },
+		},
 	});
+	expect(Object.keys(received[0]?.body as object)).toEqual(["app", "event", "data"]);
+	expect(received[0]?.body).not.toHaveProperty("data.test");
 	await expect(changeFood(client, "2026-11-20", { add: [{ ...egg, client_key: "c" }] }, "ui")).rejects.toThrow("is closed");
+});
+
+test("a test close sends test: true inside data", async () => {
+	const closed = await closeDayFromUi(client, "2099-01-01", true);
+	received.length = 0;
+	expect(await deliverDue(db, webhook, env, [closed.deliveryId ?? ""])).toBe(1);
+	expect(received[0]?.body).toMatchObject({ app: "nutrition", event: "day.closed", data: { date: "2099-01-01", test: true } });
+	await pg.exec("delete from nutrition.deliveries where day = '2099-01-01'; delete from nutrition.days where day = '2099-01-01'");
 });
 
 test("closing through the bot queues no delivery", async () => {

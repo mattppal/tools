@@ -107,10 +107,13 @@ The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to
    	urlSecret: "MY_WEBHOOK_URL",
    	keySecret: "MY_WEBHOOK_KEY",
    	deliveryHeader: "X-My-Tool-Delivery",
+   	envelope: { app: "my_tool", events: ["thing.happened"] },
    });
    ```
 
-3. When the event happens, insert the row in the same transaction as the change. Put the `delivery_id` in the payload too. After the transaction, call `deliverSoon(ctx, env, webhook, [deliveryId])` from `worker/webhooks.ts`. It sends the first attempt after the response on a fresh connection and logs a failure for the cron to retry. A tool never imports `withRequestDb`; `bun run check:style` fails if one does.
+   With `envelope`, every send's body is `{ app, event, data }`, where `data` is the stored payload and `event` is the payload's own `event`. A payload whose `event` isn't in `events` is never sent; its attempt records the error and retries like any failure. Without `envelope`, the stored payload is the body, as coach's is.
+
+3. When the event happens, insert the row in the same transaction as the change. Give the payload an `event` and the `delivery_id` as `deliveryId`. A test event, such as one from a live check, adds `test: true` to the payload. After the transaction, call `deliverSoon(ctx, env, webhook, [deliveryId])` from `worker/webhooks.ts`. It sends the first attempt after the response on a fresh connection and logs a failure for the cron to retry. A tool never imports `withRequestDb`; `bun run check:style` fails if one does.
 
 Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `Authorization: Bearer <key>`. `worker/webhooks.ts` builds that header, so store the raw key in the secret and never format it in a tool. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. Each send first claims its row by setting `claim_id` and `claimed_until`, sends with no transaction open, and records the result only while `claim_id` still matches, so cron runs, first attempts and "Send again" never send one delivery at the same time. A tool with deliveries adds both claim columns to its deliveries table. A tool that requeues a delivery uses a plain `update` that leaves the claim alone. Before changing any of this, read `skills/tools-verify-webhooks/SKILL.md`.
 
