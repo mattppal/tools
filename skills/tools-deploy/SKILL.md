@@ -53,6 +53,22 @@ To see the live site in a browser, either open https://tools.mattpalmer.io direc
 
 Don't write your own proxy. The `mattpalmer.io` zone has Hotlink Protection on, so any image request whose `Referer` is another host gets a 403 before it reaches Access. A proxy that passes on the browser's `http://127.0.0.1` `Referer` shows a broken sidebar logo and favicons while pages, scripts, and APIs work, which looks like a broken deploy. `scripts/live-proxy.ts` rewrites `Referer` and `Origin` to the target. Hotlink Protection is the user's zone setting; leave it on.
 
+## Screenshots of the live site
+
+Worker VMs don't get the `tools-agent-verify` credentials; GitHub Actions does. The `screenshots` workflow (`.github/workflows/screenshots.yml`) runs `bun run screenshots`, which serves `scripts/live-proxy.ts` and drives headless Chrome against production, then uploads the PNGs as the artifact `screenshots`. It keeps them for 30 days.
+
+- It runs on every push to `main`, after production serves that commit. It also runs on `workflow_dispatch`, with `target` (production or a `https://<branch>-tools.mpal.workers.dev` preview) and `only` (take just the files whose name contains it).
+- Each shot is taken at 1440x1000 light (`desktop`), 1440x1000 dark (`desktop-dark`) and 390x844 (`mobile`), at device scale 2. The list is `SHOTS` in `scripts/screenshots.ts`. File names are `<shot>-<viewport>.png`, for example `unified-tdee-desktop-dark-panel.png`: `/nutrition/weight` on the 90-day preset, after clicking "N kcal a day" to open Expenditure. Add a page by adding a `SHOTS` entry; `clicks` names button text to click in order.
+- To fetch the latest production set, which needs only read access:
+
+```bash
+run=$(gh run list --repo mattppal/tools --workflow screenshots.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run download "$run" --repo mattppal/tools --name screenshots --dir <dir>
+```
+
+- To get screenshots of something else, such as a preview or a new page, a worker can't dispatch the workflow, because its `gh` is read-only. Ask the coordinator to dispatch `screenshots` with the `target` and `only` you need, then fetch that run the same way, using `--event workflow_dispatch` in place of `--branch main`. A new `SHOTS` entry is captured on the next push to `main` after it lands.
+- A failed shot fails the run, but the artifact still holds every shot that worked.
+
 ## Bot credentials
 
 Each bot has one credential: its own Access service token, with a Service Auth policy of the same name. Agents create, rotate and store it through the Cloudflare API; Matt does none of it. `skills/tools-add-a-tool/SKILL.md` covers the Worker side.
