@@ -1,3 +1,4 @@
+import { rebuildHistory } from "./history.ts";
 import type { Database } from "../../worker/db.ts";
 
 declare global {
@@ -8,7 +9,7 @@ declare global {
 
 const API = "https://api.github.com/repos/mattppal/training-log";
 const BRANCH = "main";
-const MIRRORED = /^(program|sessions)\/[^/]+\.json$/;
+const MIRRORED = /^((program|sessions)\/[^/]+\.json|prs\/profile\.json)$/;
 const SESSION_NOTE = /^sessions\/[^/]+\.md$/;
 export const BLOB_BATCH = 40;
 const BLOB_CONCURRENCY = 6;
@@ -59,8 +60,8 @@ export function parseSessionNote(text: string): Record<string, unknown> {
 	return { ...fields, ...(heading === undefined ? {} : { name: heading }), ...(notes === "" ? {} : { notes }), exercises: [], format: "markdown" };
 }
 
-function kindOf(path: string): "program" | "session" {
-	return path.startsWith("program/") ? "program" : "session";
+function kindOf(path: string): "program" | "session" | "profile" {
+	return path.startsWith("program/") ? "program" : path.startsWith("prs/") ? "profile" : "session";
 }
 
 async function pool<T, R>(items: T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
@@ -142,6 +143,7 @@ export async function syncTrainingLog(db: Database, env: Env, { force = false, f
 			}
 			if (complete) {
 				if (removed.length > 0) await db.query("delete from workouts.repo_files where path = any($1::text[])", [removed]);
+				await rebuildHistory(db);
 				await db.query("update workouts.repo_sync set head_sha = $1, head_etag = $2, synced_at = now(), checked_at = now(), last_error = null", [headSha, etag]);
 			} else {
 				await db.query("update workouts.repo_sync set head_etag = null, checked_at = now(), last_error = null");

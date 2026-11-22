@@ -11,6 +11,7 @@ import { buildWeek, currentWeek, findDay as findIn, nextDay, parseRepoSession, t
 import { BLOB_BATCH, readMirror, readSyncState, syncTrainingLog, type Fetcher, type MirroredFile } from "./sync.ts";
 import { createSession, finishSession, getSession, putSet, requeue, sessionRow, updateExercise } from "./store.ts";
 import webhook from "./webhook.ts";
+import { historySummary } from "./history.ts";
 
 const BLOCK = {
 	id: "build-block-c",
@@ -375,6 +376,39 @@ describe("training-log sync", () => {
 		const note = (await readMirror(client)).sessions.find((file) => file.path.endsWith(".md"));
 		expect(note?.content).toEqual({ id: "2026-08-14-w1-rest", date: "2026-08-14", blockId: "maintain-recover-block-a", weekId: "w1", dayId: "cond-a-pool", status: "skipped", kind: "rest", name: "W1 Cond A — cut", notes: "Pool cancelled. Sauna + steps only.", exercises: [], format: "markdown" });
 		expect(parseRepoSession(note as MirroredFile)).toMatchObject({ kind: "rest", status: "skipped", title: "W1 Cond A — cut", date: "2026-08-14" });
+	});
+
+	test("rebuilds the history tables from the mirror on every complete sync", async () => {
+		const blockB = { id: "build-block-b", name: "Block B", goal: "build", calendar: { week1Start: "2026-09-07" } };
+		const deload = { date: "2026-10-22", name: "Deload recovery session", blockId: "build-block-b", weekId: "deload", dayId: "recovery", kind: "lift", status: "completed", exercises: [{ id: "db-incline-press", exercise: { name: "DB Incline Press", category: "chest" }, sets: [{ weight: 60, unit: "lb", reps: 10, rir: 4 }, { weight: 60, unit: "lb", reps: 10, rir: 4 }] }] };
+		const track = { date: "2026-09-08T06:15:21-07:00", name: "B Track", blockId: "build-block-b", weekId: "w1", dayId: "cond-track", kind: "conditioning", modality: "track", durationSeconds: 2747, exercises: [{ id: "outdoor-run", exercise: { name: "Outdoor Run", category: "cardio" }, sets: [{ distance: 4.57, distanceUnit: "mi", durationSeconds: 2747 }, { distance: 775.2, distanceUnit: "m", durationSeconds: 216 }] }] };
+		const profile = { exportedAt: "2026-11-21", records: [{ id: "back-squat", exercise: { name: "Back Squat" }, repMaxes: [{ reps: 5, weight: 315, unit: "lb", date: "2026-08-11", type: "actual", workoutId: "2026-08-11-w1d1" }, { reps: 5, weight: 315, unit: "lb", date: "2026-08-11" }] }] };
+		repo.files["program/block-b.json"] = { sha: "pb", content: JSON.stringify(blockB) };
+		repo.files["sessions/2026-10-22-deload.json"] = { sha: "sd", content: JSON.stringify(deload) };
+		repo.files["sessions/2026-09-08-b-track.json"] = { sha: "st", content: JSON.stringify(track) };
+		repo.files["prs/profile.json"] = { sha: "pr", content: JSON.stringify(profile) };
+		await syncTrainingLog(client, syncEnv, { fetcher });
+
+		const blocks = await pg.query<{ block_id: string; starts: string; ends: string; deload_start: string | null }>("select block_id, to_char(starts, 'YYYY-MM-DD') starts, to_char(ends, 'YYYY-MM-DD') ends, to_char(deload_start, 'YYYY-MM-DD') deload_start from workouts.history_blocks order by starts");
+		expect(blocks.rows).toEqual([
+			{ block_id: "build-block-b", starts: "2026-09-07", ends: "2026-10-25", deload_start: null },
+			{ block_id: "build-block-c", starts: "2026-10-26", ends: "2026-12-13", deload_start: "2026-12-07" },
+		]);
+		const summary = await historySummary(client);
+		expect(summary).toMatchObject({ sessions: 3, byKind: { conditioning: 1, lift: 2 }, recoverySessions: 1, prs: 1 });
+		expect(summary.byBlock).toEqual([
+			{ blockId: "build-block-b", name: "Block B", sessions: 2 },
+			{ blockId: "build-block-c", name: "Block C", sessions: 1 },
+		]);
+		expect(summary.exercises.map((exercise) => exercise.key)).toEqual(["db-incline", "outdoor-run"]);
+		const sets = await pg.query<{ distance: string; distance_unit: string }>("select distance::text, distance_unit from workouts.history_sets where path = 'sessions/2026-09-08-b-track.json' order by set_index");
+		expect(sets.rows).toEqual([{ distance: "4.57", distance_unit: "mi" }, { distance: "775.2", distance_unit: "m" }]);
+
+		delete repo.files["sessions/2026-10-22-deload.json"];
+		repo.head = "d".repeat(40);
+		await syncTrainingLog(client, syncEnv, { fetcher });
+		expect(await historySummary(client)).toMatchObject({ sessions: 2, recoverySessions: 0 });
+		expect((await pg.query("select 1 from workouts.history_sets where path = 'sessions/2026-10-22-deload.json'")).rows).toEqual([]);
 	});
 
 	test("records a failure without touching the mirror", async () => {

@@ -22,7 +22,7 @@ training-log is the source of truth, and the `workouts` schema holds a read mode
 `sync.ts` keeps the mirror current. `cron.ts` runs it on the Worker's one-minute trigger through `defineToolCron`, and bots can force a run with `POST /sync`. `debug.ts` shows the synced commit, the last check, and any sync error under Workouts on `/settings`.
 
 1. `GET /repos/mattppal/training-log/commits/main` with `Accept: application/vnd.github.sha` and `If-None-Match` set to the stored ETag. A 304 ends the run and doesn't count against the rate limit.
-2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json` and `sessions/*.json`, plus any `sessions/*.md` that has no `.json` twin. Some rest days exist only as a Markdown note; `parseSessionNote` keeps its frontmatter, heading, and body. A forced sync (`POST /sync?force=1`) picks up files that a filter change newly includes while HEAD stays the same.
+2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json`, `sessions/*.json`, and `prs/profile.json`, plus any `sessions/*.md` that has no `.json` twin. Some rest days exist only as a Markdown note; `parseSessionNote` keeps its frontmatter, heading, and body. A forced sync (`POST /sync?force=1`) picks up files that a filter change newly includes while HEAD stays the same.
 3. Fetch only the blobs whose SHA differs from `repo_files.sha`, at most 40 per run to stay under the Worker's subrequest limit.
 4. In one transaction, under an advisory lock, upsert those files, delete paths that left the tree, and record `head_sha`. When more than 40 blobs changed, the run saves its batch, clears the ETag, and leaves `head_sha` alone, so the next minute picks up the rest.
 
@@ -62,6 +62,7 @@ All routes are under `/api/tools/workouts`.
 | Route | Does |
 | --- | --- |
 | `GET /program?week=<blockId>/<weekId>` | `{ today, weeks, currentWeek, week, next, sync, webhookReady }` from the mirror. Without `week`, the current week. |
+| `GET /history/summary` | Session counts by kind and block, recovery sessions, exercises with session count and last date, and PR count, all from the history tables |
 | `POST /sync` | Bots only, through `requireBot`. Runs one sync now. `?force=1` skips the ETag check. Returns `{ result, sync }`, or 502 when the run fails. |
 | `GET /sessions` | The latest 100 sessions with their delivery state |
 | `POST /sessions` | `{ blockId, weekId, dayId, test? }`. Creates the session from the mirrored program, or returns the open one for that day. |
@@ -73,7 +74,7 @@ All routes are under `/api/tools/workouts`.
 
 ## Data
 
-Schema `workouts`, created by `migrations/0001-create-sessions.sql` and `0002-create-repo-mirror.sql`.
+Schema `workouts`, created by the files in `migrations/`.
 
 | Table | Holds |
 | --- | --- |
@@ -82,6 +83,7 @@ Schema `workouts`, created by `migrations/0001-create-sessions.sql` and `0002-cr
 | `sets` | One row per logged set, keyed by `(session_id, position, set_index)`: `weight`, `unit`, `reps`, `rir`, `as_written`, `notes` |
 | `deliveries` | The shared `worker/webhooks.ts` delivery table, plus `session_id` |
 | `repo_files` | One row per mirrored `program/` or `sessions/` JSON file: `path`, blob `sha`, `kind`, `content`, `parse_error` |
+| `history_blocks`, `history_sessions`, `history_exercises`, `history_sets`, `history_prs` | Read tables that `history.ts` rebuilds from `repo_files` inside every complete sync. Blocks get an end date from the next block's start when the file has none. A session is `recovery` when its week is `deload`, its day is `recovery`, or it falls in the block's `deloadWeek`. Exercises are keyed by `id`, or a slug of the name, through `EXERCISE_ALIASES`. PRs come from `prs/profile.json`. |
 | `repo_sync` | One row: `head_sha` and `head_etag` of the last complete sync, `synced_at`, `checked_at`, `last_error` |
 
 ## Webhook to coach
