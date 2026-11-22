@@ -1,0 +1,61 @@
+import { expect, test } from "bun:test";
+import { isToolsOrigin, previewOrigin, READ_ROUTES, smoke, USER_AGENT } from "./smoke.ts";
+
+const target = new URL("https://tools.example");
+const token = { id: "verify.access", secret: "s" };
+const unlisted = { id: "other.access", secret: "s" };
+const SHA = "a".repeat(40);
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+function worker(overrides: Record<string, number> = {}): { fetcher: typeof fetch; seen: Request[] } {
+	const seen: Request[] = [];
+	const fetcher = (async (input: URL, init?: RequestInit) => {
+		const request = new Request(input, init);
+		seen.push(request);
+		const { pathname } = new URL(request.url);
+		const id = request.headers.get("cf-access-client-id");
+		const override = overrides[pathname];
+		if (override !== undefined) return new Response("broken", { status: override });
+		if (pathname.startsWith("/api/") && id === null) return new Response(null, { status: 302, headers: { location: "https://team.cloudflareaccess.com/" } });
+		if (pathname.startsWith("/api/") && id !== token.id) return Response.json({ error: "Forbidden: this identity is not on the tools allowlist" }, { status: 403 });
+		if (pathname === "/build.json") return Response.json({ sha: SHA, branch: "main" });
+		if (pathname === "/api/health") return Response.json({ ok: true, db: {}, migrations: { pending: [], changed: [], unknown: [] } });
+		if (READ_ROUTES.includes(pathname)) return Response.json({});
+		if (pathname === "/api/tools/nutrition/mcp") return new Response(null, { status: request.method === "POST" ? 401 : 405 });
+		if (pathname === "/api/tools/workouts/sync") return new Response(null, { status: 401 });
+		if (pathname === "/") return new Response('<link rel="icon" href="/favicon-32.png"><script type="module" src="/assets/index-x.js"></script>');
+		if (pathname === "/assets/index-x.js") return new Response('const logo="/assets/logo-x.png"');
+		if (pathname.endsWith(".png")) return new Response(PNG, { headers: { "content-type": "image/png" } });
+		return Response.json({ error: "Not found" }, { status: 404 });
+	}) as typeof fetch;
+	return { fetcher, seen };
+}
+
+test("a healthy deploy passes every check and every request names itself", async () => {
+	const { fetcher, seen } = worker();
+	const outcomes = await smoke({ target, token, unlisted, sha: SHA, fetcher });
+	expect(outcomes.filter((outcome) => outcome.ok !== true)).toEqual([]);
+	expect(outcomes.map((outcome) => outcome.name)).toEqual(expect.arrayContaining(["image /favicon-32.png", "image /assets/logo-x.png", "unlisted service token", "no Access credentials"]));
+	expect(seen.every((request) => request.headers.get("user-agent") === USER_AGENT)).toBe(true);
+});
+
+test("a broken route and a stale deploy each fail by name", async () => {
+	const { fetcher } = worker({ "/api/tools/activity/sleep": 500 });
+	const failed = (await smoke({ target, token, unlisted, sha: "b".repeat(40), fetcher })).filter((outcome) => outcome.ok === false).map((outcome) => outcome.name);
+	expect(failed).toEqual(["build sha", "read /api/tools/activity/sleep"]);
+});
+
+test("only production and tools previews get the Access token", () => {
+	expect(isToolsOrigin("https://tools.mattpalmer.io")).toBe(true);
+	expect(isToolsOrigin(previewOrigin("cursor/live-smoke-b556"))).toBe(true);
+	expect(previewOrigin("cursor/live-smoke-b556")).toBe("https://cursor-live-smoke-b556-tools.mpal.workers.dev");
+	for (const target of ["http://tools.mattpalmer.io", "https://tools.mattpalmer.io.evil.example", "https://evil.example/tools.mattpalmer.io", "https://x-tools.mpal.workers.dev.evil.example", "https://a.b-tools.mpal.workers.dev", "https://tools.mattpalmer.io:8443", "https://user@tools.mattpalmer.io", "not a url"]) {
+		expect({ target, allowed: isToolsOrigin(target) }).toEqual({ target, allowed: false });
+	}
+});
+
+test("without an unlisted token the allowlist denial is skipped and says so", async () => {
+	const { fetcher } = worker();
+	const outcomes = await smoke({ target, token, unlisted: null, sha: null, fetcher });
+	expect(outcomes.find((outcome) => outcome.name === "unlisted service token")?.ok).toBeNull();
+});
