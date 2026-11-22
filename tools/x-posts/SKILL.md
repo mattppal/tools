@@ -88,7 +88,9 @@ Writes record their actor: `decided_by` (`screen`, `prints-review`, `matt`, `cap
 
 ## UI
 
-`/x-posts` is the live view: matched posts newest first with name, handle, time, raw text, metrics, status, flags, a timestamp that opens the post on X and Copy link, polled every 10 seconds while the tab is visible, with Check now. `/x-posts/posts` lists posts by status, with the same timestamp link and Copy link, with raw text, the clean text when it differs, flags and reasons as words, and Approve and Reject on pending posts while the queue is open. `/x-posts/queue` lists jobs with Print again on terminal ones. `/x-posts/blocklist` edits the list. The Details panel holds sync, budget, cap and shadow counts.
+`/x-posts` is the live view: matched posts newest first, each drawn as it looks on X, then the clean text when it differs, status, flags and Copy link, polled every 10 seconds while the tab is visible, with Check now. Clicking a card opens the post on X. `/x-posts/posts` lists posts by status with the same cards and Copy link, and Approve and Reject on pending posts while the queue is open. `/x-posts/queue` lists jobs with Print again on terminal ones. `/x-posts/blocklist` edits the list. The Details panel holds sync, budget, cap and shadow counts.
+
+`card.tsx` draws each card in the browser with xeet (`@xeet/core`) from the stored row: raw text, name, handle, time and metrics. It reads nothing more from X, so it costs no reads. Avatars are X's default picture, and media and link cards aren't drawn because they aren't stored. `scripts/xeet-vite.ts` serves xeet's WebAssembly and font packs as hashed assets, which the service worker caches after first use. A pack is fetched only when a post needs it. The CJK pack is over the 25 MiB asset limit, so a post that needs it, or any card that fails to draw, shows as text with a timestamp link instead. The page CSP allows `'wasm-unsafe-eval'` for this.
 
 ## Tables
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
+import { PostCard } from "./card.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
 import styles from "./x-posts.module.css";
@@ -129,26 +130,45 @@ function PostLink({ post, children }: { post: OwnerPost; children: string }) {
 	);
 }
 
-function LivePost({ post, now, fresh }: { post: OwnerPost; now: number; fresh: boolean }) {
-	const metrics = [count(post.metrics.likes, "like", "likes"), count(post.metrics.reposts, "repost", "reposts"), count(post.metrics.replies, "reply", "replies"), count(post.metrics.quotes, "quote", "quotes"), count(post.metrics.impressions, "view", "views")].filter(
+function PostBody({ post, now, time }: { post: OwnerPost; now: number; time: string }) {
+	const metrics = [count(post.metrics.likes, "like", "likes"), count(post.metrics.reposts, "repost", "reposts"), count(post.metrics.replies, "reply", "replies"), count(post.metrics.impressions, "view", "views")].filter(
 		(part): part is string => part !== null,
 	);
-	const state = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	return (
+		<PostCard
+			post={post}
+			now={now}
+			fallback={
+				<>
+					<p className={styles.liveHead}>
+						<span className={styles.liveName}>{post.name || post.handle}</span>
+						<span>@{post.handle}</span>
+						<PostLink post={post}>{time}</PostLink>
+					</p>
+					<p className={styles.text}>{post.text}</p>
+					{metrics.length === 0 ? null : <p className={styles.meta}>{metrics.join(" · ")}</p>}
+				</>
+			}
+		/>
+	);
+}
+
+function PostFoot({ post }: { post: OwnerPost }) {
+	const meta = [post.metrics.quotes ? count(post.metrics.quotes, "quote", "quotes") : null, post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	return (
+		<div className={styles.postFoot}>
+			<p className={styles.meta}>{meta.join(" · ")}</p>
+			<CopyLink url={post.url} />
+		</div>
+	);
+}
+
+function LivePost({ post, now, fresh }: { post: OwnerPost; now: number; fresh: boolean }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined}>
-			<div className={styles.postHead}>
-				<p className={styles.liveHead}>
-					<span className={styles.liveName}>{post.name || post.handle}</span>
-					<span>@{post.handle}</span>
-					<PostLink post={post}>{ago(post.createdAt, now)}</PostLink>
-				</p>
-				<CopyLink url={post.url} />
-			</div>
-			<p className={styles.text}>{post.text}</p>
+			<PostBody post={post} now={now} time={ago(post.createdAt, now)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
-			<p className={styles.meta}>
-				{[...metrics, ...state].join(" · ")}
-			</p>
+			<PostFoot post={post} />
 		</li>
 	);
 }
@@ -264,7 +284,7 @@ function Details({ status }: { status: Load<Status> }) {
 	);
 }
 
-function PostItem({ post, canDecide, onDecided }: { post: OwnerPost; canDecide: boolean; onDecided: () => void }) {
+function PostItem({ post, now, canDecide, onDecided }: { post: OwnerPost; now: number; canDecide: boolean; onDecided: () => void }) {
 	const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	async function decide(kind: "approve" | "reject") {
@@ -278,20 +298,11 @@ function PostItem({ post, canDecide, onDecided }: { post: OwnerPost; canDecide: 
 			setBusy(null);
 		}
 	}
-	const meta = [post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return (
 		<li className={styles.postRow}>
-			<div className={styles.postHead}>
-				<p className={styles.liveHead}>
-					<span className={styles.liveName}>{post.name || post.handle}</span>
-					<span>@{post.handle}</span>
-					<PostLink post={post}>{when(post.createdAt)}</PostLink>
-				</p>
-				<CopyLink url={post.url} />
-			</div>
-			<p className={styles.text}>{post.text}</p>
+			<PostBody post={post} now={now} time={when(post.createdAt)} />
 			{post.cleanText !== post.text ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
-			<p className={styles.meta}>{meta.join(" · ")}</p>
+			<PostFoot post={post} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
 					<Button size="sm" loading={busy === "approve"} disabled={busy !== null} onClick={() => void decide("approve")}>
@@ -311,6 +322,7 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 	const canDecide = status.status === "ready" && status.data.queueOpen;
 	const [filter, setFilter] = useState<string | null>("pending");
 	const [posts, retry] = useLoad<{ posts: OwnerPost[]; nextBefore: string | null }>(`/posts${filter === null ? "" : `?status=${filter}`}`);
+	const [now] = useState(Date.now);
 	return (
 		<>
 			<div className={styles.filters} role="group" aria-label="Status">
@@ -330,6 +342,7 @@ function PostsPage({ status, refreshStatus }: { status: Load<Status>; refreshSta
 						<PostItem
 							key={post.id}
 							post={post}
+							now={now}
 							canDecide={canDecide}
 							onDecided={() => {
 								retry();

@@ -46,7 +46,7 @@ test("every page carries a fresh script nonce, on each script tag and in a stric
 	const seen = new Set<string>();
 	for (const path of ["/", "/index.html", "/workouts", "/nutrition/history"]) {
 		const page = await get(path);
-		const nonce = /^script-src 'self' 'nonce-([A-Za-z0-9+/=]+)';/.exec(page.headers.get("content-security-policy") ?? "")?.[1];
+		const nonce = /^script-src 'self' 'nonce-([A-Za-z0-9+/=]+)' 'wasm-unsafe-eval';/.exec(page.headers.get("content-security-policy") ?? "")?.[1];
 		expect({ path, nonce: nonce !== undefined }).toEqual({ path, nonce: true });
 		const scripts = page.body.match(/<script\b[^>]*>/g) ?? [];
 		expect(scripts.length).toBeGreaterThan(0);
