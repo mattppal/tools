@@ -381,8 +381,6 @@
 }
 
 .summaryLink:focus-visible {
-	outline: 2px solid var(--focus-ring);
-	outline-offset: 2px;
 	border-radius: var(--radius-sm);
 }
 
@@ -476,7 +474,6 @@
 
 .spentDays li {
 	padding: var(--space-2) 0;
-	border-top: var(--border-width) solid var(--border-color);
 }
 
 .spentDayTop {
