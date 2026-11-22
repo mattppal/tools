@@ -30,8 +30,17 @@ afterAll(() => preview?.kill());
 
 async function get(path: string, init?: RequestInit) {
 	const response = await fetch(`${BASE}${path}`, init);
-	return { status: response.status, type: response.headers.get("content-type") ?? "", cache: response.headers.get("cache-control") ?? "", body: await response.text() };
+	return { status: response.status, type: response.headers.get("content-type") ?? "", cache: response.headers.get("cache-control") ?? "", headers: response.headers, body: await response.text() };
 }
+
+test("pages, assets and API answers all forbid framing and sniffing", async () => {
+	const file = readdirSync(ASSETS).find((name) => name.endsWith(".js"));
+	for (const path of ["/", "/workouts", `/assets/${file}`, "/api/nope", "/sw.js"]) {
+		const { headers } = await get(path);
+		expect({ path, csp: headers.get("content-security-policy") }).toEqual({ path, csp: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" });
+		expect({ path, nosniff: headers.get("x-content-type-options") }).toEqual({ path, nosniff: "nosniff" });
+	}
+});
 
 test("app paths serve the SPA without long-lived caching", async () => {
 	for (const path of ["/", "/workouts", "/nutrition/history"]) {
