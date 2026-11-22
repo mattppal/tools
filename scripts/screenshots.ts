@@ -25,7 +25,7 @@ export const SHOTS: Shot[] = [
 const SCALE = 2;
 export const FONT = "Inter";
 const START_TIMEOUT_MS = 30_000;
-const PAGE_TIMEOUT_MS = 20_000;
+const PAGE_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 800;
 const CHROME = Bun.which("google-chrome") ?? Bun.which("chromium") ?? "/usr/local/bin/google-chrome";
 const READY = `document.readyState === "complete" && document.querySelector("main") !== null && document.querySelector("[aria-busy='true'], [data-slot='skeleton']") === null`;
@@ -90,7 +90,8 @@ async function renderedFonts(send: (method: string, params?: object) => Promise<
 	const { nodeIds } = (await send("DOM.querySelectorAll", { nodeId: root.nodeId, selector: "main *" })).result as { nodeIds: number[] };
 	const used = new Set<string>();
 	for (const nodeId of nodeIds.slice(0, 40)) {
-		const fonts = (await send("CSS.getPlatformFontsForNode", { nodeId })).result?.["fonts"] as { familyName: string }[] | undefined;
+		const reply = await send("CSS.getPlatformFontsForNode", { nodeId }).catch(() => null);
+		const fonts = reply?.result?.["fonts"] as { familyName: string }[] | undefined;
 		for (const font of fonts ?? []) used.add(font.familyName);
 	}
 	return [...used];
