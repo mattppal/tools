@@ -1,10 +1,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const ASSETS = join(ROOT, "dist/client/assets");
+const CLIENT = join(ROOT, "dist/client");
+const ASSETS = join(CLIENT, "assets");
+const IMAGE_PATH = /["'`(](\/[\w./-]+\.(?:png|svg|webp|avif|jpe?g|gif|ico))["'`)]/g;
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const PORT = 4300 + (process.pid % 600);
 const BASE = `http://127.0.0.1:${PORT}`;
 const START_TIMEOUT_MS = 30_000;
@@ -52,6 +55,32 @@ test("built assets are immutable", async () => {
 	const asset = await get(`/assets/${file}`);
 	expect(asset.status).toBe(200);
 	expect(asset.cache).toContain("immutable");
+});
+
+function imagePaths(): string[] {
+	const files = ["index.html", "manifest.webmanifest", ...readdirSync(ASSETS).filter((name) => /\.(?:js|css)$/.test(name)).map((name) => `assets/${name}`)];
+	const paths = new Set<string>();
+	for (const file of files) {
+		for (const [, path] of readFileSync(join(CLIENT, file), "utf8").matchAll(IMAGE_PATH)) {
+			if (path !== undefined) paths.add(path);
+		}
+	}
+	return [...paths].toSorted();
+}
+
+test("the sidebar logo is a built asset", () => {
+	expect(imagePaths().filter((path) => /^\/assets\/logo-[\w-]+\.png$/.test(path))).toHaveLength(1);
+});
+
+test("every image the build references is served as that image", async () => {
+	const paths = imagePaths();
+	expect(paths.length).toBeGreaterThan(0);
+	for (const path of paths) {
+		const response = await fetch(`${BASE}${path}`);
+		const bytes = [...new Uint8Array(await response.arrayBuffer())];
+		expect({ path, status: response.status, image: (response.headers.get("content-type") ?? "").startsWith("image/") }).toEqual({ path, status: 200, image: true });
+		if (path.endsWith(".png")) expect({ path, signature: bytes.slice(0, PNG_SIGNATURE.length) }).toEqual({ path, signature: PNG_SIGNATURE });
+	}
 });
 
 test("the service worker is never cached", async () => {

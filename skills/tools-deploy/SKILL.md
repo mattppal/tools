@@ -38,10 +38,14 @@ All of them sit behind the Access app "tools - Cloudflare Workers".
 Use the service token `tools-agent-verify`, which has a Service Auth policy on that app. Get its client ID and secret from whoever runs the task; never commit them.
 
 ```bash
-curl -H "CF-Access-Client-Id: $CFA_ID" -H "CF-Access-Client-Secret: $CFA_SECRET" https://tools.mattpalmer.io/api/health
+curl -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" https://tools.mattpalmer.io/api/health
 ```
 
-Playwright takes the same headers through `extraHTTPHeaders`. A 302 to `cloudflareaccess.com` means the headers were missing or wrong. A 403 with Cloudflare error 1010 means Browser Integrity Check blocked the client's default User-Agent, such as Python urllib's; send an explicit `User-Agent`.
+A 302 to `cloudflareaccess.com` means the headers were missing or wrong. A 403 with Cloudflare error 1010 means Browser Integrity Check blocked the client's default User-Agent, such as Python urllib's; send an explicit `User-Agent`.
+
+To see the live site in a browser, either open https://tools.mattpalmer.io directly with the same headers (Playwright `extraHTTPHeaders`, Puppeteer `setExtraHTTPHeaders`), or run `bun scripts/live-proxy.ts` with `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` set and open http://127.0.0.1:8788. Pass `--target https://<alias>-tools.mpal.workers.dev` for a preview.
+
+Don't write your own proxy. The `mattpalmer.io` zone has Hotlink Protection on, so any image request whose `Referer` is another host gets a 403 before it reaches Access. A proxy that passes on the browser's `http://127.0.0.1` `Referer` shows a broken sidebar logo and favicons while pages, scripts, and APIs work, which looks like a broken deploy. `scripts/live-proxy.ts` rewrites `Referer` and `Origin` to the target. Hotlink Protection is the user's zone setting; leave it on.
 
 ## Bot credentials
 
