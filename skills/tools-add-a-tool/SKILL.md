@@ -63,6 +63,37 @@ export default defineToolApi((request, context) => (context.path === "/mcp" ? mc
 
 The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to send the bot an error it can act on. Any other error is logged, and the bot sees `Internal error`. `skills/tools-deploy/SKILL.md` covers creating the Access token and policy.
 
+## Webhooks to bots
+
+`worker/webhooks.ts` sends a tool's events to a bot and keeps retrying until the receiver returns a 2xx. Retries wait 1, 2, 4, 8, 16, and 32 minutes, then every 60 minutes, with no limit.
+
+1. Add a deliveries table to the tool's schema. Extra columns are fine.
+
+   ```sql
+   create table deliveries (
+   	delivery_id uuid primary key,
+   	payload jsonb not null,
+   	attempts integer not null default 0,
+   	next_attempt_at timestamptz not null default now() + interval '1 minute',
+   	delivered_at timestamptz,
+   	last_status integer,
+   	last_error text
+   );
+   ```
+
+2. Export the webhook from `tools/<slug>/webhook.ts`. A `null` target means the secrets aren't set, as on previews and in local dev. Deliveries then wait in the table.
+
+   ```ts
+   export default defineWebhook({
+   	table: "my_tool.deliveries",
+   	target: (env) => (env.MY_WEBHOOK_URL && env.MY_WEBHOOK_KEY ? { url: env.MY_WEBHOOK_URL, authorization: env.MY_WEBHOOK_KEY, deliveryHeader: "X-My-Tool-Delivery" } : null),
+   });
+   ```
+
+3. When the event happens, insert the row in the same transaction as the change. Put the `delivery_id` in the payload too. After the transaction, send the first attempt with `ctx.waitUntil(withRequestDb(env.DB, ctx, (db) => deliverDue(db, webhook, env, [deliveryId])))`. The request's own connection closes after the response, so the first attempt opens a fresh one.
+
+Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `authorization` exactly as given, with no scheme added. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. `bun test worker` covers the delivery code against PGlite.
+
 ## Remove a tool
 
 Delete `tools/<slug>/`. If it had migrations, run `drop schema <schema> cascade`.

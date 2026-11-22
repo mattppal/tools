@@ -22,5 +22,6 @@
 	"previews": {
 		"hyperdrive": [{ "binding": "DB", "id": "e848bceaf6914abb931f40d0e3c65c54" }]
 	},
+	"triggers": { "crons": ["* * * * *"] },
 	"observability": { "enabled": true, "logs": { "enabled": true } }
 }

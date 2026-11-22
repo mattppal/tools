@@ -1,5 +1,6 @@
 import { type WithDb, withRequestDb } from "./db.ts";
 import type { ToolApi } from "./tool-api.ts";
+import { deliverDue, type Webhook } from "./webhooks.ts";
 
 const apis = import.meta.glob<{ default: ToolApi }>("../tools/*/api.ts", { eager: true });
 
@@ -10,6 +11,8 @@ const TOOL_APIS = new Map(
 		return [slug, module.default];
 	}),
 );
+
+const WEBHOOKS = Object.values(import.meta.glob<{ default: Webhook }>("../tools/*/webhook.ts", { eager: true })).map((module) => module.default);
 
 const TOOL_API_PATH = /^\/api\/tools\/([a-z0-9-]+)(\/.*)?$/;
 
@@ -54,5 +57,16 @@ export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		if (!new URL(request.url).pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 		return withRequestDb(env.DB, ctx, (withDb) => handleApi(request, env, ctx, withDb));
+	},
+	async scheduled(_controller, env, ctx): Promise<void> {
+		await withRequestDb(env.DB, ctx, async (withDb) => {
+			for (const webhook of WEBHOOKS) {
+				try {
+					await deliverDue(withDb, webhook, env);
+				} catch (error) {
+					console.error(`Webhook retries for ${webhook.table} failed`, error);
+				}
+			}
+		});
 	},
 } satisfies ExportedHandler<Env>;
