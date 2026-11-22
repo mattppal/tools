@@ -13,7 +13,7 @@
 		"skipLibCheck": true,
 		"isolatedModules": true,
 		"verbatimModuleSyntax": true,
-		"types": ["vite/client", "./worker-configuration.d.ts"]
+		"types": ["vite/client", "bun", "./worker-configuration.d.ts"]
 	},
 	"include": ["src", "worker", "tools", "scripts", "vite.config.ts"]
 }

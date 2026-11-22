@@ -7,13 +7,12 @@
   },
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
-    "preview": "vite preview",
+    "build": "bun scripts/check-skills.ts && vite build",
     "typecheck": "tsc --noEmit",
+    "check:skills": "bun scripts/check-skills.ts",
     "new-tool": "bun scripts/new-tool.ts",
-    "icons": "bun scripts/icons.ts",
     "deploy": "bun run build && wrangler deploy",
-    "deploy:preview": "bun run build && wrangler versions upload"
+    "preview": "bun run build && wrangler preview"
   },
   "packageManager": "bun@1.4.5",
   "dependencies": {
@@ -30,6 +29,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.70.1",
     "@tailwindcss/vite": "4.3.5",
+    "@types/bun": "^1.4.5",
     "@types/node": "22.20.5",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",

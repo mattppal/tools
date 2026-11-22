@@ -1,0 +1,45 @@
+---
+name: tools-styling
+description: UI rules for the tools repo - poaster kit primitives and tokens, the primary/secondary/right sidebars via ToolLayout, mobile layout, and PWA constraints. Use when building or changing any UI in this repo.
+---
+
+# Styling
+
+Read `skills/emil-design-eng/SKILL.md` before UI work.
+
+## Primitives and tokens
+
+- `src/kit/` is a copy of poaster's kit (Base UI + Tailwind 4 + `cva`). Use `Button`, `IconButton`, `Input`, `ScrollArea`, `Sheet`, `Tooltip`, and the `Sidebar*` parts before writing new ones.
+- Tokens live in `src/styles/tokens.css`. Use them for color, space, radius, type, and motion: `var(--space-3)`, `var(--text-sm)`, `var(--radius-md)`, `var(--duration-hover)`. Don't hard-code colors; every color token works in light and dark.
+- Tailwind utilities map to the same tokens (`bg-chrome`, `text-muted-foreground`, `h-control-md`). CSS modules are fine; poaster uses both.
+- Icons come from `src/shell/icons.tsx` (Hugeicons). Add a glyph there to use a new one.
+
+## Layout
+
+Every page renders `ToolLayout` from `src/shell/tool-layout.tsx`:
+
+```tsx
+<ToolLayout
+	title="Name"
+	actions={<Button>Save</Button>}
+	sidebar={{ label: "Lists", content: (close) => <SidebarMenu>...</SidebarMenu> }}
+	panel={{ label: "Details", open, onOpenChange: setOpen, content: <Details /> }}
+>
+	{main}
+</ToolLayout>
+```
+
+- Primary sidebar: the tool list. The shell owns it. It collapses with the header button or Cmd/Ctrl+S and remembers its state.
+- Secondary sidebar (`sidebar`): optional second column for the tool's own navigation. Call `close()` after a selection so the phone drawer shuts.
+- Right panel (`panel`): optional. Docks at 1024px and wider; below that it opens as a sheet from the right, like poaster's comment panel.
+
+## Mobile
+
+- Breakpoints come from `useLayout()` in `src/kit/layout.ts`: `compact` under 768px, `medium` to 1023px, `expanded` from 1024px. Use the hook, not new media queries in TS.
+- On `compact`, all three sidebars become drawers opened from the header. Keep the main content usable at 360px wide.
+- Touch targets are at least `var(--hit)` (44px) where possible. Respect `env(safe-area-inset-*)` for anything pinned to an edge.
+
+## PWA
+
+- `public/manifest.webmanifest` is linked with `crossorigin="use-credentials"` because the site sits behind Cloudflare Access.
+- `src/sw/sw.ts` caches only same-origin `/assets/*` and icons, and only 200 responses that were not redirected. It never caches navigations or `/api/*`, so Access login pages never end up in the cache. Keep it that way.
