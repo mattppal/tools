@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import { fieldVariants, Input } from "../../src/kit/input.tsx";
 import styles from "./goals.module.css";
@@ -11,6 +11,7 @@ export function CheckinForm({ goal, onSaved, onCancel }: { goal: Goal; onSaved: 
 	const [status, setStatus] = useState<Status>(goal.status);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const attempt = useRef<{ content: string; key: string } | null>(null);
 
 	async function save(event?: FormEvent) {
 		event?.preventDefault();
@@ -19,7 +20,10 @@ export function CheckinForm({ goal, onSaved, onCancel }: { goal: Goal; onSaved: 
 		setError(null);
 		try {
 			const percent = progress.trim() === "" ? null : Number(progress);
-			const saved = await request<{ goal: Goal; checkin: Checkin }>("/checkins", { goal_id: goal.id, note: note.trim(), progress: percent, ...(status === goal.status ? {} : { status }) });
+			const content = { goal_id: goal.id, note: note.trim(), progress: percent, ...(status === goal.status ? {} : { status }) };
+			const serialized = JSON.stringify(content);
+			if (attempt.current?.content !== serialized) attempt.current = { content: serialized, key: crypto.randomUUID() };
+			const saved = await request<{ goal: Goal; checkin: Checkin }>("/checkins", { ...content, client_key: attempt.current.key });
 			onSaved(saved.goal);
 		} catch (failure) {
 			setError(failure instanceof Error ? failure.message : String(failure));

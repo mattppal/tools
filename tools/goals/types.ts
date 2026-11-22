@@ -29,9 +29,16 @@ export const STATUS_LABELS: Record<Status, string> = {
 	unknown: "Status unknown",
 };
 
+export const TIME_ZONE = "America/Los_Angeles";
+
+export function today(now = new Date()): string {
+	return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
 export type Checkin = {
 	id: string;
 	goalId: string;
+	clientKey: string;
 	date: string;
 	note: string;
 	progress: number | null;

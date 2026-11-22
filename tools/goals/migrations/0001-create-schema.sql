@@ -25,7 +25,7 @@ create table goals (
 	check ((horizon = 'quarter') = (quarter is not null))
 );
 
-create unique index goals_natural_key on goals (year, horizon, coalesce(quarter, 0), lower(title));
+create unique index goals_natural_key on goals (year, horizon, coalesce(quarter, 0), lower(regexp_replace(btrim(title), '\s+', ' ', 'g')));
 
 create index goals_parent on goals (parent_id);
 
@@ -37,7 +37,11 @@ create table goal_checkins (
 	progress numeric(5, 2) check (progress between 0 and 100),
 	status_at_checkin text not null check (status_at_checkin in ('active', 'achieved', 'partial', 'missed', 'dropped', 'unknown')),
 	source text not null check (source in ('matt', 'gtd-bot')),
+	client_key text not null check (length(client_key) between 1 and 100),
+	request jsonb not null,
 	created_at timestamptz not null default now()
 );
+
+create unique index goal_checkins_client_key on goal_checkins (goal_id, client_key);
 
 create index goal_checkins_latest on goal_checkins (goal_id, date desc, created_at desc);

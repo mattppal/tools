@@ -13,6 +13,7 @@ export type McpTool<Input extends z.ZodObject = z.ZodObject> = {
 	input: Input;
 	readOnly?: boolean;
 	bots?: readonly BotName[];
+	idempotent?: boolean;
 	run: (args: z.infer<Input>, context: McpToolContext) => Promise<unknown>;
 };
 
@@ -44,7 +45,7 @@ export function toolMcp({ name, tools, scope = () => null }: { name: string; too
 		for (const tool of tools.filter((candidate) => candidate.bots === undefined || candidate.bots.includes(bot))) {
 			server.registerTool(
 				tool.name,
-				{ description: tool.description, inputSchema: tool.input, annotations: { readOnlyHint: tool.readOnly ?? false } },
+				{ description: tool.description, inputSchema: tool.input, annotations: { readOnlyHint: tool.readOnly ?? false, ...(tool.idempotent === undefined ? {} : { idempotentHint: tool.idempotent }) } },
 				async (args: unknown) => {
 					const refused = scope(bot, tool, args as Record<string, unknown>);
 					if (refused !== null) return failure(refused);

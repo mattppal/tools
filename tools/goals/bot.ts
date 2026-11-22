@@ -1,6 +1,6 @@
 import { defineMcpTool, McpToolError, toolMcp } from "../../worker/mcp.ts";
 import * as input from "./schemas.ts";
-import { addCheckin, bulkImport, getYear, linkTodoist, listGoals, Rejected, setNorthStar, setStatus, upsertGoal } from "./store.ts";
+import { addCheckin, bulkImport, getYear, linkTodoist, listCheckins, listGoals, Rejected, setNorthStar, setStatus, upsertGoal } from "./store.ts";
 
 async function asTool<T>(work: () => Promise<T>): Promise<T> {
 	try {
@@ -17,15 +17,17 @@ export const goalsMcp = toolMcp({
 		defineMcpTool({
 			name: "upsert_goal",
 			description:
-				"Create a goal, or update one by id or by year, horizon, quarter and title. Fields you omit keep their values. Status and Todoist links have their own tools. Returns the goal and whether it was created.",
+				"Create a goal, or update one by id or by year, horizon, quarter and title. Titles match after trimming, collapsing spaces and ignoring case. Fields you omit keep their values, and year never changes. Status and Todoist links have their own tools. Returns the goal and whether it was created.",
 			input: input.upsertGoal,
+			idempotent: true,
 			run: (args, { db }) => asTool(() => db((client) => upsertGoal(client, args))),
 		}),
 		defineMcpTool({
 			name: "bulk_import",
 			description:
-				"Import goals and each year's north star in one transaction: all or nothing. A goal matching an existing year, horizon, quarter and title (any case) updates it, so sending the same body twice changes nothing. Send status only when the source states it.",
+				"Import goals and each year's north star in one transaction: all or nothing. A goal matching an existing year, horizon, quarter and title (trimmed, spaces collapsed, any case) updates it, so sending the same body twice changes nothing. Send status only when the source states it. Returns counts for goals and, separately, for years.",
 			input: input.bulkImport,
+			idempotent: true,
 			run: (args, { db }) => asTool(() => db((client) => bulkImport(client, args))),
 		}),
 		defineMcpTool({
@@ -37,27 +39,40 @@ export const goalsMcp = toolMcp({
 		}),
 		defineMcpTool({
 			name: "set_status",
-			description: "Set a goal's status and record the note as a check-in. The only way the bot changes a status. Never infer a status Matt didn't state.",
+			description:
+				"Set a goal's status and record the note as a check-in. The only way the bot changes a status, and the way to retire a goal: there is no delete, so set dropped. Never infer a status Matt didn't state. A retry with the same client_key and content returns the first check-in.",
 			input: input.setStatus,
-			run: ({ id, status, note }, { db }) => asTool(() => db((client) => setStatus(client, id, status, note, "gtd-bot"))),
+			idempotent: true,
+			run: (args, { db }) => asTool(() => db((client) => setStatus(client, args, "gtd-bot"))),
 		}),
 		defineMcpTool({
 			name: "add_checkin",
-			description: "Add a dated note to a goal, with progress as a percent when the goal has a measure. Never changes the status. A retry adds a second check-in.",
+			description:
+				"Add a dated note to a goal, with progress as a percent when the goal has a measure. Never changes the status. A retry with the same client_key and content returns the first check-in and writes nothing.",
 			input: input.addCheckin,
+			idempotent: true,
 			run: (args, { db }) => asTool(() => db((client) => addCheckin(client, args, "gtd-bot"))),
 		}),
 		defineMcpTool({
 			name: "link_todoist",
 			description: "Set a goal's Todoist project and task ids. task_ids replaces the stored list. Todoist holds the next actions; the ids are not checked.",
 			input: input.linkTodoist,
+			idempotent: true,
 			run: (args, { db }) => asTool(() => db((client) => linkTodoist(client, args))),
 		}),
 		defineMcpTool({
 			name: "set_north_star",
-			description: "Set one year's north star, the sentence shown above that year's goals.",
+			description: "Set one year's north star, the sentence shown above that year's goals. Send clear: true to remove it.",
 			input: input.setNorthStar,
-			run: ({ year, north_star }, { db }) => db((client) => setNorthStar(client, year, north_star)),
+			idempotent: true,
+			run: ({ year, north_star }, { db }) => db((client) => setNorthStar(client, year, north_star ?? "")),
+		}),
+		defineMcpTool({
+			name: "list_checkins",
+			description: "A goal's check-ins, newest first.",
+			input: input.listCheckins,
+			readOnly: true,
+			run: (args, { db }) => asTool(() => db((client) => listCheckins(client, args))),
 		}),
 		defineMcpTool({
 			name: "get_year",

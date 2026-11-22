@@ -11,9 +11,9 @@ async function body<T extends z.ZodType>(request: Request, schema: T): Promise<z
 }
 
 export default defineToolApi(async (request, context) => {
-	const { path, db, access } = context;
+	const { path, db, caller } = context;
 	if (path === "/mcp") return goalsMcp(request, context);
-	if (access.kind === "serviceToken") return Response.json({ error: "Forbidden: the goals page routes are for Matt" }, { status: 403 });
+	if (caller.kind === "bot") return Response.json({ error: "Forbidden: the goals page routes are for Matt" }, { status: 403 });
 	try {
 		switch (`${request.method} ${path}`) {
 			case "GET /overview":

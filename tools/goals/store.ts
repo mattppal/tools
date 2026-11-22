@@ -1,6 +1,6 @@
 import type { Database } from "../../worker/db.ts";
-import type { AddCheckin, BulkImport, ImportGoal, LinkTodoist, ListGoals, UpsertGoal } from "./schemas.ts";
-import { type Checkin, compareGoals, type Goal, type GoalYear, type Overview, type Source, type Status, type YearView } from "./types.ts";
+import type { AddCheckin, BulkImport, ImportGoal, LinkTodoist, ListCheckins, ListGoals, SetStatus, UpsertGoal } from "./schemas.ts";
+import { type Checkin, compareGoals, type Goal, type GoalYear, type Overview, type Source, type Status, today, type YearView } from "./types.ts";
 
 export class Rejected extends Error {}
 
@@ -24,17 +24,15 @@ const FIELDS = ["year", "horizon", "quarter", "area", "title", "description", "m
 
 const NEW_GOAL = { description: "", metric: null, target: null, status: "unknown", parent_id: null, source_url: null } as const satisfies Partial<Fields>;
 
-const TIME_ZONE = "America/Los_Angeles";
-
-export function today(now = new Date()): string {
-	return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
-
 const iso = (value: unknown): string => new Date(value as string | Date).toISOString();
+
+const titleKey = (title: string) => `lower(regexp_replace(btrim(${title}), '\\s+', ' ', 'g'))`;
+
+const CHECKIN_COLUMNS = "id, goal_id, client_key, date::text as date, note, progress, status_at_checkin, source, created_at";
 
 const GOAL_SELECT = `select g.*, (
 	select to_jsonb(c) from (
-		select id, goal_id, date::text as date, note, progress, status_at_checkin, source, created_at
+		select ${CHECKIN_COLUMNS}
 		from goals.goal_checkins where goal_id = g.id order by date desc, created_at desc limit 1
 	) c
 ) as latest
@@ -44,6 +42,7 @@ function toCheckin(row: Row): Checkin {
 	return {
 		id: String(row["id"]),
 		goalId: String(row["goal_id"]),
+		clientKey: String(row["client_key"]),
 		date: String(row["date"]),
 		note: String(row["note"]),
 		progress: row["progress"] === null ? null : Number(row["progress"]),
@@ -120,20 +119,35 @@ async function ensureYear(client: Database, year: number): Promise<void> {
 	await client.query("insert into goals.goal_years (year) values ($1) on conflict (year) do nothing", [year]);
 }
 
-type Written = { goal: Goal; result: "created" | "updated" | "unchanged" };
+type Result = "created" | "updated" | "unchanged";
+
+type Written = { goal: Goal; result: Result };
+
+async function checkParent(client: Database, existing: Goal | null, next: Fields): Promise<void> {
+	if (existing !== null && (next.parent_id !== null || next.horizon !== "year")) {
+		const { rows } = await client.query<Row>("select 1 from goals.goals where parent_id = $1 limit 1", [existing.id]);
+		if (rows.length > 0 && next.parent_id !== null) throw new Rejected(`Goal ${existing.id} has child goals, so it can't have a parent`);
+		if (rows.length > 0) throw new Rejected(`Goal ${existing.id} has child goals, so it stays a year goal`);
+	}
+	if (next.parent_id === null) return;
+	if (existing !== null && next.parent_id === existing.id) throw new Rejected("A goal can't be its own parent");
+	const { rows } = await client.query<Row>("select year, horizon, parent_id from goals.goals where id = $1 for share", [next.parent_id]);
+	const parent = rows[0];
+	if (parent === undefined || parent["horizon"] !== "year" || Number(parent["year"]) !== next.year) throw new Rejected(`Parent ${next.parent_id} is not a year goal in ${next.year}`);
+	if (parent["parent_id"] !== null) throw new Rejected(`Parent ${next.parent_id} has a parent itself; goals nest one level`);
+}
 
 async function writeGoal(client: Database, existing: Goal | null, changes: Partial<Fields>): Promise<Written> {
+	if (existing !== null && changes.year !== undefined && changes.year !== existing.year) throw new Rejected(`Goal ${existing.id} is in ${existing.year}; year can't change`);
 	const base = existing === null ? null : fieldsOf(existing);
 	const horizon = changes.horizon ?? base?.horizon;
 	const quarter = changes.quarter !== undefined ? changes.quarter : horizon === "year" ? null : (base?.quarter ?? null);
 	const next = { ...NEW_GOAL, ...base, ...stripUndefined(changes), quarter } as Fields;
 	if ((next.horizon === "quarter") !== (next.quarter !== null)) throw new Rejected("A quarter goal needs quarter 1-4, and a year goal has no quarter");
-	if (next.parent_id !== null) {
-		if (existing !== null && next.parent_id === existing.id) throw new Rejected("A goal can't be its own parent");
-		const { rows } = await client.query<Row>("select year from goals.goals where id = $1", [next.parent_id]);
-		if (rows[0] === undefined || Number(rows[0]["year"]) !== next.year) throw new Rejected(`Parent ${next.parent_id} is not a goal in ${next.year}`);
-	}
 	if (existing !== null && base !== null && FIELDS.every((field) => next[field] === base[field])) return { goal: existing, result: "unchanged" };
+	await checkParent(client, existing, next);
+	const clash = await byNaturalKey(client, next);
+	if (clash !== null && clash.id !== existing?.id) throw new Rejected(`Natural key collides with goal ${clash.id}`);
 	await ensureYear(client, next.year);
 	const values = FIELDS.map((field) => next[field]);
 	if (existing === null) {
@@ -149,7 +163,7 @@ function stripUndefined<T extends object>(value: T): Partial<T> {
 }
 
 async function byNaturalKey(client: Database, goal: { year: number; horizon: string; quarter?: number | null | undefined; title: string }): Promise<Goal | null> {
-	const [found] = await goalWhere(client, "g.year = $1 and g.horizon = $2 and coalesce(g.quarter, 0) = $3 and lower(g.title) = lower($4)", [goal.year, goal.horizon, goal.quarter ?? 0, goal.title], true);
+	const [found] = await goalWhere(client, `g.year = $1 and g.horizon = $2 and coalesce(g.quarter, 0) = $3 and ${titleKey("g.title")} = ${titleKey("$4")}`, [goal.year, goal.horizon, goal.quarter ?? 0, goal.title], true);
 	return found ?? null;
 }
 
@@ -164,9 +178,17 @@ export async function upsertGoal(client: Database, input: UpsertGoal): Promise<{
 
 type ImportResult = { id: string; year: number; horizon: Goal["horizon"]; quarter: Goal["quarter"]; title: string; result: Written["result"] };
 
-export async function bulkImport(client: Database, input: BulkImport): Promise<{ created: number; updated: number; unchanged: number; goals: ImportResult[] }> {
+type Counts = { created: number; updated: number; unchanged: number };
+
+function counts(results: readonly Result[]): Counts {
+	const count = (result: Result) => results.filter((item) => item === result).length;
+	return { created: count("created"), updated: count("updated"), unchanged: count("unchanged") };
+}
+
+export async function bulkImport(client: Database, input: BulkImport): Promise<Counts & { goals: ImportResult[]; years: Counts }> {
 	return transaction(client, async () => {
-		for (const { year, north_star } of input.years ?? []) await writeNorthStar(client, year, north_star);
+		const years: Result[] = [];
+		for (const { year, north_star } of input.years ?? []) years.push(await writeNorthStar(client, year, north_star));
 		const ordered = input.goals.map((goal, index) => ({ goal, index })).toSorted((a, b) => Number(a.goal.horizon === "quarter") - Number(b.goal.horizon === "quarter"));
 		const results: ImportResult[] = [];
 		for (const { goal, index } of ordered) {
@@ -177,8 +199,7 @@ export async function bulkImport(client: Database, input: BulkImport): Promise<{
 				throw error;
 			}
 		}
-		const count = (result: Written["result"]) => results.filter((item) => item.result === result).length;
-		return { created: count("created"), updated: count("updated"), unchanged: count("unchanged"), goals: results };
+		return { ...counts(results.map((item) => item.result)), goals: results, years: counts(years) };
 	});
 }
 
@@ -209,13 +230,34 @@ export async function listGoals(client: Database, filter: ListGoals = {}): Promi
 	return { goals: await goalWhere(client, clauses.join(" and "), values) };
 }
 
-async function insertCheckin(client: Database, goal: Goal, input: { note: string; progress?: number | null | undefined; date?: string | undefined }, source: Source): Promise<Checkin> {
+type CheckinRequest = { tool: "add_checkin" | "set_status"; note: string; progress: number | null; date: string | null; status: Status | null };
+
+async function priorCheckin(client: Database, goalId: string, clientKey: string, request: CheckinRequest): Promise<Checkin | null> {
+	const { rows } = await client.query<Row>(`select ${CHECKIN_COLUMNS}, request = $3::jsonb as same from goals.goal_checkins where goal_id = $1 and client_key = $2`, [goalId, clientKey, JSON.stringify(request)]);
+	const prior = rows[0];
+	if (prior === undefined) return null;
+	if (prior["same"] !== true) throw new Rejected(`client_key ${clientKey} already used with different content`);
+	return toCheckin(prior);
+}
+
+async function insertCheckin(client: Database, goal: Goal, clientKey: string, request: CheckinRequest, source: Source): Promise<Checkin> {
 	const { rows } = await client.query<Row>(
-		`insert into goals.goal_checkins (goal_id, date, note, progress, status_at_checkin, source) values ($1, $2, $3, $4, $5, $6)
-		returning id, goal_id, date::text as date, note, progress, status_at_checkin, source, created_at`,
-		[goal.id, input.date ?? today(), input.note, input.progress ?? null, goal.status, source],
+		`insert into goals.goal_checkins (goal_id, client_key, request, date, note, progress, status_at_checkin, source) values ($1, $2, $3, $4, $5, $6, $7, $8)
+		returning ${CHECKIN_COLUMNS}`,
+		[goal.id, clientKey, JSON.stringify(request), request.date ?? today(), request.note, request.progress, goal.status, source],
 	);
 	return toCheckin(rows[0] as Row);
+}
+
+async function writeCheckin(client: Database, goalId: string, clientKey: string, request: CheckinRequest, source: Source): Promise<{ goal: Goal; checkin: Checkin }> {
+	return transaction(client, async () => {
+		const found = await goalById(client, goalId, true);
+		const prior = await priorCheckin(client, goalId, clientKey, request);
+		if (prior !== null) return { goal: found, checkin: prior };
+		const goal = request.status === null ? found : await changeStatus(client, found, request.status);
+		const checkin = await insertCheckin(client, goal, clientKey, request, source);
+		return { goal: await goalById(client, goalId), checkin };
+	});
 }
 
 async function changeStatus(client: Database, goal: Goal, status: Status): Promise<Goal> {
@@ -224,21 +266,19 @@ async function changeStatus(client: Database, goal: Goal, status: Status): Promi
 	return { ...goal, status };
 }
 
-export async function setStatus(client: Database, id: string, status: Status, note: string, source: Source): Promise<{ goal: Goal; checkin: Checkin }> {
-	return transaction(client, async () => {
-		const goal = await changeStatus(client, await goalById(client, id, true), status);
-		const checkin = await insertCheckin(client, goal, { note }, source);
-		return { goal: await goalById(client, id), checkin };
-	});
+export async function setStatus(client: Database, input: SetStatus, source: Source): Promise<{ goal: Goal; checkin: Checkin }> {
+	return writeCheckin(client, input.id, input.client_key, { tool: "set_status", note: input.note, progress: null, date: null, status: input.status }, source);
 }
 
 export async function addCheckin(client: Database, input: AddCheckin, source: Source): Promise<{ goal: Goal; checkin: Checkin }> {
-	return transaction(client, async () => {
-		const found = await goalById(client, input.goal_id, true);
-		const goal = input.status === undefined ? found : await changeStatus(client, found, input.status);
-		const checkin = await insertCheckin(client, goal, input, source);
-		return { goal: await goalById(client, goal.id), checkin };
-	});
+	const request: CheckinRequest = { tool: "add_checkin", note: input.note, progress: input.progress ?? null, date: input.date ?? null, status: input.status ?? null };
+	return writeCheckin(client, input.goal_id, input.client_key, request, source);
+}
+
+export async function listCheckins(client: Database, input: ListCheckins): Promise<{ checkins: Checkin[] }> {
+	await goalById(client, input.goal_id);
+	const { rows } = await client.query<Row>(`select ${CHECKIN_COLUMNS} from goals.goal_checkins where goal_id = $1 order by date desc, created_at desc limit $2`, [input.goal_id, input.limit]);
+	return { checkins: rows.map(toCheckin) };
 }
 
 export async function linkTodoist(client: Database, input: LinkTodoist): Promise<{ goal: Goal }> {
@@ -250,17 +290,17 @@ export async function linkTodoist(client: Database, input: LinkTodoist): Promise
 	});
 }
 
-async function writeNorthStar(client: Database, year: number, northStar: string): Promise<GoalYear> {
-	await client.query(
-		`insert into goals.goal_years (year, north_star) values ($1, $2)
-		on conflict (year) do update set north_star = excluded.north_star, updated_at = now() where goal_years.north_star is distinct from excluded.north_star`,
-		[year, northStar.trim()],
-	);
-	return { year, northStar: northStar.trim() };
+async function writeNorthStar(client: Database, year: number, northStar: string): Promise<Result> {
+	const { rows } = await client.query<Row>("select north_star from goals.goal_years where year = $1 for update", [year]);
+	const before = String(rows[0]?.["north_star"] ?? "");
+	if (before === northStar) return "unchanged";
+	await client.query("insert into goals.goal_years (year, north_star) values ($1, $2) on conflict (year) do update set north_star = excluded.north_star, updated_at = now()", [year, northStar]);
+	return before === "" ? "created" : "updated";
 }
 
 export async function setNorthStar(client: Database, year: number, northStar: string): Promise<GoalYear> {
-	return writeNorthStar(client, year, northStar);
+	await transaction(client, () => writeNorthStar(client, year, northStar));
+	return { year, northStar };
 }
 
 export async function getYear(client: Database, year: number): Promise<YearView> {

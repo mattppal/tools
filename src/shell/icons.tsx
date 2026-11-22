@@ -20,6 +20,7 @@ import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon";
 import SidebarLeftIcon from "@hugeicons/core-free-icons/SidebarLeftIcon";
 import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
+import Target02Icon from "@hugeicons/core-free-icons/Target02Icon";
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -46,6 +47,7 @@ const GLYPHS = {
 	gear: Settings02Icon,
 	sidebar: SidebarLeftIcon,
 	sparkles: SparklesIcon,
+	target: Target02Icon,
 	tool: Wrench01Icon,
 } as const satisfies Record<string, IconSvgElement>;
 
