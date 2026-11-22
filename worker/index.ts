@@ -1,4 +1,4 @@
-import { accessGate, type Caller } from "./access.ts";
+import { accessGate, type Caller, outOfScope } from "./access.ts";
 import { noticeCronFailure } from "./cron-alerts.ts";
 import { type WithDb, withRequestDb } from "./db.ts";
 import { debugReport } from "./debug.ts";
@@ -59,6 +59,10 @@ async function checkDb(withDb: WithDb): Promise<HealthReport> {
 
 async function handleApi(request: Request, env: Env, ctx: ExecutionContext, withDb: WithDb, caller: Caller): Promise<Response> {
 	const { pathname } = new URL(request.url);
+	if (pathname === "/api/health" || pathname === "/api/debug") {
+		const denied = outOfScope(caller, "worker", `${request.method} ${pathname.slice("/api".length)}`);
+		if (denied !== null) return denied;
+	}
 	if (pathname === "/api/health") {
 		const report = await checkDb(withDb);
 		return Response.json(report, { status: report.ok ? 200 : 503, headers: NO_STORE });
@@ -69,6 +73,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, with
 	const [, slug = "", rest = "/"] = match;
 	const api = TOOL_APIS.get(slug);
 	if (api === undefined) return Response.json({ error: `No API for tool "${slug}"` }, { status: 404 });
+	const denied = outOfScope(caller, slug, `${request.method} ${rest}`);
+	if (denied !== null) return denied;
 	try {
 		return await api(request, { env, ctx, path: rest, db: withDb, caller });
 	} catch (error) {

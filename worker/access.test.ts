@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { ACCESS, type AccessConfig, accessGate, BOTS, type Caller } from "./access.ts";
+import { ACCESS, type AccessConfig, accessGate, BOTS, type Caller, outOfScope } from "./access.ts";
 
 const TEAM = "https://team.cloudflareaccess.com";
 const AUD = "aud-tools";
@@ -131,4 +131,75 @@ test("local development needs no Access token", async () => {
 	expect(await status(check(new Request("http://127.0.0.1:5173/api/health")))).toBe(200);
 	expect(await status(check(new Request("http://localhost:5173/api/health")))).toBe(200);
 	expect(await status(check(new Request("http://localhost:5173/api/tools/nutrition/day/food", { method: "POST", headers: { origin: "https://evil.example" } })))).toBe(403);
+});
+
+const APP_ROUTES = [
+	["worker", "GET /health"],
+	["worker", "GET /debug"],
+	["worker", "POST /health"],
+	["nutrition", "GET /day"],
+	["nutrition", "GET /history"],
+	["nutrition", "GET /weights"],
+	["nutrition", "GET /expenditure"],
+	["nutrition", "GET /phase"],
+	["nutrition", "GET /steps"],
+	["nutrition", "GET /mcp"],
+	["nutrition", "POST /mcp"],
+	["nutrition", "POST /day/food"],
+	["nutrition", "POST /day/close"],
+	["nutrition", "POST /day/reopen"],
+	["workouts", "GET /program"],
+	["workouts", "GET /sessions"],
+	["workouts", "GET /history/summary"],
+	["workouts", "GET /history/timeline"],
+	["workouts", "GET /history/exercises"],
+	["workouts", "GET /history/runs"],
+	["workouts", "POST /sessions"],
+	["workouts", "PATCH /sessions/0b6d3f1e-7c2a-4e8b-9f4d-2a1c5e7b9d30"],
+	["workouts", "DELETE /sessions/0b6d3f1e-7c2a-4e8b-9f4d-2a1c5e7b9d30"],
+	["workouts", "POST /sync"],
+	["activity", "GET /days"],
+	["activity", "GET /weights"],
+	["activity", "GET /health"],
+	["activity", "GET /workouts"],
+	["activity", "GET /sleep"],
+	["activity", "GET /measures"],
+	["activity", "GET /intraday"],
+	["activity", "GET /apple-health/workouts"],
+	["activity", "GET /withings/connect"],
+	["activity", "POST /apple-health"],
+	["liaison", "GET /deliveries"],
+	["liaison", "POST /notices"],
+] as const;
+
+const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && route.startsWith("GET ")).map(([tool, route]) => `${tool} ${route}`);
+
+const REACHABLE: Record<string, readonly string[]> = {
+	nutrition: [...APP_ROUTES.filter(([tool]) => tool === "nutrition").map(([tool, route]) => `${tool} ${route}`), "activity GET /days", "activity GET /weights", "activity GET /health"],
+	coach: [...APP_ROUTES.filter(([tool]) => tool === "workouts").map(([tool, route]) => `${tool} ${route}`), "activity GET /workouts"],
+	coordinator: ["liaison GET /deliveries", "liaison POST /notices"],
+	smoke: [...SMOKE_READS, "nutrition POST /mcp"],
+	"apple-health": ["activity POST /apple-health"],
+	gtd: [],
+};
+
+test("a bot identity reaches only its scopes, on app routes as well as bot routes", () => {
+	for (const bot of Object.keys(BOTS) as (keyof typeof BOTS)[]) {
+		const reached = APP_ROUTES.filter(([tool, route]) => outOfScope({ kind: "bot", bot }, tool, route) === null).map(([tool, route]) => `${tool} ${route}`);
+		expect({ bot, reached: reached.toSorted() }).toEqual({ bot, reached: [...(REACHABLE[bot] ?? [])].toSorted() });
+	}
+});
+
+test("smoke never writes outside the nutrition MCP", () => {
+	const writes = APP_ROUTES.filter(([tool, route]) => !route.startsWith("GET ") && outOfScope({ kind: "bot", bot: "smoke" }, tool, route) === null);
+	expect(writes).toEqual([["nutrition", "POST /mcp"]]);
+});
+
+test("the owner, localhost and public routes are never scope-checked", async () => {
+	for (const caller of [{ kind: "owner", email: "mattppalmer@gmail.com" }, { kind: "local" }, { kind: "public" }] as Caller[]) {
+		for (const [tool, route] of APP_ROUTES) expect(outOfScope(caller, tool, route)).toBeNull();
+	}
+	const refused = outOfScope({ kind: "bot", bot: "coach" }, "nutrition", "GET /day");
+	expect(refused?.status).toBe(403);
+	expect(await refused?.json()).toEqual({ error: "Forbidden: bot coach may not call GET /day on nutrition" });
 });

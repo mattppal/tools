@@ -30,7 +30,7 @@ const GRANTS: Record<BotName, readonly string[]> = {
 	nutrition: ["nutrition POST /mcp", "activity GET /days", "activity GET /weights", "activity GET /health"],
 	coach: ["workouts POST /sync", "activity GET /workouts"],
 	coordinator: ["liaison POST /notices", "liaison GET /deliveries"],
-	smoke: ["nutrition POST /mcp"],
+	smoke: ["nutrition POST /mcp", "activity GET /days", "activity GET /weights", "activity GET /health", "activity GET /workouts", "activity GET /sleep", "activity GET /measures", "activity GET /intraday"],
 	"apple-health": ["activity POST /apple-health"],
 	gtd: ["goals GET /goals"],
 };
@@ -74,7 +74,7 @@ test("during the window, each bearer alone opens the same scopes as its bot's id
 });
 
 test("smoke and the reserved gtd bot have no bearer, and gtd has no Access client", () => {
-	expect(BOTS.smoke).toMatchObject({ serviceToken: "tools-agent-verify", clientId: "3764ccd9a5d87214d1032418b8c228ed.access", bearer: null, tools: { nutrition: "all" } });
+	expect(BOTS.smoke).toMatchObject({ serviceToken: "tools-agent-verify", clientId: "3764ccd9a5d87214d1032418b8c228ed.access", bearer: null });
 	expect(BOTS.gtd).toMatchObject({ serviceToken: "gtd-bot", clientId: null, bearer: null });
 });
 

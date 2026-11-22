@@ -32,7 +32,7 @@ export const BOTS = {
 		serviceToken: "tools-agent-verify",
 		clientId: "3764ccd9a5d87214d1032418b8c228ed.access",
 		bearer: null,
-		tools: { nutrition: "all" },
+		tools: { worker: ["GET /health", "GET /debug"], nutrition: ["GET *", "POST /mcp"], workouts: ["GET *"], activity: ["GET *"] },
 	},
 	"apple-health": {
 		serviceToken: "apple-health-export",
@@ -76,7 +76,14 @@ export function allows(bot: BotName, tool: string, route: string): boolean {
 	const tools: Readonly<Record<string, Scope>> = BOTS[bot].tools;
 	if (!Object.hasOwn(tools, tool)) return false;
 	const scope = tools[tool];
-	return scope === "all" || (scope?.includes(route) ?? false);
+	if (scope === "all") return true;
+	const method = route.split(" ", 1)[0];
+	return scope?.includes(route) === true || scope?.includes(`${method} *`) === true;
+}
+
+export function outOfScope(caller: Caller, tool: string, route: string): Response | null {
+	if (caller.kind !== "bot" || allows(caller.bot, tool, route)) return null;
+	return forbidden(`bot ${caller.bot} may not call ${route} on ${tool}`);
 }
 
 type Jwk = JsonWebKey & { kid?: string };
