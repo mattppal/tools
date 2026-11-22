@@ -1,0 +1,384 @@
+.page {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	max-width: 680px;
+	padding-top: var(--space-3);
+	padding-bottom: var(--space-6);
+}
+
+.bars {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-4) var(--space-5);
+}
+
+.bar {
+	--fill: var(--text-1);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.bar[data-status="in"] {
+	--fill: var(--success);
+}
+
+.bar[data-status="over"] {
+	--fill: var(--warning);
+}
+
+.barTop {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-2);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+}
+
+.barLabel {
+	color: var(--text-2);
+}
+
+.barStatus {
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.bar[data-status="over"] .barStatus {
+	color: var(--warning);
+}
+
+.barValue {
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
+	font-weight: var(--weight-title);
+	letter-spacing: var(--tracking-title);
+	font-variant-numeric: tabular-nums;
+}
+
+.barTarget {
+	font-size: var(--text-xs);
+	font-weight: var(--weight-body);
+	letter-spacing: normal;
+	color: var(--text-3);
+}
+
+.track {
+	position: relative;
+	height: 6px;
+	overflow: hidden;
+	border-radius: var(--radius-full);
+	background: var(--track-bg);
+}
+
+.band {
+	position: absolute;
+	inset-block: 0;
+	background: var(--line-strong);
+}
+
+.fill {
+	position: absolute;
+	inset: 0;
+	border-radius: var(--radius-full);
+	background: var(--fill);
+	transform-origin: left;
+	transition:
+		transform 400ms var(--ease-out),
+		background-color var(--duration-hover) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.fill {
+		transition: none;
+	}
+}
+
+.barSkeleton {
+	height: 64px;
+}
+
+.note,
+.checkIn {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+}
+
+.checkInNotes {
+	display: block;
+	margin-top: var(--space-1);
+	color: var(--text-2);
+	white-space: pre-wrap;
+}
+
+.entries {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	border-top: var(--border-width) solid var(--border-color);
+}
+
+.entries li {
+	border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.entry {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	width: 100%;
+	min-height: 56px;
+	padding: var(--space-2) var(--space-1);
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	text-decoration: none;
+	cursor: pointer;
+	transition: background-color var(--duration-hover) ease;
+}
+
+.entry:disabled {
+	cursor: default;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.entry:not(:disabled):hover {
+		background: var(--hover-bg);
+	}
+}
+
+.entryMain,
+.entryNumbers {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.entryMain {
+	flex: 1;
+}
+
+.entryFood {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.entryNumbers {
+	align-items: flex-end;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.entryMeta {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+}
+
+.empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-3);
+	margin: 0;
+	padding: var(--space-7) 0;
+	color: var(--text-3);
+	text-align: center;
+}
+
+.empty p {
+	margin: 0;
+}
+
+.addBar {
+	position: sticky;
+	max-width: 680px;
+	bottom: 0;
+	display: flex;
+	margin-top: calc(-1 * var(--space-6));
+	padding: var(--space-3) 0;
+	background: linear-gradient(to bottom, transparent, var(--panel-bg) 40%);
+}
+
+.grow {
+	flex: 1;
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.fields {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: var(--space-3) var(--space-2);
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-2);
+}
+
+@media (max-width: 767px) {
+	.field input {
+		font-size: 16px;
+	}
+}
+
+.formError {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--danger);
+}
+
+.formActions {
+	display: flex;
+	gap: var(--space-2);
+}
+
+.skeletonRows {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.rowSkeleton {
+	height: 48px;
+}
+
+.weightHead {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.segmented {
+	display: flex;
+	gap: var(--space-1);
+}
+
+.chart {
+	width: 100%;
+	min-height: 280px;
+}
+
+.chart svg {
+	display: block;
+	overflow: visible;
+}
+
+.chartSkeleton {
+	height: 280px;
+}
+
+.gridLine {
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+.axis {
+	fill: var(--text-3);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
+.point {
+	fill: var(--text-3);
+	opacity: 0.55;
+}
+
+.trend7,
+.trend14,
+.trend28 {
+	fill: none;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+}
+
+.trend7 {
+	stroke: var(--text-1);
+	stroke-width: 2;
+}
+
+.trend14 {
+	stroke: var(--text-2);
+	stroke-width: 1.25;
+	opacity: 0.6;
+}
+
+.trend28 {
+	stroke: var(--text-3);
+	stroke-width: 1.25;
+	opacity: 0.45;
+}
+
+.card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding: var(--space-4);
+	border: var(--border-width) solid var(--border-color);
+	border-radius: var(--radius-lg);
+}
+
+.card p {
+	margin: 0;
+}
+
+.tableScroll {
+	overflow-x: auto;
+}
+
+.table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.table th {
+	font-size: var(--text-xs);
+	font-weight: var(--weight-ui);
+	color: var(--text-3);
+	text-align: right;
+}
+
+.table th,
+.table td {
+	padding: var(--space-2) var(--space-2);
+	border-bottom: var(--border-width) solid var(--border-color);
+	text-align: right;
+}
+
+.table th:first-child,
+.table td:first-child,
+.table th:last-child,
+.table td:last-child {
+	text-align: left;
+}
+
+.table tr[data-future] td {
+	color: var(--text-3);
+}

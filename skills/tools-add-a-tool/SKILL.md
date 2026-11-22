@@ -92,7 +92,7 @@ The endpoint is `POST /api/tools/<slug>/mcp`. Throw `McpToolError("message")` to
 
 3. When the event happens, insert the row in the same transaction as the change. Put the `delivery_id` in the payload too. After the transaction, send the first attempt with `ctx.waitUntil(withRequestDb(env.DB, ctx, (db) => deliverDue(db, webhook, env, [deliveryId])))`. The request's own connection closes after the response, so the first attempt opens a fresh one.
 
-Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `authorization` exactly as given, with no scheme added. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. `bun test worker` covers the delivery code against PGlite.
+Every minute, a cron trigger in `wrangler.jsonc` calls `deliverDue` for each `webhook.ts`. Each request sends `authorization` exactly as given, with no scheme added. The delivery header and the body's `deliveryId` stay the same across retries, so the receiver can drop duplicates. `bun run test` covers the delivery code against PGlite.
 
 ## Remove a tool
 

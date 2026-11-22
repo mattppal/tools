@@ -1,4 +1,5 @@
 import Add01Icon from "@hugeicons/core-free-icons/Add01Icon";
+import Apple01Icon from "@hugeicons/core-free-icons/Apple01Icon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
 import ArrowUpRight01Icon from "@hugeicons/core-free-icons/ArrowUpRight01Icon";
@@ -34,6 +35,7 @@ const GLYPHS = {
 	success: CheckmarkCircle02Icon,
 	database: DatabaseIcon,
 	dumbbell: Dumbbell01Icon,
+	food: Apple01Icon,
 	install: Download04Icon,
 	home: Home01Icon,
 	info: InformationCircleIcon,
