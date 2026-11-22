@@ -55,7 +55,7 @@ async function appleHealthRows(db: WithDb): Promise<DebugRow[]> {
 	return pushes.map(({ automation, receivedAt, counts: { received, changed, skipped, metrics = [], warnings = [] } }) => ({
 		label: `Apple Health: ${automation}`,
 		value: [
-			`Last push ${utc(receivedAt)}. ${received.sleep} sleep segments, ${received.samples} samples from ${metrics.length} metrics, ${received.workouts} workouts; ${changed.sleep + changed.samples + changed.workouts} new or changed. Skipped ${skipped.withings} from Withings, ${skipped.invalid} unreadable.`,
+			`Last push ${utc(receivedAt)}. ${received.sleep} sleep segments, ${received.samples} samples from ${metrics.length} metrics, ${received.workouts} workouts; ${changed.sleep + changed.samples + changed.workouts} new or changed. Skipped ${skipped.withings} from Withings, ${skipped.invalid} unreadable, ${skipped.unlisted ?? 0} from metrics tools doesn't keep.`,
 			...warnings,
 		].join(" "),
 	}));

@@ -12,10 +12,24 @@ const CHUNK = 2000;
 export const MAX_BODY_BYTES = 95 * 1024 * 1024;
 const MAX_PENDING_CHARS = 8_000_000;
 const DAY_METRICS = new Set(["step_count", "walking_running_distance", "active_energy", "basal_energy_burned"]);
+export const KEPT_METRICS = new Set([
+	...DAY_METRICS,
+	"heart_rate",
+	"resting_heart_rate",
+	"heart_rate_variability",
+	"respiratory_rate",
+	"vo2_max",
+	"blood_oxygen_saturation",
+	"apple_sleeping_wrist_temperature",
+	"dietary_energy",
+	"protein",
+	"carbohydrates",
+	"total_fat",
+]);
 const BASE_KEYS = new Set(["date", "start", "end", "startDate", "endDate", "qty", "Min", "Avg", "Max", "source"]);
 export const TOO_LARGE = "This request is too large for one Worker call. Turn on Batch Requests in Health Auto Export, or upload a shorter date range.";
 const HOURLY = /hour/i;
-const SUMMARIZED_SLEEP = "Sleep arrived summarized, so the Sleep page has no stages for it. Turn Summarize Data off in the Health Metrics automation.";
+const SUMMARIZED_SLEEP = "Sleep arrived summarized, so it was dropped. Deselect Sleep Analysis in the Health metrics automation, and send sleep from the Sleep automation with Summarize Data off.";
 const DATE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)? ?([+-])(\d{2}):?(\d{2})$/;
 const METRES: Record<string, number> = { m: 1, km: 1000, mi: 1609.344, yd: 0.9144, ft: 0.3048 };
 const KCAL: Record<string, number> = { kcal: 1, Cal: 1, kJ: 0.239006 };
@@ -57,8 +71,8 @@ type WorkoutRow = {
 };
 
 type Tally = { sleep: number; samples: number; workouts: number };
-export type Skipped = { withings: number; invalid: number };
-export type IngestCounts = { received: Tally; changed: Tally; skipped: Skipped; metrics?: string[]; days?: number; warnings?: string[] };
+export type Skipped = { withings: number; invalid: number; unlisted?: number };
+export type IngestCounts = { received: Tally; changed: Tally; skipped: Skipped; metrics?: string[]; unlisted?: string[]; days?: number; warnings?: string[] };
 export type IngestResult = { ok: true; counts: IngestCounts } | { ok: false; status: 413 | 422; error: string };
 
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
@@ -220,11 +234,12 @@ class Ingest {
 	private workouts = new Map<string, WorkoutRow>();
 	private pending = 0;
 	private names = new Set<string>();
+	private unlisted = new Set<string>();
 	private dates = new Set<string>();
 	private warnings = new Set<string>();
 	readonly received: Tally = { sleep: 0, samples: 0, workouts: 0 };
 	readonly changed: Tally = { sleep: 0, samples: 0, workouts: 0 };
-	readonly skipped: Skipped = { withings: 0, invalid: 0 };
+	readonly skipped: Required<Skipped> = { withings: 0, invalid: 0, unlisted: 0 };
 
 	constructor(
 		private client: Database,
@@ -272,6 +287,13 @@ class Ingest {
 	}
 
 	private async drain(metric: Metric, name: string): Promise<void> {
+		if (!KEPT_METRICS.has(name) && name !== "sleep_analysis") {
+			this.unlisted.add(name);
+			this.skipped.unlisted += metric.pending.length;
+			this.pending -= pendingChars(metric);
+			metric.pending = [];
+			return;
+		}
 		this.names.add(name);
 		for (const raw of metric.pending) {
 			const item: unknown = JSON.parse(raw);
@@ -301,7 +323,11 @@ class Ingest {
 			this.sleep.set(`${source}/${start.ms}/${stage}`, { source, stage, started: start.iso, ended: end.iso, offset_min: end.offsetMin });
 			return;
 		}
-		if (name === "sleep_analysis") this.warnings.add(SUMMARIZED_SLEEP);
+		if (name === "sleep_analysis") {
+			this.warnings.add(SUMMARIZED_SLEEP);
+			this.skipped.unlisted++;
+			return;
+		}
 		const row = sampleRow(name, units, source, item, this.hourly);
 		if (row === null) {
 			this.skipped.invalid++;
@@ -363,6 +389,7 @@ class Ingest {
 			changed: this.changed,
 			skipped: this.skipped,
 			metrics: [...this.names].toSorted(),
+			unlisted: [...this.unlisted].toSorted(),
 			days: this.dates.size,
 			warnings: error === undefined ? [...this.warnings] : [error, ...this.warnings],
 		};
