@@ -121,3 +121,7 @@ Cases 3, 10, 11, and 12 have no interim behavior.
 ## Tests
 
 `bun test ./tools/workouts` runs the resolver, week building, set parsing, and the full session lifecycle against PGlite, including the exact `Authorization` header and a redelivery that reuses the delivery ID. The sync tests use a fake GitHub to cover the 304 path, fetching only changed blobs, removed files, a tree larger than one batch, and a failed run.
+
+## Live tests
+
+Matt doesn't want test data in the app. A live test against production or preview creates its session with `"test": true` and deletes it with `DELETE /sessions/:id` before it ends, even when a step fails. The delete cascades to the session's exercises, sets, and delivery row. When the test checks delivery, read the delivery state first, then delete.
