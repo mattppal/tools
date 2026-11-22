@@ -54,6 +54,26 @@ test("only production and tools previews get the Access token", () => {
 	}
 });
 
+test("a preview may run ahead of its migrations, but never with a changed one", async () => {
+	const pending = { ok: false, db: { error: "Migrations not applied: notes/0002-add-done.sql" }, migrations: { pending: ["notes/0002-add-done.sql"], changed: [], unknown: [] } };
+	const changed = { ...pending, migrations: { ...pending.migrations, changed: ["notes/0001-create-items.sql"] } };
+	for (const [body, allowPending, ok] of [
+		[pending, false, false],
+		[pending, true, true],
+		[changed, true, false],
+	] as const) {
+		const { fetcher } = worker();
+		const healthy = (async (input: URL, init?: RequestInit) =>
+			new URL(input).pathname === "/api/health" && new Headers(init?.headers).get("cf-access-client-id") === token.id ? Response.json(body, { status: 503 }) : fetcher(input, init)) as typeof fetch;
+		const outcomes = await smoke({ target, token, unlisted, sha: SHA, allowPending, fetcher: healthy });
+		expect({ allowPending, changed: body.migrations.changed, failed: outcomes.filter((outcome) => outcome.ok === false).map((outcome) => outcome.name) }).toEqual({
+			allowPending,
+			changed: body.migrations.changed,
+			failed: ok ? [] : allowPending ? ["health body"] : ["health", "health body"],
+		});
+	}
+});
+
 test("without an unlisted token the allowlist denial is skipped and says so", async () => {
 	const { fetcher } = worker();
 	const outcomes = await smoke({ target, token, unlisted: null, sha: null, fetcher });

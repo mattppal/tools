@@ -3,6 +3,7 @@ name: smoke
 on:
   push:
     branches: [main]
+  pull_request:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -20,13 +21,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: smoke-${{ inputs.target || 'production' }}
+  group: smoke-${{ github.head_ref || inputs.target || 'production' }}
   cancel-in-progress: true
 
 jobs:
   smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -39,7 +41,15 @@ jobs:
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EVENT: ${{ github.event_name }}
           TARGET: ${{ inputs.target || 'https://tools.mattpalmer.io' }}
-          SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
+          BRANCH: ${{ github.head_ref }}
+          SHA: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha || inputs.sha }}
         run: |
-          if [ -n "$SHA" ]; then bun run smoke --target "$TARGET" --sha "$SHA" --wait 600; else bun run smoke --target "$TARGET"; fi
+          if [ "$EVENT" = "pull_request" ]; then
+            bun run smoke --branch "$BRANCH" --sha "$SHA" --wait 600 --allow-pending-migrations
+          elif [ -n "$SHA" ]; then
+            bun run smoke --target "$TARGET" --sha "$SHA" --wait 600
+          else
+            bun run smoke --target "$TARGET"
+          fi

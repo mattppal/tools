@@ -29,9 +29,9 @@ const IMAGE_PATH = /["'`(](\/[\w./-]+\.(?:png|svg|webp|avif|jpe?g|gif|ico))["'`)
 const SCRIPT_PATH = /<script[^>]+src="(\/assets\/[\w.-]+\.js)"/g;
 
 export type Outcome = { name: string; ok: boolean | null; detail: string };
-export type SmokeOptions = { target: URL; token: AccessToken; unlisted: AccessToken | null; sha: string | null; fetcher?: typeof fetch };
+export type SmokeOptions = { target: URL; token: AccessToken; unlisted: AccessToken | null; sha: string | null; allowPending?: boolean; fetcher?: typeof fetch };
 
-export async function smoke({ target, token, unlisted, sha, fetcher = fetch }: SmokeOptions): Promise<Outcome[]> {
+export async function smoke({ target, token, unlisted, sha, allowPending = false, fetcher = fetch }: SmokeOptions): Promise<Outcome[]> {
 	const outcomes: Outcome[] = [];
 	const record = (name: string, ok: boolean | null, detail: string) => outcomes.push({ name, ok, detail });
 
@@ -42,10 +42,11 @@ export async function smoke({ target, token, unlisted, sha, fetcher = fetch }: S
 		return fetcher(url, { ...init, headers, redirect: "manual" });
 	}
 
-	async function expectStatus(name: string, path: string, wanted: number, options?: Parameters<typeof get>[1]): Promise<Response | null> {
+	async function expectStatus(name: string, path: string, wanted: number | readonly number[], options?: Parameters<typeof get>[1]): Promise<Response | null> {
+		const statuses = typeof wanted === "number" ? [wanted] : wanted;
 		try {
 			const response = await get(path, options);
-			record(name, response.status === wanted, `${options?.init?.method ?? "GET"} ${path} answered ${response.status}, expected ${wanted}`);
+			record(name, statuses.includes(response.status), `${options?.init?.method ?? "GET"} ${path} answered ${response.status}, expected ${statuses.join(" or ")}`);
 			return response;
 		} catch (error) {
 			record(name, false, `${path}: ${error instanceof Error ? error.message : error}`);
@@ -62,7 +63,9 @@ export async function smoke({ target, token, unlisted, sha, fetcher = fetch }: S
 	const health = await expectStatus("health", "/api/health", 200);
 	if (health !== null) {
 		const body = (await health.json().catch(() => null)) as { ok?: boolean; db?: { error?: string }; migrations?: { pending: string[]; changed: string[] } } | null;
-		record("health body", body?.ok === true && body.migrations?.pending.length === 0 && body.migrations.changed.length === 0, body?.db?.error ?? `migrations ${JSON.stringify(body?.migrations ?? null)}`);
+		const migrations = body?.migrations;
+		const clean = migrations !== undefined && migrations.changed.length === 0 && (allowPending || migrations.pending.length === 0);
+		record("health body", clean && (body?.ok === true || allowPending), body?.db?.error ?? `migrations ${JSON.stringify(migrations ?? null)}`);
 	}
 
 	for (const path of READ_ROUTES.slice(1)) await expectStatus(`read ${path}`, path, 200);
@@ -128,7 +131,10 @@ export async function waitForSha({ target, token, sha, seconds, fetcher = fetch 
 }
 
 if (import.meta.main) {
-	const { values } = parseArgs({ options: { target: { type: "string", default: PRODUCTION }, sha: { type: "string" }, wait: { type: "string", default: "0" } } });
+	const { values } = parseArgs({
+		options: { target: { type: "string", default: PRODUCTION }, branch: { type: "string" }, sha: { type: "string" }, wait: { type: "string", default: "0" }, "allow-pending-migrations": { type: "boolean", default: false } },
+	});
+	if (values.branch !== undefined) values.target = previewOrigin(values.branch);
 	if (!isToolsOrigin(values.target)) {
 		console.error(`smoke: ${values.target} is neither ${PRODUCTION} nor a https://<branch>-tools.mpal.workers.dev preview, so it does not get the Access token.`);
 		process.exit(1);
@@ -142,7 +148,7 @@ if (import.meta.main) {
 		const seen = await waitForSha({ target: new URL(values.target), token, sha: values.sha, seconds: Number(values.wait) });
 		if (seen !== values.sha) console.log(`smoke: ${values.target} still serves ${seen.slice(0, 12)} after ${values.wait}s, not ${values.sha.slice(0, 7)}`);
 	}
-	const outcomes = await smoke({ target: new URL(values.target), token, unlisted: tokenFrom("SMOKE_UNLISTED"), sha: values.sha ?? null });
+	const outcomes = await smoke({ target: new URL(values.target), token, unlisted: tokenFrom("SMOKE_UNLISTED"), sha: values.sha ?? null, allowPending: values["allow-pending-migrations"] });
 	for (const { name, ok, detail } of outcomes) console.log(`${ok === null ? "skip" : ok ? "ok  " : "FAIL"} ${name}: ${detail}`);
 	const failed = outcomes.filter((outcome) => outcome.ok === false);
 	console.log(`smoke: ${values.target} ${failed.length === 0 ? "passed" : `failed ${failed.length} of ${outcomes.length}`}`);
