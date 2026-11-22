@@ -17,17 +17,15 @@ export const READ_ROUTES = [
 	"/api/tools/workouts/history/timeline",
 	"/api/tools/workouts/history/exercises",
 	"/api/tools/workouts/history/runs",
-];
-
-export const BOT_READ_ROUTES = [
 	"/api/tools/activity/days",
 	"/api/tools/activity/weights",
 	"/api/tools/activity/health",
 	"/api/tools/activity/workouts",
 	"/api/tools/activity/sleep",
 	"/api/tools/activity/measures",
-	"/api/tools/activity/intraday",
 ];
+
+export const OUT_OF_SCOPE_ROUTES = ["/api/withings/connect"];
 
 const IMAGE_PATH = /["'`(](\/[\w./-]+\.(?:png|svg|webp|avif|jpe?g|gif|ico))["'`)]/g;
 const SCRIPT_PATH = /<script[^>]+src="(\/assets\/[\w.-]+\.js)"/g;
@@ -140,7 +138,7 @@ export async function smoke({ target, token, unlisted, sha, allowPending = false
 	await expectStatus("unknown API", "/api/tools/nutrition/no-such-route", 404);
 	await expectStatus("unknown tool", "/api/tools/no-such-tool/x", 404);
 	await expectStatus("MCP over GET", "/api/tools/nutrition/mcp", 405);
-	for (const path of BOT_READ_ROUTES) await expectStatus(`bot read ${path} refuses the smoke identity`, path, [401, 403]);
+	for (const path of OUT_OF_SCOPE_ROUTES) await expectStatus(`${path} refuses the smoke identity`, path, 403);
 	await expectStatus("workouts sync refuses the smoke identity", "/api/tools/workouts/sync", 403, { init: { method: "POST" } });
 	await mcpChecks({ get, record });
 

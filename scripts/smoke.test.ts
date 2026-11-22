@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import nutrition from "../tools/nutrition/api.ts";
 import type { Database, WithDb } from "../worker/db.ts";
-import { BOT_READ_ROUTES, isToolsOrigin, previewOrigin, READ_ROUTES, smoke, TEST_DAY, USER_AGENT } from "./smoke.ts";
+import { isToolsOrigin, OUT_OF_SCOPE_ROUTES, previewOrigin, READ_ROUTES, smoke, TEST_DAY, USER_AGENT } from "./smoke.ts";
 
 const pg = new PGlite();
 for (const slug of ["nutrition", "activity", "liaison"]) {
@@ -48,7 +48,7 @@ function worker(overrides: Record<string, number> = {}): { fetcher: typeof fetch
 		if (pathname === "/build.json") return Response.json({ sha: SHA, branch: "main" });
 		if (pathname === "/api/health") return Response.json({ ok: true, db: {}, migrations: { pending: [], changed: [], unknown: [] } });
 		if (READ_ROUTES.includes(pathname)) return Response.json({});
-		if (BOT_READ_ROUTES.includes(pathname)) return Response.json({ error: "Forbidden: bot smoke may not call this route" }, { status: 403 });
+		if (OUT_OF_SCOPE_ROUTES.includes(pathname)) return Response.json({ error: "Forbidden: bot smoke may not call this route" }, { status: 403 });
 		if (pathname === "/api/tools/nutrition/mcp") return nutrition(request, { env: {} as Env, ctx: { waitUntil() {} } as never, path: "/mcp", db, caller: { kind: "bot", bot: "smoke" } });
 		if (pathname === "/api/tools/workouts/sync") return Response.json({ error: "Forbidden: bot smoke may not call POST /sync on workouts" }, { status: 403 });
 		if (pathname === "/") return new Response('<link rel="icon" href="/favicon-32.png"><script type="module" src="/assets/index-x.js"></script>');
@@ -89,9 +89,9 @@ test("the MCP checks clean up a cancelled run's leftovers first and leave nothin
 });
 
 test("a broken route and a stale deploy each fail by name", async () => {
-	const { fetcher } = worker({ "/api/tools/nutrition/phase": 500, "/api/tools/activity/sleep": 200 });
+	const { fetcher } = worker({ "/api/tools/nutrition/phase": 500, "/api/withings/connect": 302 });
 	const failed = (await smoke({ target, token, unlisted, sha: "b".repeat(40), fetcher })).filter((outcome) => outcome.ok === false).map((outcome) => outcome.name);
-	expect(failed).toEqual(["build sha", "read /api/tools/nutrition/phase", "bot read /api/tools/activity/sleep refuses the smoke identity"]);
+	expect(failed).toEqual(["build sha", "read /api/tools/nutrition/phase", "/api/withings/connect refuses the smoke identity"]);
 });
 
 test("only production and tools previews get the Access token", () => {
