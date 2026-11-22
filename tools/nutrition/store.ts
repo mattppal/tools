@@ -374,7 +374,8 @@ export async function getExpenditure(client: Database, from: string, to: string)
 	).rows.map((row) => ({ date: String(row["date"]), kcal: num(row["kcal"]) }));
 	const earliest = [from, intake[0]?.date, tracker[0]?.date].filter((date) => date !== undefined).toSorted()[0] as string;
 	const start = addDays(earliest, -LOOKBACK_DAYS);
-	const profile = (await client.query<Row>("select birth_date::text as birth_date from nutrition.profile")).rows[0];
+	const hasProfile = (await client.query<Row>("select to_regclass('nutrition.profile') is not null as present")).rows[0]?.["present"] === true;
+	const profile = hasProfile ? (await client.query<Row>("select birth_date::text as birth_date from nutrition.profile")).rows[0] : undefined;
 	const weighIns: WeighIn[] = (
 		await client.query<Row>("select measured_on::text as date, weight_lb from nutrition.daily_weights where measured_on between $1 and $2 order by measured_on", [start, to])
 	).rows.map((row) => ({ date: String(row["date"]), lb: num(row["weight_lb"]) }));

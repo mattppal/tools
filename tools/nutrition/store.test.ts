@@ -234,6 +234,9 @@ test("expenditure estimates each day from weight, profile, watch workouts, and l
 	expect(spent.days[0]?.sessions).toEqual([{ name: "run", kcal: Math.round(500 - 5000 * 0.000576 * kg), source: "watch" }]);
 	expect(spent.days[1]?.sessions).toEqual([]);
 	expect(spent.days[2]?.sessions).toEqual([{ name: "Squat day", kcal: Math.round(2 * 0.12 * kg), source: "estimate" }]);
+	await pg.query("alter table nutrition.profile rename to profile_pending");
+	expect((await getExpenditure(client, "2026-12-10", "2026-12-12")).days[0]?.bmr).toBe(unknownAge.days[0]?.bmr);
+	await pg.query("alter table nutrition.profile_pending rename to profile");
 });
 
 test("steps list days with steps, calendar-window averages, and the target in effect", async () => {
