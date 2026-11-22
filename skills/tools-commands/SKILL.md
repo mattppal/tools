@@ -16,7 +16,7 @@ The repo uses bun. Install it with `curl -fsSL https://bun.sh/install | bash` if
 | `bun run build` | Skill and style checks, then write `public/build.json` and build the Worker, client, and service worker into `dist/`. |
 | `bun run typecheck` | `tsc --noEmit` over `src`, `worker`, `tools`, `scripts`. |
 | `bun run test` | `bun test` over `worker`, `tools`, `src`, and `scripts`. Vendored skills keep their own tests, which this skips. |
-| `bun run test:e2e` | Serve `dist/` with `vite preview` in workerd and check routing, cache headers, and that bot routes refuse a caller without the token. Run `bun run build` first. |
+| `bun run test:e2e` | Serve `dist/` with `vite preview` in workerd and check routing, cache headers, that every image the build references (the sidebar logo included) is served as that image, and that bot routes refuse a caller without the token. Run `bun run build` first. |
 | `bun run new-tool <slug>` | Scaffold `tools/<slug>/`. See `tools-add-a-tool`. |
 | `bun run check:skills` | Run the skill check alone. |
 | `bun run check:style` | Fail on code comments, status dots and pills, and a tool that imports `withRequestDb`. `bun run build` runs it too. |
