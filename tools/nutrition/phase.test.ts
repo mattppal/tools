@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { addDays, dayNumber, isoDate } from "./dates.ts";
-import { phaseSummary, rangeExpenditure, type TrackerSettings, type WeightPoint } from "./phase.ts";
+import { phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
 
 const SHEET_EPOCH = dayNumber("1899-12-30");
 
@@ -85,15 +85,4 @@ test("calls a cut ahead or behind against the planned weight", () => {
 	const { weights, days } = steadyCut(3);
 	expect(phaseSummary(CUT, weights, days, "2026-02-04").current?.verdict).toBe("ahead");
 	expect(phaseSummary({ ...CUT, kind: "gain", targetRatePerWeek: 0.005 }, weights, days, "2026-02-04").current?.verdict).toBe("behind");
-});
-
-test("range expenditure is mean intake less the trend change in kcal, only from 14 logged days", () => {
-	const weights: WeightPoint[] = [
-		{ date: "2026-10-01", rolling7d: 180, rolling14d: 180 },
-		{ date: "2026-10-29", rolling7d: 178, rolling14d: 178 },
-	];
-	const days = Array.from({ length: 20 }, (_, index) => ({ date: addDays("2026-10-02", index), kcal: 2500 }));
-	expect(rangeExpenditure(weights, days, "2026-10-01", "2026-10-31")).toEqual({ tdee: 2750, loggedDays: 20 });
-	expect(rangeExpenditure(weights, days.slice(0, 13), "2026-10-01", "2026-10-31")).toEqual({ tdee: null, loggedDays: 13 });
-	expect(rangeExpenditure(weights, days, "2026-11-01", "2026-11-30").tdee).toBeNull();
 });

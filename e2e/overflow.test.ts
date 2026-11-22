@@ -45,7 +45,41 @@ const history: HistoryDay[] = days(30).map((date, index) => {
 });
 const weights: WeightRow[] = days(120).map((date, index) => ({ date, weight: 180 + Math.sin(index / 9), rolling7d: 180.2, rolling14d: 180.3, rolling28d: 180.4, source: "withings" }));
 const steps: StepsRow[] = days(120).map((date, index) => ({ date, steps: 8_000 + ((index * 3_331) % 14_000), rolling7d: 12_345, rolling14d: 12_100, rolling28d: 11_900, target: 10_000 }));
-const expenditure: ExpenditureView = { tdee: null, loggedDays: 8, minDays: 14, avgSteps: 13_205, stepDays: 61 };
+const spentDays = days(90).map((date, index) => ({
+	date,
+	total: 2_780 + (index % 7) * 40,
+	bmr: 1_610,
+	bmrMethod: "mifflin" as const,
+	living: 242,
+	steps: 550,
+	stepCount: index % 11 === 0 ? null : 12_778,
+	stepsEstimated: index % 11 === 0,
+	training: index % 3 === 0 ? 160 : 0,
+	sessions: index % 3 === 0 ? [{ name: "C W4 Day 3 Deadlift with a long session name", kcal: 160, source: "estimate" as const }] : [],
+	tef: 278,
+	intake: index % 5 === 0 ? 2_750 : null,
+	trendLb: 180.2,
+}));
+const expenditure: ExpenditureView = {
+	tdee: 2_779,
+	plusMinus: 90,
+	basis: "calibrated",
+	loggedDays: 14,
+	measured: { tdee: 2_812, plusMinus: 120, loggedDays: 14, from: isoDay(-20), to: isoDay(-7) },
+	scale: {
+		value: 0.915,
+		sd: 0.032,
+		windows: [
+			{ kind: "logged", from: "2026-10-06", to: "2026-10-13", days: 8, tdee: 2_724, plusMinus: 560 },
+			{ kind: "tracker", from: "2026-10-06", to: "2026-11-13", days: 8, tdee: 2_869, plusMinus: 100 },
+		],
+	},
+	components: { bmr: 1_610, living: 242, steps: 550, training: 100, tef: 278 },
+	days: spentDays,
+	minDays: 14,
+	avgSteps: 13_205,
+	stepDays: 61,
+};
 
 const FIXTURES: Record<string, unknown> = {
 	"/api/tools/nutrition/day": day,

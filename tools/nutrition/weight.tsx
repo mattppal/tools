@@ -6,8 +6,8 @@ import styles from "./nutrition.module.css";
 import { AverageControls, RangeControls, type SeriesStyle, SeriesChart, SeriesSummary, SeriesTable, type SummaryItem, type Tint, useSeriesRange } from "./series.tsx";
 import type { ExpenditureView, PhaseView } from "./store.ts";
 import type { WeightRow } from "./types.ts";
-import { tenths, useJson, VIEWS, whole } from "./ui.tsx";
-import { type Average, changeTone, type DateRange, inRange, type SeriesRow, summarize, toneStrength, withChanges } from "./weights.ts";
+import { dayLabel, tenths, useJson, VIEWS, whole } from "./ui.tsx";
+import { type Average, changeTone, inRange, type SeriesRow, summarize, toneStrength, withChanges } from "./weights.ts";
 
 const SOURCE_LABELS: Record<string, string> = { withings: "Withings", bot: "Bot", sheet: "Sheet", daily_file: "Daily file" };
 
@@ -35,11 +35,110 @@ const signedRate = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, ma
 const signedTenths = (value: number) => signed.format(value).replace("-", "\u2212");
 const signedHundredths = (value: number) => signedRate.format(value).replace("-", "\u2212");
 
-function Summary({ rows, average, phaseKind, range }: { rows: SeriesRow[]; average: Average; phaseKind: string | null; range: DateRange }) {
+const PART_LABELS: { key: keyof NonNullable<ExpenditureView["components"]>; label: string }[] = [
+	{ key: "bmr", label: "Resting" },
+	{ key: "living", label: "Daily living" },
+	{ key: "steps", label: "Steps" },
+	{ key: "training", label: "Training" },
+	{ key: "tef", label: "Digesting food" },
+];
+
+const RECENT_DAYS = 28;
+
+const capitalized = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+function shortSpan(from: string, to: string): string {
+	const start = dayLabel(from, { month: "short", day: "numeric" });
+	if (from === to) return start;
+	if (from.slice(0, 7) === to.slice(0, 7)) return `${start}\u2013${Number(to.slice(8))}`;
+	return `${start}\u2013${dayLabel(to, { month: "short", day: "numeric" })}`;
+}
+
+function calibrationSpans(spent: ExpenditureView): string {
+	return [...new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to)))].join(", ");
+}
+
+function basisNote(spent: ExpenditureView): string {
+	const margin = spent.plusMinus === null ? "" : `\u00b1 ${whole(spent.plusMinus)} \u00b7 `;
+	return spent.basis === "calibrated" ? `${margin}calibrated on ${calibrationSpans(spent)}` : `${margin}from steps and training`;
+}
+
+function calibrationSentence(spent: ExpenditureView): string {
+	const spans = new Set(spent.scale.windows.map((window) => shortSpan(window.from, window.to)));
+	const clauses = spent.scale.windows.map((window) => {
+		const source = window.kind === "logged" ? "logged intake and weight change gave" : "the tracker's export gave";
+		const span = spans.size === 1 ? "" : ` for ${shortSpan(window.from, window.to)}`;
+		return `${source} ${whole(window.tdee)} \u00b1 ${whole(window.plusMinus)}${span}`;
+	});
+	const lead = spans.size === 1 ? `On ${calibrationSpans(spent)}, ` : "";
+	const joined = clauses.length > 1 ? `${clauses.slice(0, -1).join(", ")} and ${clauses.at(-1)}` : (clauses[0] ?? "");
+	return `${capitalized(`${lead}${joined}.`)} The estimate is scaled by ${spent.scale.value} to match.`;
+}
+
+function dayDetail(day: ExpenditureView["days"][number]): string {
+	const parts = [day.stepCount === null ? "Steps estimated" : `${whole(day.stepCount)} steps`, ...day.sessions.map((item) => `${capitalized(item.name)} ${whole(item.kcal)}`)];
+	if (day.intake !== null) parts.push(`ate ${whole(day.intake)}`);
+	return parts.join(" \u00b7 ");
+}
+
+function ExpenditurePanel({ spent }: { spent: ExpenditureView }) {
+	const [showAll, setShowAll] = useState(false);
+	const newest = spent.days.toReversed();
+	const days = showAll ? newest : newest.slice(0, RECENT_DAYS);
+	const method = newest[0]?.bmrMethod === "katch-mcardle" ? "from fat-free mass" : "from weight, height, and age";
+	if (spent.tdee === null || spent.components === null) return null;
+	const components = spent.components;
+	return (
+		<div className={styles.spent}>
+			<div>
+				<p className={styles.spentValue}>
+					{whole(spent.tdee)} <span className={styles.spentUnit}>kcal a day</span>
+				</p>
+				<p className={styles.spentNote}>{basisNote(spent)}</p>
+			</div>
+			<p className={styles.spentBasis}>
+				{spent.basis === "calibrated"
+					? calibrationSentence(spent)
+					: "Nothing to calibrate against yet. Seven fully logged days with five weigh-ins will calibrate it."}
+				{spent.measured === null ? null : ` Logged intake and weight change alone give ${whole(spent.measured.tdee)} \u00b1 ${whole(spent.measured.plusMinus)} over ${whole(spent.measured.loggedDays)} days.`}
+			</p>
+			<dl className={styles.spentParts}>
+				{PART_LABELS.map((part) => (
+					<div key={part.key} className={styles.spentPart}>
+						<dt>{part.key === "bmr" ? `Resting, ${method}` : part.label}</dt>
+						<dd>{whole(components[part.key])}</dd>
+						<div className={styles.track} aria-hidden="true">
+							<div className={styles.spentFill} style={{ transform: `scaleX(${Math.min(components[part.key] / (spent.tdee ?? 1), 1)})` }} />
+						</div>
+					</div>
+				))}
+			</dl>
+			<section className={styles.spentDays} aria-label="Each day">
+				<h2 className={styles.spentHeading}>Each day</h2>
+				<ol>
+					{days.map((day) => (
+						<li key={day.date}>
+							<div className={styles.spentDayTop}>
+								<span>{dayLabel(day.date)}</span>
+								<span className={styles.spentDayTotal}>{whole(day.total)}</span>
+							</div>
+							<p className={styles.spentNote}>{dayDetail(day)}</p>
+						</li>
+					))}
+				</ol>
+				{newest.length > RECENT_DAYS ? (
+					<Button size="sm" variant="quiet" onClick={() => setShowAll(!showAll)}>
+						{showAll ? `Show the last ${RECENT_DAYS} days` : `Show all ${whole(newest.length)} days`}
+					</Button>
+				) : null}
+			</section>
+		</div>
+	);
+}
+
+function Summary({ rows, average, phaseKind, spent, onBreakdown }: { rows: SeriesRow[]; average: Average; phaseKind: string | null; spent: ExpenditureView | null; onBreakdown: () => void }) {
 	const summary = summarize(rows, average);
-	const [energy] = useJson<ExpenditureView>(`/expenditure?from=${range.from}&to=${range.to}`);
 	if (summary === null) return null;
-	const spent = energy.status === "ready" ? energy.data : null;
 	const items: SummaryItem[] = [
 		{ label: "Start", value: `${tenths(summary.start)} lb` },
 		{ label: "End", value: `${tenths(summary.end)} lb` },
@@ -49,16 +148,16 @@ function Summary({ rows, average, phaseKind, range }: { rows: SeriesRow[]; avera
 			? { label: "Weekly rate", value: "Under a week" }
 			: { label: "Weekly rate", value: `${signedHundredths(summary.weeklyRate)} lb a week`, tone: tint(summary.weeklyRate, phaseKind, FLAT_RATE, FULL_WEEKLY_RATE) },
 	];
-	const short = spent !== null && spent.tdee === null && spent.loggedDays < spent.minDays;
 	const energyItems: SummaryItem[] =
 		spent === null
 			? []
 			: [
-					{
-						label: "Expenditure",
-						value: spent.tdee !== null ? `${whole(spent.tdee)} kcal a day` : short ? `Needs ${whole(spent.minDays)} logged days` : "Needs a longer range",
-						note: short ? `${whole(spent.loggedDays)} so far` : `from ${whole(spent.loggedDays)} logged ${spent.loggedDays === 1 ? "day" : "days"}`,
-					},
+					spent.tdee === null
+						? { label: "Expenditure", value: "No recent weigh-ins" }
+						: { label: "Expenditure", value: `${whole(spent.tdee)} kcal a day`, note: basisNote(spent), onClick: onBreakdown },
+					...(spent.measured === null
+						? []
+						: [{ label: "Measured", value: `${whole(spent.measured.tdee)} kcal a day`, note: `\u00b1 ${whole(spent.measured.plusMinus)} \u00b7 ${whole(spent.measured.loggedDays)} logged days` }]),
 					...(spent.avgSteps === null ? [] : [{ label: "Steps", value: `${whole(spent.avgSteps)} a day` }]),
 				];
 	return (
@@ -82,6 +181,9 @@ export function Weight() {
 	const entries = useMemo(() => withChanges(all), [all]);
 	const sources = useMemo(() => [...new Set(all.map((row) => row.source))], [all]);
 	const selected = inRange(entries, state.range, sources.length > 1 ? source : null);
+	const [energy] = useJson<ExpenditureView>(`/expenditure?from=${state.range.from}&to=${state.range.to}`);
+	const spent = energy.status === "ready" ? energy.data : null;
+	const [breakdownOpen, setBreakdownOpen] = useState(false);
 
 	const filterSource = (next: string | null) => {
 		setSource(next);
@@ -89,7 +191,11 @@ export function Weight() {
 	};
 
 	return (
-		<ToolLayout title="Weight" sections={VIEWS}>
+		<ToolLayout
+			title="Weight"
+			sections={VIEWS}
+			panel={spent === null || spent.tdee === null ? undefined : { label: "Expenditure", open: breakdownOpen, onOpenChange: setBreakdownOpen, content: <ExpenditurePanel spent={spent} /> }}
+		>
 			<div className={styles.page}>
 				<RangeControls state={state} />
 				<AverageControls state={state}>
@@ -123,7 +229,7 @@ export function Weight() {
 					</div>
 				) : (
 					<>
-						<Summary rows={selected} average={state.average} phaseKind={phaseKind} range={state.range} />
+						<Summary rows={selected} average={state.average} phaseKind={phaseKind} spent={spent} onBreakdown={() => setBreakdownOpen(true)} />
 						<SeriesChart rows={selected} series={WEIGHT} average={state.average} showRaw={showPoints} showTrend={showTrend} onBrush={state.chooseRange} />
 						<p className={styles.hint}>Drag across the chart to zoom in.</p>
 						<SeriesTable rows={selected} series={WEIGHT} state={state} tint={(change) => tint(change, phaseKind, FLAT_CHANGE, FULL_ENTRY_CHANGE)} />

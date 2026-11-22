@@ -16,6 +16,9 @@ const activityDir = join(import.meta.dirname, "..", "activity", "migrations");
 const activityMigrations = await Promise.all((await readdir(activityDir)).toSorted().map((name) => readFile(join(activityDir, name), "utf-8")));
 await pg.exec(`create schema nutrition; set search_path to nutrition; ${migrations.join(";\n")}; set search_path to public;`);
 await pg.exec(`create schema activity; set search_path to activity; ${activityMigrations.join(";\n")}; set search_path to public;`);
+const workoutsDir = join(import.meta.dirname, "..", "workouts", "migrations");
+const workoutsMigrations = await Promise.all((await readdir(workoutsDir)).toSorted().map((name) => readFile(join(workoutsDir, name), "utf-8")));
+await pg.exec(`create schema workouts; set search_path to workouts; ${workoutsMigrations.join(";\n")}; set search_path to public;`);
 const liaisonMigration = await readFile(join(import.meta.dirname, "..", "liaison", "migrations", "0001-create-deliveries.sql"), "utf-8");
 await pg.exec(`create schema liaison; set search_path to liaison; ${liaisonMigration} set search_path to public;`);
 const client: Database = {
@@ -201,10 +204,36 @@ test("history shows each day's steps, nothing when there are none", async () => 
 	expect(history.find((day) => day.date === "2026-11-20")?.steps).toBeNull();
 });
 
-test("expenditure needs 14 full logged days and averages steps over the range", async () => {
-	const spent = await getExpenditure(client, "2026-11-01", "2026-11-30");
-	expect(spent).toMatchObject({ tdee: null, minDays: 14, avgSteps: Math.round((11234 + 9000) / 2), stepDays: 2 });
-	expect((await getExpenditure(client, "2027-01-01", "2027-01-31")).avgSteps).toBeNull();
+test("expenditure needs weigh-ins and averages steps over the range", async () => {
+	const spent = await getExpenditure(client, "2027-01-01", "2027-01-31");
+	expect(spent).toMatchObject({ tdee: null, measured: null, days: [], avgSteps: null });
+	expect(await getExpenditure(client, "2026-11-01", "2026-11-30")).toMatchObject({ minDays: 14, avgSteps: Math.round((11234 + 9000) / 2), stepDays: 2 });
+});
+
+test("expenditure estimates each day from weight, profile, watch workouts, and logged lifts", async () => {
+	await pg.query("insert into nutrition.weigh_ins (measured_on, source, weight_lb) select d::date, 'sheet', 180 from generate_series('2026-12-01'::date, '2026-12-20'::date, interval '1 day') d");
+	await pg.query(
+		`insert into activity.withings_workouts (id, category, local_date, started_at, ended_at, duration_s, steps, data) values
+		(9001, 2, '2026-12-10', '2026-12-10T15:00:00Z', '2026-12-10T15:40:00Z', 2400, 5000, '{"data":{"manual_calories":500}}'),
+		(9002, 6, '2026-12-11', '2026-12-11T15:00:00Z', '2026-12-11T20:00:00Z', 18000, null, '{"data":{"manual_calories":2000}}')`,
+	);
+	await pg.query("insert into activity.withings_measures (grpid, type, measured_at, value, attrib, category) values (77, 4, '2026-01-01T12:00:00Z', 1.8, 0, 1)");
+	await pg.query("insert into workouts.history_sessions (path, session_date, kind, status, name) values ('h/2026-12-12.json', '2026-12-12', 'lift', 'completed', 'Squat day')");
+	await pg.query("insert into workouts.history_exercises (path, position, exercise_key, name, status) values ('h/2026-12-12.json', 0, 'squat', 'Squat', 'completed'), ('h/2026-12-12.json', 1, 'curl', 'Curl', 'skipped')");
+	await pg.query(
+		"insert into workouts.history_sets (path, position, set_index, type, reps) values ('h/2026-12-12.json', 0, 0, 'warmup', 5), ('h/2026-12-12.json', 0, 1, 'working', 5), ('h/2026-12-12.json', 0, 2, null, 5), ('h/2026-12-12.json', 1, 0, 'working', 10)",
+	);
+	const unknownAge = await getExpenditure(client, "2026-12-10", "2026-12-12");
+	await pg.query("insert into nutrition.profile (birth_date) values ('1990-03-14')");
+	const spent = await getExpenditure(client, "2026-12-10", "2026-12-12");
+	expect(spent).toMatchObject({ basis: "estimated", loggedDays: 0, measured: null });
+	expect(spent.days.map((day) => day.date)).toEqual(["2026-12-10", "2026-12-11", "2026-12-12"]);
+	const kg = 180 / 2.20462;
+	expect(spent.days[0]?.bmr).toBe(Math.round(10 * kg + 6.25 * 180 - 5 * 36 + 5));
+	expect((spent.days[0]?.bmr ?? 0) - (unknownAge.days[0]?.bmr ?? 0)).toBe(-5);
+	expect(spent.days[0]?.sessions).toEqual([{ name: "run", kcal: Math.round(500 - 5000 * 0.000576 * kg), source: "watch" }]);
+	expect(spent.days[1]?.sessions).toEqual([]);
+	expect(spent.days[2]?.sessions).toEqual([{ name: "Squat day", kcal: Math.round(2 * 0.12 * kg), source: "estimate" }]);
 });
 
 test("steps list days with steps, calendar-window averages, and the target in effect", async () => {

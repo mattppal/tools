@@ -330,7 +330,7 @@ test.skipIf(!existsSync(SAMPLE))("reproduces tinkabot's 30-day get_weights and t
 });
 
 const unix = (iso: string) => Date.parse(iso) / 1000;
-const run = { id: 9001, category: 2, timezone: "America/Los_Angeles", model: 1059, attrib: 7, startdate: unix("2026-11-18T14:05:00Z"), enddate: unix("2026-11-18T14:50:00Z"), date: "2026-11-18", deviceid: "watch", modified: unix("2026-11-18T15:00:00Z"), data: { calories: 412.5, distance: 7012.4, steps: 6900, elevation: 31, hr_average: 141, hr_min: 98, hr_max: 171, hr_zone_0: 60, hr_zone_1: 900, hr_zone_2: 1500, hr_zone_3: 240, pause_duration: 0 } };
+const run = { id: 9001, category: 2, timezone: "America/Los_Angeles", model: 1059, attrib: 7, startdate: unix("2026-11-18T14:05:00Z"), enddate: unix("2026-11-18T14:50:00Z"), date: "2026-11-18", deviceid: "watch", modified: unix("2026-11-18T15:00:00Z"), data: { calories: 412.5, distance: 7012.4, steps: 6900, elevation: 31, hr_average: 141, hr_min: 98, hr_max: 171, hr_zone_0: 60, hr_zone_1: 900, hr_zone_2: 1500, hr_zone_3: 240, pause_duration: 0, manual_calories: 380.2 } };
 const night = { id: 5001, timezone: "America/Los_Angeles", model: 16, model_id: 93, hash_deviceid: "dev-hash", startdate: unix("2026-11-18T06:40:00Z"), enddate: unix("2026-11-18T14:10:00Z"), date: "2026-11-18", modified: unix("2026-11-18T15:00:00Z"), data: { total_sleep_time: 25200, total_timeinbed: 27000, lightsleepduration: 13000, deepsleepduration: 5200, remsleepduration: 7000, wakeupduration: 1800, wakeupcount: 2, hr_average: 55, hr_min: 47, hr_max: 70, rr_average: 14, sleep_score: 82 } };
 
 test("workouts, sleep, body measures, and daily HR land in their tables, and a re-sync writes nothing", async () => {
@@ -347,7 +347,7 @@ test("workouts, sleep, body measures, and daily HR land in their tables, and a r
 	expect(measuresCall?.form.get("category")).toBe("1");
 
 	const [workout] = await listWorkouts(client, "2026-11-18", "2026-11-18");
-	expect(workout).toMatchObject({ id: 9001, activity: "run", durationS: 2700, distanceM: 7012.4, calories: 412.5, hr: { avg: 141, min: 98, max: 171, zonesS: [60, 900, 1500, 240] }, model: "1059", session: null });
+	expect(workout).toMatchObject({ id: 9001, activity: "run", durationS: 2700, distanceM: 7012.4, calories: 412.5, activeKcal: 380.2, hr: { avg: 141, min: 98, max: 171, zonesS: [60, 900, 1500, 240] }, model: "1059", session: null });
 	expect((await listSleep(client, "2026-11-18", "2026-11-18"))[0]).toMatchObject({ id: "5001", model: "16", model_id: 93, device_hash: "dev-hash", total_sleep_s: 25200, deep_s: 5200, hr_min: 47, sleep_score: 82 });
 	expect((await listMeasures(client, "2026-11-18", "2026-11-18")).map((row) => [row["grpid"], row["name"], row["value"]])).toEqual([
 		["77", "systolic_mmhg", 128],

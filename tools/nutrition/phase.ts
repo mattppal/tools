@@ -126,17 +126,3 @@ export function phaseSummary(settings: TrackerSettings, weights: readonly Weight
 	}
 	return { startWeight, weeks, current: weeks.findLast((week) => week.started) ?? null };
 }
-
-export const MIN_EXPENDITURE_DAYS = 14;
-
-export type Expenditure = { tdee: number | null; loggedDays: number };
-
-export function rangeExpenditure(weights: readonly WeightPoint[], days: readonly LoggedDay[], from: string, to: string): Expenditure {
-	const first = lastOnOrBefore(weights, from) ?? weights.find((point) => point.date >= from);
-	const last = lastOnOrBefore(weights, to);
-	if (first === undefined || last === undefined || last.date <= first.date) return { tdee: null, loggedDays: loggedBetween(days, addDays(from, -1), to).count };
-	const { count, mean } = loggedBetween(days, first.date, last.date);
-	const span = dayNumber(last.date) - dayNumber(first.date);
-	if (mean === null || count < MIN_EXPENDITURE_DAYS || span < MIN_EXPENDITURE_DAYS) return { tdee: null, loggedDays: count };
-	return { tdee: roundHalfAway(mean - ((last.rolling7d - first.rolling7d) * KCAL_PER_LB) / span), loggedDays: count };
-}

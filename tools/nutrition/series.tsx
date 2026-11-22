@@ -306,7 +306,7 @@ export function SeriesChart({ rows, series, average, showRaw, showTrend, onBrush
 	);
 }
 
-export type SummaryItem = { label: string; value: string; note?: string; tone?: Tint };
+export type SummaryItem = { label: string; value: string; note?: string; tone?: Tint; onClick?: () => void };
 
 export function SeriesSummary({ items }: { items: SummaryItem[] }) {
 	return (
@@ -314,7 +314,15 @@ export function SeriesSummary({ items }: { items: SummaryItem[] }) {
 			{items.map((item) => (
 				<div key={item.label}>
 					<dt>{item.label}</dt>
-					<dd {...item.tone}>{item.value}</dd>
+					<dd {...item.tone}>
+						{item.onClick === undefined ? (
+							item.value
+						) : (
+							<button type="button" className={styles.summaryLink} onClick={item.onClick}>
+								{item.value}
+							</button>
+						)}
+					</dd>
 					{item.note === undefined ? null : <dd className={styles.summaryNote}>{item.note}</dd>}
 				</div>
 			))}

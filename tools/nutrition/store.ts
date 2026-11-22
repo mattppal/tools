@@ -1,7 +1,9 @@
 import type { Database } from "../../worker/db.ts";
 import { queueForLiaison } from "../liaison/webhook.ts";
 import { addDays, today } from "./dates.ts";
-import { type Expenditure, type LoggedDay, MIN_EXPENDITURE_DAYS, type PhaseSummary, phaseSummary, rangeExpenditure, type TrackerSettings, type WeightPoint } from "./phase.ts";
+import { listMeasures, listWorkouts } from "../activity/health.ts";
+import { type BodyComp, estimateExpenditure, MEASURED_MIN_DAYS, type ExpenditureResult, type IntakeDay, type LoggedSession, type StepsDay, type TrackerDay, type WatchWorkout, type WeighIn } from "./expenditure.ts";
+import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
 import { parseSource } from "./sources.ts";
 import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, macroProgress, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
@@ -303,13 +305,99 @@ async function fullDays(client: Database, from: string, to: string): Promise<Log
 		.map((day) => ({ date: String(day["date"]), kcal: num(day["kcal"]) }));
 }
 
-export type ExpenditureView = Expenditure & { minDays: number; avgSteps: number | null; stepDays: number };
+export type ExpenditureView = ExpenditureResult & { minDays: number; avgSteps: number | null; stepDays: number };
+
+const LOOKBACK_DAYS = 35;
+const MEASURE_HEIGHT = 4;
+const MEASURE_FFM = 5;
+const MEASURE_FAT = 6;
+
+async function loggedSessions(client: Database, from: string, to: string): Promise<LoggedSession[]> {
+	const present = (await client.query<Row>("select to_regclass('workouts.history_sessions') is not null as history, to_regclass('workouts.sessions') is not null as live")).rows[0];
+	const sessions: LoggedSession[] = [];
+	if (present?.["history"] === true) {
+		const { rows } = await client.query<Row>(
+			`select s.session_date::text as date, s.kind, s.name, s.modality, s.duration_seconds,
+				(select count(*) from workouts.history_sets x join workouts.history_exercises e on e.path = x.path and e.position = x.position
+					where x.path = s.path and coalesce(x.type, 'working') = 'working' and coalesce(e.status, 'completed') <> 'skipped')::integer as working_sets,
+				(select sum(case x.distance_unit when 'mi' then x.distance * 1.609344 when 'km' then x.distance when 'm' then x.distance / 1000 end)
+					from workouts.history_sets x where x.path = s.path)::float8 as km
+			from workouts.history_sessions s
+			where s.session_date between $1 and $2 and s.kind in ('lift', 'conditioning') and coalesce(s.status, 'completed') <> 'skipped'`,
+			[from, to],
+		);
+		for (const row of rows)
+			sessions.push({ date: String(row["date"]), kind: row["kind"] as LoggedSession["kind"], name: String(row["name"]), modality: (row["modality"] as string | null) ?? null, workingSets: num(row["working_sets"]), km: numOrNull(row["km"]), durationS: numOrNull(row["duration_seconds"]) });
+	}
+	if (present?.["live"] === true) {
+		const { rows } = await client.query<Row>(
+			`select s.session_date::text as date, s.day_title as name,
+				(select count(*) from workouts.sets x join workouts.exercises e on e.session_id = x.session_id and e.position = x.position
+					where x.session_id = s.id and x.reps > 0 and e.status <> 'skipped')::integer as working_sets
+			from workouts.sessions s where s.status = 'finished' and not s.test and s.session_date between $1 and $2`,
+			[from, to],
+		);
+		const historyLifts = new Set(sessions.filter((session) => session.kind === "lift").map((session) => session.date));
+		for (const row of rows) {
+			if (historyLifts.has(String(row["date"]))) continue;
+			sessions.push({ date: String(row["date"]), kind: "lift", name: String(row["name"]), modality: null, workingSets: num(row["working_sets"]), km: null, durationS: null });
+		}
+	}
+	return sessions;
+}
+
+function bodyComposition(measures: Awaited<ReturnType<typeof listMeasures>>): { heightM: number | null; bodyComp: BodyComp[] } {
+	const groups = new Map<string, { date: string; ffm?: number; fat?: number }>();
+	let heightM: number | null = null;
+	for (const measure of measures) {
+		const type = num(measure["type"]);
+		const value = num(measure["value"]);
+		if (type === MEASURE_HEIGHT) heightM = value;
+		if (type !== MEASURE_FFM && type !== MEASURE_FAT) continue;
+		const grpid = String(measure["grpid"]);
+		const group = groups.get(grpid) ?? { date: today(new Date(measure["measured_at"] as string | Date)) };
+		if (type === MEASURE_FFM) group.ffm = value;
+		else group.fat = value;
+		groups.set(grpid, group);
+	}
+	const bodyComp = [...groups.values()].flatMap((group) => (group.ffm === undefined || group.fat === undefined ? [] : [{ date: group.date, ffmKg: group.ffm, fatPct: group.fat }]));
+	return { heightM, bodyComp };
+}
 
 export async function getExpenditure(client: Database, from: string, to: string): Promise<ExpenditureView> {
-	const weights: WeightPoint[] = (
-		await client.query<Row>("select measured_on::text as date, rolling_7d, rolling_14d from nutrition.weight_trend where measured_on >= $1 and measured_on <= $2 order by measured_on", [addDays(from, -7), to])
-	).rows.map((weight) => ({ date: String(weight["date"]), rolling7d: num(weight["rolling_7d"]), rolling14d: num(weight["rolling_14d"]) }));
-	const days = await fullDays(client, addDays(from, -7), to);
+	const intake: IntakeDay[] = await fullDays(client, "1900-01-01", to);
+	const tracker: TrackerDay[] = (
+		await client.query<Row>(
+			"select day::text as date, (imported->>'expenditure_kcal')::float8 as kcal from nutrition.days where day <= $1 and jsonb_typeof(imported->'expenditure_kcal') = 'number' order by day",
+			[to],
+		)
+	).rows.map((row) => ({ date: String(row["date"]), kcal: num(row["kcal"]) }));
+	const earliest = [from, intake[0]?.date, tracker[0]?.date].filter((date) => date !== undefined).toSorted()[0] as string;
+	const start = addDays(earliest, -LOOKBACK_DAYS);
+	const profile = (await client.query<Row>("select birth_date::text as birth_date from nutrition.profile")).rows[0];
+	const weighIns: WeighIn[] = (
+		await client.query<Row>("select measured_on::text as date, weight_lb from nutrition.daily_weights where measured_on between $1 and $2 order by measured_on", [start, to])
+	).rows.map((row) => ({ date: String(row["date"]), lb: num(row["weight_lb"]) }));
+	const steps: StepsDay[] = (
+		await client.query<Row>(
+			`select coalesce(a.day, d.day)::text as date, coalesce(a.steps, d.steps) as steps
+			from activity.daily_activity a full join nutrition.days d on d.day = a.day
+			where coalesce(a.day, d.day) between $1 and $2 order by 1`,
+			[start, to],
+		)
+	).rows.map((row) => ({ date: String(row["date"]), steps: numOrNull(row["steps"]) }));
+	const { heightM, bodyComp } = bodyComposition(await listMeasures(client, "1900-01-01", to, [MEASURE_HEIGHT, MEASURE_FFM, MEASURE_FAT]));
+	const workouts: WatchWorkout[] = (await listWorkouts(client, start, to)).map((workout) => ({
+		date: workout.date,
+		category: workout.category,
+		activity: workout.activity,
+		durationS: workout.durationS,
+		activeKcal: workout.activeKcal,
+		steps: workout.steps,
+		hrAvg: workout.hr.avg,
+	}));
+	const sessions = await loggedSessions(client, start, to);
+	const result = estimateExpenditure({ profile: { birthDate: (profile?.["birth_date"] as string | null) ?? null, heightM }, weighIns, intake, tracker, steps, bodyComp, workouts, sessions }, from, to);
 	const { rows } = await client.query<Row>(
 		`select avg(steps)::float as avg_steps, count(steps)::integer as step_days from (
 			select coalesce(a.steps, d.steps) as steps
@@ -319,7 +407,7 @@ export async function getExpenditure(client: Database, from: string, to: string)
 		[from, to],
 	);
 	const avg = numOrNull(rows[0]?.["avg_steps"]);
-	return { ...rangeExpenditure(weights, days, from, to), minDays: MIN_EXPENDITURE_DAYS, avgSteps: avg === null ? null : Math.round(avg), stepDays: num(rows[0]?.["step_days"] ?? 0) };
+	return { ...result, minDays: MEASURED_MIN_DAYS, avgSteps: avg === null ? null : Math.round(avg), stepDays: num(rows[0]?.["step_days"] ?? 0) };
 }
 
 export async function getHistory(client: Database): Promise<HistoryDay[]> {

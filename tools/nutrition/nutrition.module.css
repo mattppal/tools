@@ -358,6 +358,136 @@
 	}
 }
 
+.summaryLink {
+	padding: 0;
+	border: 0;
+	background: none;
+	font: inherit;
+	color: inherit;
+	text-decoration: underline;
+	text-decoration-color: var(--line-strong);
+	text-underline-offset: 3px;
+	cursor: pointer;
+	transition: text-decoration-color var(--duration-hover) ease;
+}
+
+@media (hover: hover) {
+	.summaryLink:hover {
+		text-decoration-color: currentColor;
+	}
+}
+
+.summaryLink:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
+.spent {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-5);
+}
+
+.spentValue {
+	margin: 0;
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
+	font-weight: var(--weight-title);
+	letter-spacing: var(--tracking-title);
+	font-variant-numeric: tabular-nums;
+}
+
+.spentUnit {
+	font-size: var(--text-sm);
+	font-weight: var(--weight-body);
+	letter-spacing: normal;
+	color: var(--text-2);
+}
+
+.spentNote {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+}
+
+.spentBasis {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--text-2);
+}
+
+.spentParts {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	margin: 0;
+}
+
+.spentPart {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: var(--space-1) var(--space-2);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+}
+
+.spentPart dt {
+	color: var(--text-2);
+}
+
+.spentPart dd {
+	margin: 0;
+	color: var(--text-1);
+	font-variant-numeric: tabular-nums;
+}
+
+.spentPart .track {
+	grid-column: 1 / -1;
+}
+
+.spentFill {
+	position: absolute;
+	inset: 0;
+	border-radius: var(--radius-full);
+	background: var(--chart-accent);
+	transform-origin: left;
+}
+
+.spentHeading {
+	margin: 0 0 var(--space-2);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: var(--weight-body);
+	color: var(--text-3);
+}
+
+.spentDays ol {
+	margin: 0 0 var(--space-3);
+	padding: 0;
+	list-style: none;
+}
+
+.spentDays li {
+	padding: var(--space-2) 0;
+	border-top: var(--border-width) solid var(--border-color);
+}
+
+.spentDayTop {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-2);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+}
+
+.spentDayTotal {
+	font-variant-numeric: tabular-nums;
+}
+
 .chart {
 	width: 100%;
 	min-height: 280px;

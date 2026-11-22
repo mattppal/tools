@@ -628,6 +628,7 @@ export type Workout = {
 	durationS: number;
 	distanceM: number | null;
 	calories: number | null;
+	activeKcal: number | null;
 	steps: number | null;
 	elevationM: number | null;
 	hr: { avg: number | null; min: number | null; max: number | null; zonesS: (number | null)[] };
@@ -638,7 +639,9 @@ export type Workout = {
 
 export async function listWorkouts(client: Database, from: string, to: string): Promise<Workout[]> {
 	const { rows } = await client.query<Row>(
-		`select w.*, w.local_date::text as date, l.session_path, l.status, l.candidates
+		`select w.id, w.category, w.started_at, w.ended_at, w.duration_s, w.distance_m, w.calories, w.steps, w.elevation_m, w.hr_avg, w.hr_min, w.hr_max,
+			w.hr_zone_0_s, w.hr_zone_1_s, w.hr_zone_2_s, w.hr_zone_3_s, w.pool_laps, w.model, w.local_date::text as date,
+			(w.data->'data'->>'manual_calories')::float8 as active_kcal, l.session_path, l.status, l.candidates
 		from activity.withings_workouts w left join activity.withings_workout_links l on l.workout_id = w.id
 		where w.local_date between $1 and $2 order by w.started_at`,
 		[from, to],
@@ -653,6 +656,7 @@ export async function listWorkouts(client: Database, from: string, to: string): 
 		durationS: Number(row["duration_s"]),
 		distanceM: numOrNull(row["distance_m"]),
 		calories: numOrNull(row["calories"]),
+		activeKcal: numOrNull(row["active_kcal"]),
 		steps: numOrNull(row["steps"]),
 		elevationM: numOrNull(row["elevation_m"]),
 		hr: {
