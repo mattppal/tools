@@ -321,6 +321,15 @@ export function Today() {
 							content: <EntryForm key={editor.clientKey} editor={editor} onChange={setEditor} onSave={save} onDelete={remove} />,
 						}
 			}
+			footer={
+				canAdd ? (
+					<div className={styles.addBar}>
+						<Button variant="primary" className={styles.grow} onClick={() => edit(blankEditor())}>
+							Add food
+						</Button>
+					</div>
+				) : undefined
+			}
 		>
 			<div className={styles.page}>
 				{error === null ? null : (
@@ -346,13 +355,6 @@ export function Today() {
 					</>
 				)}
 			</div>
-			{canAdd ? (
-				<div className={styles.addBar}>
-					<Button variant="primary" className={styles.grow} onClick={() => edit(blankEditor())}>
-						Add food
-					</Button>
-				</div>
-			) : null}
 		</ToolLayout>
 	);
 }

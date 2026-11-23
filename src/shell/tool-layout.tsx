@@ -23,6 +23,7 @@ type ToolLayoutProps = {
 	sections?: readonly ToolSection[];
 	panel?: ToolPanel | undefined;
 	bodyClassName?: string;
+	footer?: ReactNode;
 	children: ReactNode;
 };
 
@@ -68,7 +69,7 @@ function PanelHead({ label, onClose }: { label: string; onClose: () => void }) {
 	);
 }
 
-export function ToolLayout({ title, actions, sections, panel, bodyClassName, children }: ToolLayoutProps) {
+export function ToolLayout({ title, actions, sections, panel, bodyClassName, footer, children }: ToolLayoutProps) {
 	const { layout, openNav, sectionsSlot } = useShell();
 	const emoji = routeEmoji(parseRoute(usePath()));
 	const [ownOpen, setOwnOpen] = useState(false);
@@ -132,9 +133,10 @@ export function ToolLayout({ title, actions, sections, panel, bodyClassName, chi
 						)}
 					</div>
 				</header>
-				<div className={cn(styles.body, bodyClassName)} data-scrollbar>
-					{children}
-				</div>
+				<ScrollArea className={styles.body} viewport={<div className={cn(styles.scroll, bodyClassName)} />}>
+					<div className={styles.content}>{children}</div>
+				</ScrollArea>
+				{footer === undefined ? null : <div className={styles.footer}>{footer}</div>}
 			</div>
 			{!hasPanel ? null : isDocked ? (
 				panelOpen ? (

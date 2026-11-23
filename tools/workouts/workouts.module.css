@@ -461,16 +461,11 @@
 }
 
 .bottomBar {
-	position: sticky;
-	bottom: calc(-1 * (var(--space-6) + var(--edge-bottom)));
 	display: flex;
+	flex: 1;
 	gap: var(--space-3);
 	align-items: center;
 	max-width: 640px;
-	margin-top: var(--space-5);
-	margin-bottom: calc(-1 * (var(--space-6) + var(--edge-bottom)));
-	padding: var(--space-3) 0 calc(var(--space-3) + var(--space-6) + var(--edge-bottom));
-	background: var(--panel-bg);
 }
 
 .bottomLabel {

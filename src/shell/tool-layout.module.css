@@ -53,11 +53,26 @@
 
 .body {
 	flex: 1;
-	min-height: 0;
 	margin-inline: var(--edge-left) var(--edge-right);
+}
+
+.scroll {
 	padding: 0 var(--space-5) calc(var(--space-6) + var(--edge-bottom));
-	overflow: auto;
-	overscroll-behavior: contain;
+}
+
+.content {
+	contain: inline-size;
+}
+
+.column:has(> .footer) .scroll {
+	padding-bottom: var(--space-3);
+}
+
+.footer {
+	display: flex;
+	flex: none;
+	margin-inline: var(--edge-left) var(--edge-right);
+	padding: var(--space-2) var(--space-5) calc(var(--space-3) + var(--edge-bottom));
 }
 
 .sections {
@@ -143,7 +158,8 @@
 		margin-inline-start: var(--space-1);
 	}
 
-	.body {
-		padding: 0 var(--space-4) calc(var(--space-6) + var(--edge-bottom));
+	.scroll,
+	.footer {
+		padding-inline: var(--space-4);
 	}
 }

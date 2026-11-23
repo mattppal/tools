@@ -429,7 +429,7 @@ export function SessionScreen({ id, onClose }: { id: string; onClose: () => void
 	useEffect(load, [load]);
 
 	useEffect(() => {
-		body.current?.closest("[data-scrollbar]")?.scrollTo({ top: 0 });
+		body.current?.closest('[data-slot="scroll-area-viewport"]')?.scrollTo({ top: 0 });
 	}, [index]);
 
 	const closeAfterPanel = () => {
@@ -485,6 +485,25 @@ export function SessionScreen({ id, onClose }: { id: string; onClose: () => void
 			title={title}
 			actions={back}
 			panel={finished ? undefined : { label: "Review", open: panelOpen, onOpenChange: setPanelOpen, content: <Review session={session} onSession={setSession} onClose={closeAfterPanel} /> }}
+			footer={
+				finished ? undefined : (
+					<nav className={styles.bottomBar} aria-label="Exercises">
+						<Button variant="secondary" disabled={index === 0} onClick={() => setIndex(index - 1)} aria-label="Previous exercise">
+							<Icon name="back" />
+						</Button>
+						<span className={styles.bottomLabel}>{exercises[index + 1] === undefined ? "Last exercise" : `Next: ${exercises[index + 1]?.name}`}</span>
+						{last ? (
+							<Button variant="primary" onClick={() => setPanelOpen(true)}>
+								Review
+							</Button>
+						) : (
+							<Button variant="primary" onClick={() => setIndex(index + 1)} aria-label="Next exercise">
+								<Icon name="chevron-right" />
+							</Button>
+						)}
+					</nav>
+				)
+			}
 		>
 			<div ref={body} className={styles.page}>
 				<p className={styles.eyebrow}>
@@ -510,23 +529,6 @@ export function SessionScreen({ id, onClose }: { id: string; onClose: () => void
 					</div>
 				)}
 			</div>
-			{finished ? null : (
-				<nav className={styles.bottomBar} aria-label="Exercises">
-					<Button variant="secondary" disabled={index === 0} onClick={() => setIndex(index - 1)} aria-label="Previous exercise">
-						<Icon name="back" />
-					</Button>
-					<span className={styles.bottomLabel}>{exercises[index + 1] === undefined ? "Last exercise" : `Next: ${exercises[index + 1]?.name}`}</span>
-					{last ? (
-						<Button variant="primary" onClick={() => setPanelOpen(true)}>
-							Review
-						</Button>
-					) : (
-						<Button variant="primary" onClick={() => setIndex(index + 1)} aria-label="Next exercise">
-							<Icon name="chevron-right" />
-						</Button>
-					)}
-				</nav>
-			)}
 		</ToolLayout>
 	);
 }

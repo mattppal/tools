@@ -189,13 +189,9 @@
 }
 
 .addBar {
-	position: sticky;
-	max-width: 680px;
-	bottom: 0;
 	display: flex;
-	margin-top: calc(-1 * var(--space-6));
-	padding: var(--space-3) 0;
-	background: linear-gradient(to bottom, transparent, var(--panel-bg) 40%);
+	flex: 1;
+	max-width: 680px;
 }
 
 .grow {
