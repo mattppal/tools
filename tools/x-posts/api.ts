@@ -8,6 +8,7 @@ import { CHECK_NOW_COOLDOWN_MS, LIVE_INGEST, QUEUE_OPEN } from "./query.ts";
 import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, QUEUE_CLOSED, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue, skipBacklog } from "./queue.ts";
 import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, NotMentioned, pkce, replyRequest, saveAccount, sendReply, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
 import type { Fetch } from "./x.ts";
+import { dismissMention, dismissRequest, listMentions, mentionReplyRequest, replyToMention } from "./mentions.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
 
@@ -149,6 +150,29 @@ export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, i
 						if (failure instanceof XRefused) return Response.json({ error: failure.message }, { status: 502, headers: NO_STORE });
 						throw failure;
 					}
+				}
+				case "GET /mentions": {
+					only(url, ["limit"]);
+					const limit = limitParam(url, 100, 200);
+					return Response.json(await db((client) => listMentions(client, limit, now)), { headers: NO_STORE });
+				}
+				case "POST /mentions/reply": {
+					const input = await body(request, mentionReplyRequest);
+					const creds = credentials(context.env);
+					if (creds === null) return Response.json({ error: "Replies aren't set up on the server yet." }, { status: 503, headers: NO_STORE });
+					try {
+						return Response.json(await db((client) => replyToMention(client, { fetcher, creds, now }, input)), { headers: NO_STORE });
+					} catch (failure) {
+						if (failure instanceof Disconnected) return Response.json({ error: failure.message, connect: true }, { status: 409, headers: NO_STORE });
+						if (failure instanceof NotMentioned) return Response.json({ error: failure.message, onX: true }, { status: 422, headers: NO_STORE });
+						if (failure instanceof XRefused) return Response.json({ error: failure.message }, { status: 502, headers: NO_STORE });
+						throw failure;
+					}
+				}
+				case "POST /mentions/dismiss": {
+					const { id } = await body(request, dismissRequest);
+					await db((client) => dismissMention(client, id, now));
+					return Response.json({ id }, { headers: NO_STORE });
 				}
 				case "GET /posts": {
 					only(url, ["status", "before", "limit"]);

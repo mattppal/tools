@@ -1,6 +1,5 @@
 import { type RefObject, useState } from "react";
 import { Button, buttonVariants } from "../../src/kit/button.tsx";
-import type { OwnerPost } from "./owner.ts";
 import type { Reply } from "./reply.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import styles from "./x-posts.module.css";
@@ -15,7 +14,9 @@ function intentUrl(postId: string, text: string): string {
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-export function ReplyBox({ post, send, draft, onDraft, onSent, inputRef }: { post: OwnerPost; send: Send; draft: string; onDraft: (text: string) => void; onSent: (reply: Reply) => void; inputRef: RefObject<HTMLTextAreaElement | null> }) {
+export type ReplyTarget = { id: string; handle: string; reply: Reply | null; replyHere: boolean | null };
+
+export function ReplyBox({ post, send, draft, onDraft, onSent, inputRef }: { post: ReplyTarget; send: Send; draft: string; onDraft: (text: string) => void; onSent: (reply: Reply) => void; inputRef: RefObject<HTMLTextAreaElement | null> }) {
 	const [sending, setSending] = useState<string | null>(null);
 	const [error, setError] = useState<{ message: string; connect: boolean; text: string } | null>(null);
 	const [refused, setRefused] = useState(false);

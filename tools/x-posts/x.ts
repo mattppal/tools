@@ -109,6 +109,38 @@ export async function searchReplies(fetcher: Fetch, token: string, query: string
 	return { posts: posts.filter((post) => typeof post?.id === "string" && /^\d{1,19}$/.test(post.id) && typeof post.text === "string"), rate };
 }
 
+function validPosts(json: Record<string, unknown>): XPost[] {
+	const posts = Array.isArray(json["data"]) ? (json["data"] as XPost[]) : [];
+	return posts.filter((post) => typeof post?.id === "string" && /^\d{1,19}$/.test(post.id) && typeof post.text === "string");
+}
+
+function pageMeta(json: Record<string, unknown>): { newestId: string | null; nextToken: string | null } {
+	const meta = (json["meta"] ?? {}) as { newest_id?: string; next_token?: string };
+	return { newestId: typeof meta.newest_id === "string" && /^\d{1,19}$/.test(meta.newest_id) ? meta.newest_id : null, nextToken: typeof meta.next_token === "string" && meta.next_token !== "" ? meta.next_token : null };
+}
+
+export async function userMentions(fetcher: Fetch, token: string, userId: string, { sinceId, nextToken }: { sinceId: string | null; nextToken: string | null }): Promise<{ posts: XPost[]; newestId: string | null; nextToken: string | null; rate: Rate }> {
+	const params = new URLSearchParams({ max_results: "100", "tweet.fields": "created_at,author_id,conversation_id,note_tweet" });
+	if (sinceId !== null) params.set("since_id", sinceId);
+	if (nextToken !== null) params.set("pagination_token", nextToken);
+	const { json, rate } = await get(fetcher, token, `${X_API}/users/${userId}/mentions?${params}`, { nextToken: nextToken !== null, sinceId: sinceId !== null });
+	return { posts: validPosts(json), ...pageMeta(json), rate };
+}
+
+export async function userPosts(fetcher: Fetch, token: string, userId: string, sinceId: string | null): Promise<{ posts: XPost[]; newestId: string | null; rate: Rate }> {
+	const params = new URLSearchParams({ max_results: "100", "tweet.fields": "created_at,referenced_tweets,note_tweet" });
+	if (sinceId !== null) params.set("since_id", sinceId);
+	const { json, rate } = await get(fetcher, token, `${X_API}/users/${userId}/tweets?${params}`, { nextToken: false, sinceId: sinceId !== null });
+	return { posts: validPosts(json), newestId: pageMeta(json).newestId, rate };
+}
+
+export async function lookupUsers(fetcher: Fetch, token: string, ids: readonly string[]): Promise<XUser[]> {
+	const params = new URLSearchParams({ ids: ids.join(","), "user.fields": "username,name,profile_image_url" });
+	const { json } = await get(fetcher, token, `${X_API}/users?${params}`, { nextToken: false, sinceId: false });
+	const users = Array.isArray(json["data"]) ? (json["data"] as XUser[]) : [];
+	return users.filter((user) => typeof user?.id === "string" && typeof user.username === "string");
+}
+
 export async function lookupMetrics(fetcher: Fetch, token: string, ids: readonly string[]): Promise<{ metrics: Map<string, XMetrics>; rate: Rate }> {
 	const params = new URLSearchParams({ ids: ids.join(","), "tweet.fields": "public_metrics" });
 	const { json, rate } = await get(fetcher, token, `${X_API}/tweets?${params}`, { nextToken: false, sinceId: false });

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
@@ -6,13 +6,14 @@ import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
 import type { Reply } from "./reply.ts";
-import { ConnectX, ReplyBox, ReplyFailure } from "./reply-box.tsx";
+import { MentionsPage } from "./mentions-view.tsx";
+import { ConnectX, ReplyBox } from "./reply-box.tsx";
+import { Avatar, ago, CopyLink, describe, type Load, LoadState, PostLink, replySender, request, useLoad, useNarrow, useVisibleInterval, when } from "./ui.tsx";
 import styles from "./x-posts.module.css";
-
-const API = "/api/tools/x-posts";
 
 const SECTIONS: readonly ToolSection[] = [
 	{ path: "/", label: "Live" },
+	{ path: "/mentions", label: "Mentions" },
 	{ path: "/posts", label: "Posts" },
 	{ path: "/queue", label: "Queue" },
 	{ path: "/blocklist", label: "Blocklist" },
@@ -30,36 +31,7 @@ const FILTERS = [
 	{ status: "failed", label: "Failed" },
 ] as const;
 
-type Load<T> = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: T };
-
-function describe(error: unknown): string {
-	if (error instanceof TypeError) return "Couldn't reach the server. Reload the page to sign in again.";
-	return error instanceof Error ? error.message : String(error);
-}
-
-async function request<T>(path: string, init?: { method: string; body: unknown }): Promise<T> {
-	let response: Response;
-	try {
-		response = await fetch(`${API}${path}`, init === undefined ? undefined : { method: init.method, headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) });
-	} catch (error) {
-		throw new Error(describe(error));
-	}
-	const json: unknown = await response.json().catch(() => null);
-	if (!response.ok) throw new Error((json as { error?: string } | null)?.error ?? `Request failed with ${response.status}`);
-	return json as T;
-}
-
-async function sendReply(body: { id: string; text: string }): Promise<Reply> {
-	let response: Response;
-	try {
-		response = await fetch(`${API}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-	} catch (error) {
-		throw new ReplyFailure(describe(error), false, false);
-	}
-	const json = (await response.json().catch(() => null)) as (Reply & { error?: string; connect?: boolean; onX?: boolean }) | null;
-	if (!response.ok || json === null) throw new ReplyFailure(json?.error ?? `Request failed with ${response.status}`, json?.connect === true, json?.onX === true);
-	return json;
-}
+const sendReply = replySender("/reply");
 
 function isConnected(status: Load<Status>): boolean {
 	return status.status === "ready" && status.data.x !== null;
@@ -73,18 +45,6 @@ type Inbox = {
 	paneFor: (id: string) => ReactNode;
 	replyFor: (post: OwnerPost) => ReactNode;
 };
-
-const NARROW = "(max-width: 900px)";
-
-function subscribeNarrow(onChange: () => void): () => void {
-	const media = window.matchMedia(NARROW);
-	media.addEventListener("change", onChange);
-	return () => media.removeEventListener("change", onChange);
-}
-
-function useNarrow(): boolean {
-	return useSyncExternalStore(subscribeNarrow, () => window.matchMedia(NARROW).matches);
-}
 
 function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inbox {
 	const [chosen, setChosen] = useState<string | null>(null);
@@ -161,97 +121,17 @@ function selectable(id: string, inbox: Inbox) {
 	};
 }
 
-function Avatar({ post }: { post: OwnerPost }) {
-	return post.avatarUrl === null ? <span className={styles.avatar} aria-hidden="true" /> : <img className={styles.avatar} src={post.avatarUrl} alt="" width={20} height={20} loading="lazy" referrerPolicy="no-referrer" />;
-}
-
-function useLoad<T>(path: string): [Load<T>, () => void] {
-	const [load, setLoad] = useState<Load<T>>({ status: "loading" });
-	const [attempt, setAttempt] = useState(0);
-	useEffect(() => {
-		let live = true;
-		request<T>(path).then(
-			(data) => live && setLoad({ status: "ready", data }),
-			(error: unknown) => live && setLoad({ status: "error", message: describe(error) }),
-		);
-		return () => {
-			live = false;
-		};
-	}, [path, attempt]);
-	return [load, useCallback(() => setAttempt((count) => count + 1), [])];
-}
-
-function when(iso: string | null): string {
-	if (iso === null) return "never";
-	return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
-}
-
 const LIVE_POLL_MS = 10_000;
 const LIVE_LIMIT = 100;
-
-function ago(iso: string, now: number): string {
-	const seconds = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
-	if (seconds < 60) return "just now";
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return `${minutes}m ago`;
-	const hours = Math.round(minutes / 60);
-	return hours < 24 ? `${hours}h ago` : when(iso);
-}
-
-function useVisibleInterval(callback: () => void, ms: number): void {
-	const saved = useRef(callback);
-	saved.current = callback;
-	useEffect(() => {
-		const tick = () => {
-			if (document.visibilityState === "visible") saved.current();
-		};
-		const timer = setInterval(tick, ms);
-		document.addEventListener("visibilitychange", tick);
-		return () => {
-			clearInterval(timer);
-			document.removeEventListener("visibilitychange", tick);
-		};
-	}, [ms]);
-}
-
-const COPIED_MS = 1500;
-
-function CopyLink({ url }: { url: string }) {
-	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-	useEffect(() => {
-		if (state === "idle") return;
-		const timer = setTimeout(() => setState("idle"), COPIED_MS);
-		return () => clearTimeout(timer);
-	}, [state]);
-	return (
-		<Button
-			size="sm"
-			variant="quiet"
-			className={styles.copyLink}
-			aria-label={state === "idle" ? "Copy link to post" : undefined}
-			onClick={() => navigator.clipboard.writeText(url).then(() => setState("copied"), () => setState("failed"))}
-		>
-			<span aria-live="polite">{state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy" : "Copy link"}</span>
-		</Button>
-	);
-}
-
-function PostLink({ post, children }: { post: OwnerPost; children: string }) {
-	return (
-		<a className={styles.postLink} href={post.url} target="_blank" rel="noreferrer" title={`${when(post.createdAt)}, open on X`}>
-			<time dateTime={post.createdAt}>{children}</time>
-		</a>
-	);
-}
 
 function PostBody({ post, time, action }: { post: OwnerPost; time: string; action: ReactNode }) {
 	return (
 		<>
 			<p className={styles.liveHead}>
-				<Avatar post={post} />
+				<Avatar url={post.avatarUrl} />
 				<span className={styles.liveName}>{post.name || post.handle}</span>
 				<span>@{post.handle}</span>
-				<PostLink post={post}>{time}</PostLink>
+				<PostLink url={post.url} createdAt={post.createdAt}>{time}</PostLink>
 				{action}
 			</p>
 			<p className={styles.text}>{post.text}</p>
@@ -263,8 +143,6 @@ function PostFoot({ post }: { post: OwnerPost }) {
 	const meta = [post.status === "pending" ? null : post.status, post.replyHere === false && post.reply === null ? "Reply on X" : null, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return meta.length === 0 ? null : <p className={styles.meta}>{meta.join(" · ")}</p>;
 }
-
-
 
 function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; fresh: boolean; inbox: Inbox }) {
 	return (
@@ -347,16 +225,6 @@ function CheckNow({ onChecked }: { onChecked: () => void }) {
 				Check now
 			</Button>
 		</span>
-	);
-}
-
-function LoadState({ load, retry }: { load: Exclude<Load<unknown>, { status: "ready" }>; retry: () => void }) {
-	if (load.status === "loading") return <div className={styles.loading} aria-busy="true" aria-label="Loading" />;
-	return (
-		<div className={styles.empty}>
-			<p>{load.message}</p>
-			<Button onClick={retry}>Try again</Button>
-		</div>
 	);
 }
 
@@ -609,6 +477,8 @@ export default function XPosts() {
 			<QueuePage status={status} refresh={refresh} />
 		) : path === "/blocklist" ? (
 			<BlocklistPage status={status} refresh={refresh} />
+		) : path === "/mentions" ? (
+			<MentionsPage connected={status.status === "ready" ? status.data.x !== null : null} />
 		) : path === "/posts" ? (
 			<PostsPage status={status} refreshStatus={refresh} />
 		) : (

@@ -183,15 +183,24 @@ async function createReply(fetcher: Fetch, accessToken: string, postId: string, 
 	return id;
 }
 
-export async function sendReply(client: Database, { fetcher, creds, now }: { fetcher: Fetch; creds: Credentials; now: Date }, { id, text }: { id: string; text: string }): Promise<Reply> {
+export function replyText(text: string): string {
 	const body = text.trim();
 	if (body === "") throw new BadRequest("Write something first.");
 	if (replyLength(body) > REPLY_MAX) throw new BadRequest(`Replies are ${REPLY_MAX} characters at most.`);
+	return body;
+}
+
+export async function postReply(client: Database, { fetcher, creds, now }: { fetcher: Fetch; creds: Credentials; now: Date }, id: string, body: string): Promise<{ replyId: string; username: string }> {
+	const { token: bearer, username } = await accessToken(client, fetcher, creds, now);
+	return { replyId: await signedOut(client, () => createReply(fetcher, bearer, id, body)), username };
+}
+
+export async function sendReply(client: Database, deps: { fetcher: Fetch; creds: Credentials; now: Date }, { id, text }: { id: string; text: string }): Promise<Reply> {
+	const body = replyText(text);
 	const found = (await client.query<{ reply_here: boolean | null }>(`select ${REPLY_HERE} as reply_here from x_posts.posts where id = $1::bigint`, [id])).rows[0];
 	if (found === undefined) throw new NotFound(`No post ${id}`);
 	if (found.reply_here === false) throw new NotMentioned();
-	const { token: bearer, username } = await accessToken(client, fetcher, creds, now);
-	const replyId = await signedOut(client, () => createReply(fetcher, bearer, id, body));
-	await client.query("insert into x_posts.replies (reply_id, post_id, text, username, created_at) values ($1::bigint, $2::bigint, $3, $4, $5) on conflict (reply_id) do nothing", [replyId, id, body, username, now]);
-	return { id: replyId, url: postUrl(username, replyId), text: body, at: iso(now) };
+	const { replyId, username } = await postReply(client, deps, id, body);
+	await client.query("insert into x_posts.replies (reply_id, post_id, text, username, created_at) values ($1::bigint, $2::bigint, $3, $4, $5) on conflict (reply_id) do nothing", [replyId, id, body, username, deps.now]);
+	return { id: replyId, url: postUrl(username, replyId), text: body, at: iso(deps.now) };
 }

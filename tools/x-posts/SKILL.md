@@ -80,6 +80,9 @@ The bridge treats both as try later and doesn't ack because of them; a 503 is ne
 | `GET /x/connect` | Matt | Connect X. Redirects to X's consent page with PKCE (S256) and scopes `tweet.read tweet.write users.read offline.access`, and sets an HttpOnly `x_oauth` cookie scoped to the callback path holding the signed state and the verifier. 503 until `X_CLIENT_ID` and `X_CLIENT_SECRET` are set. |
 | `GET /x/callback` | Matt | Stays behind Access: it loads in Matt's signed-in browser. Checks the state is signed, unexpired and equal to the cookie's, exchanges the code with the verifier, reads `/2/users/me`, saves the account, and redirects to `/x-posts`. |
 | `POST /reply` | Matt | `{ id, text }`. Posts `text` (trimmed, 1 to 280 by X's weighted count) to X as a reply to post `id` and records it in `replies`. Returns `{ id, url, text, at }`. 409 `{ error, connect: true }` when X signed Matt out, 502 with X's reason when X refuses, 404 for an unknown post. |
+| `GET /mentions` | Matt | `?limit` (default 100, at most 200). Mentions not dismissed, newest first, as `{ mentions: [{ id, handle, name, avatarUrl, text, createdAt, url, reply, replyHere }], sync: { lastRunAt, lastSuccessAt, lastError, paused, spentMills, capMills } }`. `paused` is `budget`, `capped` or null for this month. |
+| `POST /mentions/reply` | Matt | `{ id, text }`. Like `POST /reply`, for a mention; records it in `mention_replies`. |
+| `POST /mentions/dismiss` | Matt | `{ id }`. Hides the mention from `GET /mentions`. |
 
 
 Page routes, these three included, answer only Matt's Access identity (or local dev). Any bot gets 403.
@@ -102,7 +105,15 @@ Writes record their actor: `decided_by` (`screen`, `prints-review`, `matt`, `cap
 
 ## Tables
 
-Schema `x_posts`: `posts` (one row per X post, `seq` is the feed cursor), `jobs` (payload, state, claim, ack, actor columns), `blocklist`, `sync_state` (one row), `runs` (one per ingest run), `account` (one row: Matt's X user, AES-GCM sealed tokens, expiry, `last_error`), `replies` (one per reply Matt made, by `post_id`; `via` is `tools` for replies sent here and `x` for ones found on X). `posts.reply_checked_at` is when the reply check last searched for the post. `posts.addressed` holds the user ids a post mentions or replies to (null before it was stored). `posts.avatar_url` is the author's profile picture from the search response, only ever on `pbs.twimg.com`. `posts.sources` names where a post came from, `{summons}` today, so other sources such as mentions add rows without a new table.
+Schema `x_posts`: `posts` (one row per X post, `seq` is the feed cursor), `jobs` (payload, state, claim, ack, actor columns), `blocklist`, `sync_state` (one row), `runs` (one per ingest run), `account` (one row: Matt's X user, AES-GCM sealed tokens, expiry, `last_error`), `replies` (one per reply Matt made, by `post_id`; `via` is `tools` for replies sent here and `x` for ones found on X). `posts.reply_checked_at` is when the reply check last searched for the post. `posts.addressed` holds the user ids a post mentions or replies to (null before it was stored). `posts.avatar_url` is the author's profile picture from the search response, only ever on `pbs.twimg.com`. `posts.sources` names where a post came from, `{summons}` today. Mentions live apart from posts so they never reach the print queue or the bots: `mentions` (one per post that @mentions Matt, `dismissed_at`), `mention_replies` (like `replies`, by `mention_id`), `x_users` (authors looked up once: username, name, picture), `mention_sync` (one row: `since_id`, `own_since_id`, the month's spend in mills, the pause).
+
+## Mentions
+
+The cron reads Matt's @mentions every minute with his OAuth token: `GET /2/users/:id/mentions` with `since_id` (one page of 100 on the first run, then up to 3 pages a run), without expansions. Authors not in `x_users` are looked up once with `GET /2/users?ids=` and kept, so an author costs one user read ever rather than one a day. The same run reads Matt's own new posts (`GET /2/users/:id/tweets` with `since_id`) and saves any that reply to a stored mention to `mention_replies` with `via` `x`, which is the Replied state for replies he made on X.
+
+Spend is counted in mills (thousandths of a dollar): 1 per mention and per own post (owned reads), 10 per looked-up author. The hard cap is 20,000 mills ($20) a month. A page is only read if its worst case (100 mentions and 100 new authors, 1,100 mills) still fits, so the month never goes over. At the cap, or when X answers with a usage cap, mentions pause until the 1st and the view says `Paused: budget` (or `X usage cap`). Mentions stop while X isn't connected or `account.last_error` is set.
+
+`/x-posts/mentions` lists them newest first, polled every 10 seconds. The selected row holds its own reply box; the newest unreplied mention is selected first. Cmd+Enter (Ctrl+Enter off a Mac) sends and moves to the next unreplied mention with its box focused. Outside the box, j and k move, r or Enter focuses the box, d dismisses, and Esc leaves the box. Dismiss is also a quiet button on the selected row. A replied mention shows Replied linking to the reply. Under 900px wide, tapping a row opens the post on X and a quiet Reply opens the box in place, as in the live view.
 
 ## Replies
 

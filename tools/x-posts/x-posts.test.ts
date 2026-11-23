@@ -13,6 +13,7 @@ import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE
 const openApi = xPostsApi({ queueOpen: true });
 const closedApi = xPostsApi({ queueOpen: false });
 import { checkReplies, QUERY_MAX, replyQueries, replyQuery } from "./reply-check.ts";
+import { type Mention, type MentionSync, syncMentions } from "./mentions.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
@@ -41,7 +42,8 @@ const MATT: Caller = { kind: "owner", email: "mattppalmer@gmail.com" };
 const NOW = new Date("2026-11-22T20:00:00Z");
 
 beforeEach(async () => {
-	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, liaison.deliveries cascade;
+	await pg.exec(`truncate x_posts.posts, x_posts.replies, x_posts.account, x_posts.jobs, x_posts.blocklist, x_posts.runs, x_posts.mentions, x_posts.mention_replies, x_posts.x_users, liaison.deliveries cascade;
+		update x_posts.mention_sync set since_id = null, own_since_id = null, last_run_at = null, last_success_at = null, last_error = null, month = '', spent_mills = 0, paused_month = null, paused_reason = null;
 		update x_posts.sync_state set since_id = null, pending_since_id = null, next_token = null, next_run_at = '-infinity', last_run_at = null, last_success_at = null, last_error = null, failures = 0, month = '', month_reads = 0, capped_month = null, stale_noticed_for = null;`);
 });
 
@@ -677,4 +679,71 @@ test("Matt's backlog skip at the cutover overflows only posts pending from befor
 	await db((c) => sweep(c, new Date(NOW.getTime() + 25 * 3_600_000), true));
 	const summaries = (await pg.query<{ count: number }>("select (payload->'summary'->>'count')::int as count from x_posts.jobs where kind = 'summary'")).rows;
 	expect(summaries).toEqual([{ count: 1 }]);
+});
+
+const mention = (id: string, author: string, text = "@mattyp quick one") => ({ id, text, author_id: author, created_at: "2026-11-23T17:00:00.000Z", conversation_id: id });
+const CREDS = { clientId: "client", clientSecret: "client-secret" };
+
+test("mentions sync reads new mentions with since_id, looks up each author once, and finds replies Matt made on X", async () => {
+	await connectAs();
+	const first = fakeOAuthX([
+		(call) => {
+			expect(call.url).toStartWith(`https://api.x.com/2/users/${MATT_X_ID}/mentions?`);
+			expect(new URL(call.url).searchParams.get("since_id")).toBeNull();
+			return Response.json({ data: [mention("2200000000000000002", "u1"), mention("2200000000000000001", "u2")], meta: { newest_id: "2200000000000000002" } });
+		},
+		(call) => {
+			expect(new URL(call.url).searchParams.get("ids")).toBe("u1,u2");
+			return Response.json({ data: [{ id: "u1", username: "ada", name: "Ada", profile_image_url: "https://pbs.twimg.com/a.jpg" }, { id: "u2", username: "bo", name: "Bo", profile_image_url: "https://evil.example/b.jpg" }] });
+		},
+		(call) => {
+			expect(call.url).toStartWith(`https://api.x.com/2/users/${MATT_X_ID}/tweets?`);
+			return Response.json({ data: [{ id: "2200000000000000009", text: "on it", created_at: "2026-11-23T17:05:00.000Z", referenced_tweets: [{ type: "replied_to", id: "2200000000000000001" }] }], meta: { newest_id: "2200000000000000009" } });
+		},
+	]);
+	expect(await syncMentions(db, { fetcher: first.fetcher, creds: CREDS, now: NOW })).toMatchObject({ status: "ok", mentions: 2, users: 2, replies: 1, spentMills: 2 + 20 + 1 });
+	const second = fakeOAuthX([
+		(call) => {
+			expect(new URL(call.url).searchParams.get("since_id")).toBe("2200000000000000002");
+			return Response.json({ data: [mention("2200000000000000003", "u1")], meta: { newest_id: "2200000000000000003" } });
+		},
+		(call) => {
+			expect(new URL(call.url).searchParams.get("since_id")).toBe("2200000000000000009");
+			return Response.json({ meta: { result_count: 0 } });
+		},
+	]);
+	expect(await syncMentions(db, { fetcher: second.fetcher, creds: CREDS, now: NOW })).toMatchObject({ status: "ok", mentions: 1, users: 0, spentMills: 24 });
+	const listed = (await (await sendAs("/mentions", fakeOAuthX([]).fetcher)).json()) as { mentions: Mention[]; sync: MentionSync };
+	expect(listed.mentions.map((item) => [item.id, item.handle, item.avatarUrl, item.reply?.id ?? null])).toEqual([
+		["2200000000000000003", "ada", "https://pbs.twimg.com/a.jpg", null],
+		["2200000000000000002", "ada", "https://pbs.twimg.com/a.jpg", null],
+		["2200000000000000001", "bo", null, "2200000000000000009"],
+	]);
+	expect(listed.sync).toMatchObject({ paused: null, spentMills: 24, lastError: null });
+});
+
+test("mentions stop at the monthly cap before reading, and say so", async () => {
+	await connectAs();
+	const x = fakeOAuthX([]);
+	expect(await syncMentions(db, { fetcher: x.fetcher, creds: CREDS, now: NOW, cap: 1000 })).toMatchObject({ status: "paused" });
+	expect(x.calls).toEqual([]);
+	const listed = (await (await sendAs("/mentions", fakeOAuthX([]).fetcher)).json()) as { sync: MentionSync };
+	expect(listed.sync.paused).toBe("budget");
+	expect((await syncMentions(db, { fetcher: x.fetcher, creds: CREDS, now: NOW })).status).toBe("paused");
+	expect((await syncMentions(db, { fetcher: fakeOAuthX([tokenAnswer("access-2", "refresh-2"), () => Response.json({ meta: {} }), () => Response.json({ meta: {} })]).fetcher, creds: CREDS, now: new Date("2026-12-01T00:01:00Z") })).status).toBe("ok");
+});
+
+test("Matt replies to a mention from here, dismisses another, and bots can't touch mentions", async () => {
+	await connectAs();
+	await pg.query("insert into x_posts.mentions (id, author_id, text, created_at, ingested_at) values (2200000000000000001, 'u1', '@mattyp hi', now(), now()), (2200000000000000002, 'u2', '@mattyp yo', now(), now())");
+	const x = fakeOAuthX([() => Response.json({ data: { id: "2200000000000000010" } }, { status: 201 })]);
+	const sent = await sendAs("/mentions/reply", x.fetcher, { method: "POST", body: { id: "2200000000000000001", text: " thanks " } });
+	expect(sent.status).toBe(200);
+	expect(JSON.parse(x.calls[0]?.body ?? "")).toEqual({ text: "thanks", reply: { in_reply_to_tweet_id: "2200000000000000001" } });
+	expect((await sendAs("/mentions/dismiss", fakeOAuthX([]).fetcher, { method: "POST", body: { id: "2200000000000000002" } })).status).toBe(200);
+	const listed = (await (await sendAs("/mentions", fakeOAuthX([]).fetcher)).json()) as { mentions: Mention[] };
+	expect(listed.mentions.map((item) => [item.id, item.reply?.text ?? null, item.url])).toEqual([["2200000000000000001", "thanks", "https://x.com/i/status/2200000000000000001"]]);
+	for (const [method, path] of [["GET", "/mentions"], ["POST", "/mentions/reply"], ["POST", "/mentions/dismiss"]] as const) {
+		expect((await sendAs(path, fakeOAuthX([]).fetcher, { method, caller: REVIEW, ...(method === "POST" ? { body: { id: "2200000000000000001", text: "x" } } : {}) })).status).toBe(403);
+	}
 });
