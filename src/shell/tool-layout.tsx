@@ -8,6 +8,7 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../kit/sidebar.
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../kit/tooltip.tsx";
 import { cn } from "../kit/utils.ts";
 import { Link, parseRoute, usePath } from "../router.tsx";
+import { Emoji, routeEmoji } from "./emoji.tsx";
 import { Icon } from "./icons.tsx";
 import { useShell } from "./shell-context.ts";
 import styles from "./tool-layout.module.css";
@@ -69,6 +70,7 @@ function PanelHead({ label, onClose }: { label: string; onClose: () => void }) {
 
 export function ToolLayout({ title, actions, sections, panel, bodyClassName, children }: ToolLayoutProps) {
 	const { layout, openNav, sectionsSlot } = useShell();
+	const emoji = routeEmoji(parseRoute(usePath()));
 	const [ownOpen, setOwnOpen] = useState(false);
 	const trigger = useRef<HTMLButtonElement>(null);
 	const docked = useRef<HTMLElement>(null);
@@ -108,7 +110,10 @@ export function ToolLayout({ title, actions, sections, panel, bodyClassName, chi
 							<Icon name="menu" />
 						</IconButton>
 					) : null}
-					<h1 className={styles.title}>{title}</h1>
+					<h1 className={styles.title}>
+						{emoji === undefined ? null : <Emoji emoji={emoji} />}
+						<span className={styles.titleText}>{title}</span>
+					</h1>
 					<div className={styles.actions}>
 						{actions}
 						{!hasPanel || (isDocked && panelOpen) ? null : (

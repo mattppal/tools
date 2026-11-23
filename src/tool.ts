@@ -1,9 +1,7 @@
-import type { IconName } from "./shell/icons.tsx";
-
 export type ToolMeta = {
 	name: string;
 	description: string;
-	icon?: IconName;
+	emoji: string;
 	order?: number;
 	hidden?: boolean;
 };

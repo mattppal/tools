@@ -2,6 +2,7 @@
 	color-scheme: light dark;
 
 	--font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	--font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
 
 	--text-x: 16px;
 	--leading-x: 22px;

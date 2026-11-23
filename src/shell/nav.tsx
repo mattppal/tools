@@ -17,6 +17,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../kit/tooltip.tsx";
 import { TOOLS } from "../registry.ts";
 import { Link, parseRoute, SETTINGS_SLUG, usePath } from "../router.tsx";
+import { Emoji } from "./emoji.tsx";
 import { Icon } from "./icons.tsx";
 import { useInstall } from "./install.ts";
 import styles from "./shell.module.css";
@@ -124,7 +125,7 @@ export function Nav({ onNavigate, onClose, sectionsRef }: NavProps) {
 								<SidebarMenuItem key={tool.slug} className={styles.tool}>
 									<RailTip label={tool.name} rail={rail}>
 										<SidebarMenuButton isActive={active} className={styles.row} render={<Link href={`/${tool.slug}`} onClick={onNavigate} />}>
-											<Icon name={tool.icon ?? "tool"} />
+											<Emoji emoji={tool.emoji} />
 											<span>{tool.name}</span>
 										</SidebarMenuButton>
 									</RailTip>

@@ -95,7 +95,7 @@
 	width: var(--control-lg);
 }
 
-.side[data-state="closed"] .row > span {
+.side[data-state="closed"] .row > span:not([data-slot]) {
 	position: absolute;
 	width: 1px;
 	height: 1px;

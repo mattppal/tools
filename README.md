@@ -11,6 +11,6 @@ bun run build                   # skill check + production build
 bun run deploy                  # Workers Builds also deploys main on push
 ```
 
-Each tool is a folder with `tool.ts` (name, description, icon), `index.tsx` (UI), `SKILL.md`, and an optional `api.ts`. The shell picks it up with no other edits.
+Each tool is a folder with `tool.ts` (name, description, emoji), `index.tsx` (UI), `SKILL.md`, and an optional `api.ts`. The shell picks it up with no other edits.
 
 Agents start at [`AGENTS.md`](AGENTS.md).

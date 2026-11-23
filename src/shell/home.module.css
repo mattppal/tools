@@ -107,8 +107,7 @@
 	width: 40px;
 	height: 40px;
 	border-radius: var(--radius-md);
-	background: var(--brand-soft);
-	color: var(--brand-text);
+	background: var(--sunken-bg);
 }
 
 .cardText {

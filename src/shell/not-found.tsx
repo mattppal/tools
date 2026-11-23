@@ -1,6 +1,7 @@
 import { buttonVariants } from "../kit/button.tsx";
 import { TOOLS, type Tool } from "../registry.ts";
 import { Link, usePath } from "../router.tsx";
+import { Emoji } from "./emoji.tsx";
 import styles from "./home.module.css";
 import { Icon } from "./icons.tsx";
 import { ToolLayout } from "./tool-layout.tsx";
@@ -42,7 +43,7 @@ export function NotFound() {
 				<div className={styles.missingActions}>
 					{suggestion === undefined ? null : (
 						<Link href={`/${suggestion.slug}`} className={buttonVariants({ variant: "primary" })}>
-							<Icon name={suggestion.icon ?? "tool"} />
+							<Emoji emoji={suggestion.emoji} />
 							Open {suggestion.name}
 						</Link>
 					)}

@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { SETTINGS_SLUG } from "../src/router.tsx";
+import { isEmoji } from "./emoji.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -13,13 +14,13 @@ const { values, positionals } = parseArgs({
 	options: {
 		name: { type: "string" },
 		description: { type: "string" },
-		icon: { type: "string", default: "tool" },
+		emoji: { type: "string", default: "🧰" },
 		api: { type: "boolean", default: false },
 	},
 });
 
 function usage(message: string): never {
-	console.error(`${message}\nUsage: bun run new-tool <slug> [--name "Name"] [--description "One line."] [--icon tool] [--api]`);
+	console.error(`${message}\nUsage: bun run new-tool <slug> [--name "Name"] [--description "One line."] [--emoji 🧰] [--api]`);
 	process.exit(1);
 }
 
@@ -31,9 +32,8 @@ if (slug === SETTINGS_SLUG) usage(`"${slug}" is the shell's settings page.`);
 const dir = join(ROOT, "tools", slug);
 if (existsSync(dir)) usage(`tools/${slug} already exists.`);
 
-const icons = await readFile(join(ROOT, "src/shell/icons.tsx"), "utf-8");
-const icon = values.icon ?? "tool";
-if (!new RegExp(`^\\t"?${icon}"?:`, "m").test(icons)) usage(`Unknown icon "${icon}". Pick a key of GLYPHS in src/shell/icons.tsx.`);
+const emoji = values.emoji ?? "🧰";
+if (!isEmoji(emoji)) usage(`"${emoji}" is not a single emoji.`);
 
 const name = values.name ?? slug.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 const description = values.description ?? `${name}.`;
@@ -46,7 +46,7 @@ const files: Record<string, string> = {
 export default defineTool({
 	name: ${quoted(name)},
 	description: ${quoted(description)},
-	icon: ${quoted(icon)},
+	emoji: ${quoted(emoji)},
 });
 `,
 	"index.tsx": `import { ToolLayout } from "../../src/shell/tool-layout.tsx";

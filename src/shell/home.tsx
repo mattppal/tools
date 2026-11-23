@@ -3,6 +3,7 @@ import { Input } from "../kit/input.tsx";
 import { TOOLS, type Tool } from "../registry.ts";
 import { Link, navigate } from "../router.tsx";
 import { useHealth, type Health } from "./health.ts";
+import { Emoji } from "./emoji.tsx";
 import styles from "./home.module.css";
 import { Icon } from "./icons.tsx";
 import { ToolLayout } from "./tool-layout.tsx";
@@ -45,7 +46,7 @@ function ToolCard({ tool }: { tool: Tool }) {
 	return (
 		<Link href={`/${tool.slug}`} className={styles.card}>
 			<span className={styles.cardIcon}>
-				<Icon name={tool.icon ?? "tool"} size={20} />
+				<Emoji emoji={tool.emoji} size={24} />
 			</span>
 			<span className={styles.cardText}>
 				<span className={styles.cardName}>{tool.name}</span>
