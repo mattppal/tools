@@ -106,10 +106,10 @@ test("no bot credential gets a 401; a bot outside its scope gets a 403 naming it
 		expect(response.status).toBe(401);
 		expect(response.headers.get("www-authenticate")).toBe('Bearer realm="tools"');
 	}
-	const refused = await requireBot(call("GET /sleep"), { env, caller: bot("nutrition"), path: "/sleep" }, "activity");
+	const refused = await requireBot(call("GET /intraday"), { env, caller: bot("nutrition"), path: "/intraday" }, "activity");
 	if (!(refused instanceof Response)) throw new Error("expected a refusal");
 	expect(refused.status).toBe(403);
-	expect(await refused.json()).toEqual({ error: "Forbidden: bot nutrition may not call GET /sleep on activity" });
+	expect(await refused.json()).toEqual({ error: "Forbidden: bot nutrition may not call GET /intraday on activity" });
 });
 
 test("rejects another scheme, a bare token, and near misses", async () => {
