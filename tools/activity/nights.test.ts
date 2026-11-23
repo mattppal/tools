@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SleepStage } from "./apple-health.ts";
-import { buildNights, type Segment, type WithingsNight } from "./nights.ts";
+import type { HealthDay } from "./health.ts";
+import { buildNights, type Segment, type WithingsNight, withNights } from "./nights.ts";
 
 const PST = -480;
 const at = (iso: string) => Date.parse(iso);
@@ -67,4 +68,36 @@ test("vitals prefer the night's own source and fall back to any other", () => {
 		[],
 	);
 	expect(nights[0]).toMatchObject({ hrv: 61, respiratoryRate: 13.3, restingHr: 51 });
+});
+
+test("a Withings night keeps its daily_health row, and an Apple night replaces the Withings sleep fields", () => {
+	const day = (date: string, extra: Partial<HealthDay> = {}): HealthDay => ({
+		date,
+		steps: 8000,
+		activeKcal: null,
+		totalKcal: null,
+		distanceM: null,
+		dayHrAvg: null,
+		dayHrMin: null,
+		dayHrMax: null,
+		restingHr: 47,
+		sleeps: 2,
+		sleepS: 25_200,
+		sleepScore: 82,
+		sleepHrAvg: 55,
+		sleepRrAvg: 14,
+		workouts: 0,
+		workoutKcal: null,
+		workoutS: null,
+		...extra,
+	});
+	const nights = buildNights(
+		[segment("Eight Sleep", "deep", "2026-11-21T07:00:00Z", "2026-11-21T14:00:00Z")],
+		[{ metric: "respiratory_rate", source: "Eight Sleep", at: at("2026-11-21T10:00:00Z"), offsetMin: PST, value: 14.5 }],
+		[withingsNight("2026-11-20T07:10:00Z", "2026-11-20T14:40:00Z")],
+	);
+	expect(withNights([day("2026-11-20"), day("2026-11-21")], nights)).toEqual([
+		day("2026-11-20"),
+		day("2026-11-21", { restingHr: 47, sleeps: 1, sleepS: 7 * 3600, sleepScore: null, sleepHrAvg: null, sleepRrAvg: 14.5 }),
+	]);
 });

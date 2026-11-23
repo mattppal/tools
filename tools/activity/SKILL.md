@@ -18,7 +18,7 @@ No page. `tool.ts` is hidden, so the sidebar and home skip it, and its debug row
 | `GET /api/withings/connect` | Behind Access. Redirects to Withings' consent page with scope `user.info,user.metrics,user.activity` and a signed state that expires in 15 minutes. Also sets the state in an HttpOnly `withings_state` cookie scoped to the callback path. |
 | `GET /api/withings/callback` | Bypasses Access through its own Access app, "tools - Withings callback", scoped to this one path. Checks that the state is signed, unexpired and equal to the `withings_state` cookie, so a state only works in the browser that started the connect, then clears the cookie, exchanges the code, saves the tokens, and redirects to `/settings`. Without `code` or `error`, a GET, HEAD, or POST answers 200 so Withings' portal check passes. |
 | `GET /api/tools/activity/days?from=&to=` | Days from `daily_activity`, default the last 90, plus the connection state. |
-| `GET /api/tools/activity/health?from=&to=` | One row per day from `daily_health`. Default the last 30 days. |
+| `GET /api/tools/activity/health?from=&to=` | One row per day from `daily_health`, with the sleep fields taken from that date's night (see Nights) when it isn't a Withings night: `sleeps` 1, `sleepS` its time asleep, `sleepRrAvg` its breathing rate, `restingHr` its resting HR, and `sleepScore` and `sleepHrAvg` null, because Apple Health has neither. Default the last 30 days. |
 | `GET /api/tools/activity/workouts?from=&to=` | Withings workouts with HR zones and the training-log link, if any. `activeKcal` is the HealthKit active calories from the raw item's `manual_calories`, which is what expenditure uses; Withings' own `calories` is unreliable for imported workouts. `activity` is the category name from `WORKOUT_CATEGORIES`, which copies the category table in Withings' OpenAPI spec (`developer.withings.com/openapi.yaml`, `getworkouts`), lowercased. An unknown category reads `category <n>`. |
 | `GET /api/tools/activity/sleep?from=&to=` | Withings sleep summaries with the device model and device hash. |
 | `GET /api/tools/activity/measures?from=&to=&types=` | Body measures, decoded, with names from `MEASURE_TYPES`. `types` is a comma list of Withings type numbers. |
@@ -84,7 +84,7 @@ A push with `step_count`, `walking_running_distance`, `active_energy` or `basal_
 
 ## Nights
 
-`nights.ts` turns sleep into one night per date, for the Sleep tool.
+`nights.ts` turns sleep into one night per date, for the Sleep tool and the sleep fields of `/health` (`withNights`).
 
 - Segments from one source join into a sleep when the gap between them is 2 hours or less. A sleep's date is the local date it ends, so a nap and the night before it stay apart.
 - Each date keeps one sleep. Eight Sleep wins, then any other Apple Health source, then Withings. Within a rank the longest asleep wins. The others are listed in `alsoFrom`.

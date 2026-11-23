@@ -467,6 +467,26 @@ async function saveWorkoutsFromRun(): Promise<void> {
 	await syncWithings(client, creds, fakeWithings);
 }
 
+test("/health takes sleep from Apple Health nights when Withings has no sleep", async () => {
+	await pg.query("insert into activity.days (day, source, steps, updated_by) values ('2026-11-21', 'withings', 9000, 'test')");
+	await pg.query(
+		`insert into activity.apple_health_sleep (source, stage, started_at, ended_at, utc_offset_min) values
+		('Matt’s Apple Watch', 'core', '2026-11-21T07:00:00Z', '2026-11-21T11:00:00Z', -480),
+		('Matt’s Apple Watch', 'deep', '2026-11-21T11:00:00Z', '2026-11-21T14:00:00Z', -480),
+		('Eight Sleep', 'rem', '2026-11-22T07:30:00Z', '2026-11-22T14:00:00Z', -480)`,
+	);
+	try {
+		const response = await read("/health?from=2026-11-21&to=2026-11-22", "nutrition");
+		const { days } = (await response.json()) as { days: { date: string; steps: number | null; sleeps: number; sleepS: number | null; sleepScore: number | null }[] };
+		expect(days.map(({ date, steps, sleeps, sleepS, sleepScore }) => ({ date, steps, sleeps, sleepS, sleepScore }))).toEqual([
+			{ date: "2026-11-21", steps: 9000, sleeps: 1, sleepS: 7 * 3600, sleepScore: null },
+			{ date: "2026-11-22", steps: null, sleeps: 1, sleepS: 6.5 * 3600, sleepScore: null },
+		]);
+	} finally {
+		await pg.exec("delete from activity.apple_health_sleep");
+	}
+});
+
 test("activity reads are for bots, and each bot reads only its routes", async () => {
 	const routes = ["/days", "/weights", "/health", "/workouts", "/apple-health/workouts", "/sleep", "/measures", "/intraday"];
 	const status = async (caller: BotName | "owner") => Object.fromEntries(await Promise.all(routes.map(async (route) => [route, (await read(route, caller)).status])));

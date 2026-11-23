@@ -3,7 +3,7 @@ import { defineToolApi } from "../../worker/tool-api.ts";
 import { ingestAppleHealth, listAppleWorkouts, MAX_BODY_BYTES, TOO_LARGE } from "./apple-health.ts";
 import { addDays, isIsoDate, today } from "./dates.ts";
 import { dailyHealth, intradayDay, listMeasures, listSleep, listWorkouts, resetStreams } from "./health.ts";
-import { listNights } from "./nights.ts";
+import { listNights, withNights } from "./nights.ts";
 import { signState, verifyState } from "./secrets.ts";
 import { listDays, readConnection, saveConnection } from "./store.ts";
 import { weightReport } from "./weights.ts";
@@ -102,7 +102,7 @@ export function activityApi(fetcher: Fetch = fetch) {
 				.filter((type) => /^\d+$/.test(type))
 				.map(Number);
 			return db(async (client) => {
-				if (path === "/health") return Response.json({ days: await dailyHealth(client, from, to) }, { headers: NO_STORE });
+				if (path === "/health") return Response.json({ days: withNights(await dailyHealth(client, from, to), await listNights(client, from, to)) }, { headers: NO_STORE });
 				if (path === "/workouts") return Response.json({ workouts: await listWorkouts(client, from, to) }, { headers: NO_STORE });
 				if (path === "/sleep") return Response.json({ sleep: await listSleep(client, from, to) }, { headers: NO_STORE });
 				return Response.json({ measures: await listMeasures(client, from, to, types) }, { headers: NO_STORE });

@@ -1,6 +1,6 @@
 import type { Database } from "../../worker/db.ts";
 import type { SleepStage } from "./apple-health.ts";
-import { offsetMs } from "./health.ts";
+import { type HealthDay, offsetMs } from "./health.ts";
 import { TIME_ZONE } from "./weights.ts";
 
 export type Segment = { source: string; stage: SleepStage; start: number; end: number; offsetMin: number };
@@ -179,6 +179,43 @@ export function buildNights(segments: readonly Segment[], samples: readonly Samp
 				},
 			];
 		});
+}
+
+const EMPTY_DAY: Omit<HealthDay, "date"> = {
+	steps: null,
+	activeKcal: null,
+	totalKcal: null,
+	distanceM: null,
+	dayHrAvg: null,
+	dayHrMin: null,
+	dayHrMax: null,
+	restingHr: null,
+	sleeps: 0,
+	sleepS: null,
+	sleepScore: null,
+	sleepHrAvg: null,
+	sleepRrAvg: null,
+	workouts: 0,
+	workoutKcal: null,
+	workoutS: null,
+};
+
+export function withNights(days: readonly HealthDay[], nights: readonly Night[]): HealthDay[] {
+	const byDate = new Map(days.map((day) => [day.date, day]));
+	for (const night of nights) {
+		if (night.source === WITHINGS) continue;
+		const day = byDate.get(night.date) ?? { date: night.date, ...EMPTY_DAY };
+		byDate.set(night.date, {
+			...day,
+			restingHr: night.restingHr ?? day.restingHr,
+			sleeps: 1,
+			sleepS: night.asleepS,
+			sleepScore: null,
+			sleepHrAvg: null,
+			sleepRrAvg: night.respiratoryRate,
+		});
+	}
+	return [...byDate.values()].toSorted((a, b) => a.date.localeCompare(b.date));
 }
 
 type Row = Record<string, unknown>;
