@@ -487,6 +487,42 @@ test("/health takes sleep from Apple Health nights when Withings has no sleep", 
 	}
 });
 
+test("/sleep returns one night per wake date from Apple Health, without the timeline", async () => {
+	await pg.query(
+		`insert into activity.apple_health_sleep (source, stage, started_at, ended_at, utc_offset_min) values
+		('Eight Sleep', 'core', '2026-11-22T07:30:00Z', '2026-11-22T11:00:00Z', -480),
+		('Eight Sleep', 'deep', '2026-11-22T11:00:00Z', '2026-11-22T12:00:00Z', -480),
+		('Eight Sleep', 'rem', '2026-11-22T12:00:00Z', '2026-11-22T14:00:00Z', -480)`,
+	);
+	try {
+		const response = await read("/sleep?from=2026-11-22&to=2026-11-22", "nutrition");
+		expect(await response.json()).toEqual({
+			sleep: [
+				{
+					date: "2026-11-22",
+					source: "Eight Sleep",
+					bedtime: "23:30",
+					wake: "06:00",
+					inBedFrom: "23:30",
+					inBedTo: "06:00",
+					asleepS: 6.5 * 3600,
+					inBedS: 6.5 * 3600,
+					lightS: 3.5 * 3600,
+					deepS: 3600,
+					remS: 2 * 3600,
+					awakeS: 0,
+					restingHr: null,
+					hrv: null,
+					respiratoryRate: null,
+					alsoFrom: [],
+				},
+			],
+		});
+	} finally {
+		await pg.exec("delete from activity.apple_health_sleep");
+	}
+});
+
 test("activity reads are for bots, and each bot reads only its routes", async () => {
 	const routes = ["/days", "/weights", "/health", "/workouts", "/apple-health/workouts", "/sleep", "/measures", "/intraday"];
 	const status = async (caller: BotName | "owner") => Object.fromEntries(await Promise.all(routes.map(async (route) => [route, (await read(route, caller)).status])));
