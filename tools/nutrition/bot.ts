@@ -46,7 +46,7 @@ export const nutritionMcp = toolMcp({
 			description:
 				"Start a new plan version with kcal and macro ranges from effective_from onward. Earlier versions stay as they were. Optionally set the phase tracker's current kcal target.",
 			input: targetsInput,
-			run: (input, { db }) => asTool(() => db((client) => addTargets(client, input, "bot"))),
+			run: (input, { db, bot }) => asTool(() => db((client) => addTargets(client, input, "bot", bot))),
 		}),
 		defineMcpTool({
 			name: "update_phase",
@@ -54,7 +54,7 @@ export const nutritionMcp = toolMcp({
 				"Set the phase tracker. Omitted fields stay as they are. A kind other than the open phase's closes it the day before start_date and starts a new phase; otherwise the open phase is edited in place and each change is logged. Send the rate as target_rate_per_week (a fraction) or target_lb_per_week, negative on a cut. Returns the phase, the start weight used, the phase it closed, and the previous value of every field that changed.",
 			input: phaseInput,
 			idempotent: true,
-			run: (input, { db }) => asTool(() => db((client) => setPhase(client, input, "bot"))),
+			run: (input, { db, bot }) => asTool(() => db((client) => setPhase(client, input, bot))),
 		}),
 		defineMcpTool({
 			name: "get_phase_summary",

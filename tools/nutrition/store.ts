@@ -241,7 +241,7 @@ export async function closeDayFromUi(client: Database, date: string, test = fals
 	});
 }
 
-export async function addTargets(client: Database, input: TargetsInput, actor: Actor): Promise<Targets> {
+export async function addTargets(client: Database, input: TargetsInput, actor: Actor, changedBy: string = actor): Promise<Targets> {
 	return transaction(client, async () => {
 		const previous = await targetsOn(client, input.effective_from);
 		const { rowCount } = await client.query(
@@ -272,7 +272,7 @@ export async function addTargets(client: Database, input: TargetsInput, actor: A
 			).rows[0];
 			if (tracker === undefined) throw new Rejected("No open phase has a tracker.");
 			await client.query("update nutrition.phase_trackers set current_kcal_target = $1 where phase_id = $2", [input.current_kcal_target, tracker["phase_id"]]);
-			await auditTracker(client, num(tracker["phase_id"]), { current_kcal_target: [num(tracker["current_kcal_target"]), input.current_kcal_target] }, actor);
+			await auditTracker(client, num(tracker["phase_id"]), { current_kcal_target: [num(tracker["current_kcal_target"]), input.current_kcal_target] }, changedBy);
 		}
 		const targets = await targetsOn(client, input.effective_from);
 		if (targets === null) throw new Error("The new plan version did not read back");
@@ -335,7 +335,7 @@ const TRACKER_FIELDS: readonly [keyof TrackerSettings, TrackerColumn | null][] =
 const TRACKER_DEFAULTS = { toleranceLb: 0.5, maxWeeklyKcalChange: 150, minLoggedDays: 5 };
 const MAX_WEEKLY_RATE = 0.02;
 
-async function auditTracker(client: Database, phaseId: number, changes: Partial<Record<TrackerColumn, [unknown, unknown]>>, actor: Actor): Promise<void> {
+async function auditTracker(client: Database, phaseId: number, changes: Partial<Record<TrackerColumn, [unknown, unknown]>>, changedBy: string): Promise<void> {
 	for (const [field, [before, after]] of Object.entries(changes) as [TrackerColumn, [unknown, unknown]][]) {
 		if (before === after) continue;
 		await client.query("insert into nutrition.phase_tracker_changes (phase_id, field, old_value, new_value, changed_by) values ($1, $2, $3, $4, $5)", [
@@ -343,7 +343,7 @@ async function auditTracker(client: Database, phaseId: number, changes: Partial<
 			field,
 			before === null || before === undefined ? null : String(before),
 			after === null ? null : String(after),
-			actor,
+			changedBy,
 		]);
 	}
 }
@@ -362,7 +362,7 @@ export type PhaseUpdate = {
 	previous: Partial<TrackerSettings>;
 };
 
-export async function setPhase(client: Database, input: PhaseInput, actor: Actor): Promise<PhaseUpdate> {
+export async function setPhase(client: Database, input: PhaseInput, changedBy: string): Promise<PhaseUpdate> {
 	return transaction(client, async () => {
 		const open = (
 			await client.query<Row>(
@@ -443,7 +443,7 @@ export async function setPhase(client: Database, input: PhaseInput, actor: Actor
 			for (const [key, column] of TRACKER_FIELDS) {
 				if (column !== null && comparedTo[key] !== after[key]) changes[column] = [comparedTo[key], after[key]];
 			}
-			await auditTracker(client, num(phaseId), changes, actor);
+			await auditTracker(client, num(phaseId), changes, changedBy);
 		}
 		await client.query(
 			`insert into nutrition.phase_trackers (phase_id, start_weight_override_lb, target_rate_per_week, weeks, tolerance_lb, max_weekly_kcal_change, min_logged_days, current_kcal_target)

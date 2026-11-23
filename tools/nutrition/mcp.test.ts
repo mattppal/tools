@@ -185,3 +185,12 @@ test("Matt's cut converts half a pound a week at the start weight, and a retry c
 	const camel = await call("update_phase", { startDate: "2026-11-24" });
 	expect(camel.content[0]?.text).toContain("Unrecognized key");
 });
+
+test("the tracker change log names the calling bot", async () => {
+	await call("update_phase", { weeks: 14 });
+	await call("update_targets", { effective_from: "2099-04-01", kcal: { min: 2300, max: 2500 }, protein_g: { min: 1, max: 2 }, fat_g: { min: 1, max: 2 }, carbs_g: { min: 1, max: 2 }, change: "Cut", current_kcal_target: 2400 });
+	expect((await pg.query("select field, changed_by from nutrition.phase_tracker_changes order by id")).rows).toEqual([
+		{ field: "weeks", changed_by: "nutrition" },
+		{ field: "current_kcal_target", changed_by: "nutrition" },
+	]);
+});
