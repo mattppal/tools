@@ -3,7 +3,7 @@ import type { Database } from "../../worker/db.ts";
 import { monthOf, readBlocklist, rescreen } from "./ingest.ts";
 import { LIVE_INGEST, MONTHLY_READ_BUDGET, QUERY, QUEUE_OPEN, STALE_FEED_MS } from "./query.ts";
 import { BATCH_CAP, DAILY_CAP, iso, listJobs, printDay, type JobState } from "./queue.ts";
-import { readAccount, type Reply, type XAccount } from "./reply.ts";
+import { REPLY_HERE, readAccount, type Reply, type XAccount } from "./reply.ts";
 import { normalizeTerm, postUrl } from "./screen.ts";
 
 export const POST_STATUSES = ["pending", "approved", "rejected", "overflow", "queued", "printed", "unconfirmed", "failed", "summarized"] as const;
@@ -28,6 +28,7 @@ export type OwnerPost = {
 	jobId: string | null;
 	sources: string[];
 	reply: Reply | null;
+	replyHere: boolean | null;
 	avatarUrl: string | null;
 	metrics: { likes: number | null; reposts: number | null; replies: number | null; quotes: number | null; impressions: number | null };
 	metricsAt: string;
@@ -57,6 +58,7 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			reply_username: string | null;
 			replied_at: Date | string | null;
 			avatar_url: string | null;
+			reply_here: boolean | null;
 			likes: number | null;
 			reposts: number | null;
 			replies: number | null;
@@ -65,7 +67,7 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 			metrics_at: Date | string;
 			ingested_at: Date | string;
 		}>(
-			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, sources, reply_id, reply_text, reply_username, replied_at, avatar_url, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at
+			`select id::text, handle, name, created_at, is_reply, is_quote, text, clean_text, flags, status, reason, decided_by, decided_at, job_id::text, sources, reply_id, reply_text, reply_username, replied_at, avatar_url, likes, reposts, replies, quotes, impressions, metrics_at, ingested_at, ${REPLY_HERE} as reply_here
 			from x_posts.posts
 			left join lateral (
 				select reply_id::text as reply_id, text as reply_text, username as reply_username, created_at as replied_at
@@ -99,6 +101,7 @@ export async function listPosts(client: Database, { status, limit, before }: { s
 				row.reply_id === null || row.reply_username === null || row.replied_at === null
 					? null
 					: { id: row.reply_id, url: postUrl(row.reply_username, row.reply_id), text: row.reply_text ?? "", at: iso(row.replied_at) },
+			replyHere: row.reply_here,
 			avatarUrl: row.avatar_url,
 			metrics: { likes: row.likes, reposts: row.reposts, replies: row.replies, quotes: row.quotes, impressions: row.impressions },
 			metricsAt: iso(row.metrics_at),

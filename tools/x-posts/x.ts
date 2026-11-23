@@ -25,6 +25,7 @@ export type XPost = {
 	referenced_tweets?: { type: string; id: string }[];
 	public_metrics?: XMetrics;
 	note_tweet?: { text?: string };
+	entities?: { mentions?: { id?: string; username?: string }[] };
 };
 
 export type XUser = { id: string; username?: string; name?: string; profile_image_url?: string };

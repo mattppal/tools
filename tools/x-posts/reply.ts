@@ -36,6 +36,14 @@ export class Disconnected extends Error {}
 
 export class XRefused extends Error {}
 
+export class NotMentioned extends Error {
+	constructor() {
+		super("X only takes replies from here on posts that @mention you.");
+	}
+}
+
+export const REPLY_HERE = `(select case when posts.addressed is null then posts.text ~* ('(^|[^a-z0-9_])@' || username || '([^a-z0-9_]|$)') else user_id = any(posts.addressed) end from x_posts.account)`;
+
 export function credentials(env: Env): Credentials | null {
 	const clientId = env.X_CLIENT_ID?.trim();
 	const clientSecret = env.X_CLIENT_SECRET?.trim();
@@ -158,6 +166,7 @@ async function refusal(response: Response, what: string): Promise<Error> {
 	const json: unknown = await response.json().catch(() => null);
 	if (response.status === 401) return new Disconnected(RECONNECT);
 	if (response.status === 429) return new XRefused("X is limiting posts right now. Try again in a few minutes.");
+	if (response.status === 403 && /\bmentioned\b/i.test(detail(json) ?? "")) return new NotMentioned();
 	return new XRefused(`X didn't ${what}: ${detail(json) ?? `HTTP ${response.status}`}`);
 }
 
@@ -178,8 +187,9 @@ export async function sendReply(client: Database, { fetcher, creds, now }: { fet
 	const body = text.trim();
 	if (body === "") throw new BadRequest("Write something first.");
 	if (replyLength(body) > REPLY_MAX) throw new BadRequest(`Replies are ${REPLY_MAX} characters at most.`);
-	const found = (await client.query("select 1 from x_posts.posts where id = $1::bigint", [id])).rows.length > 0;
-	if (!found) throw new NotFound(`No post ${id}`);
+	const found = (await client.query<{ reply_here: boolean | null }>(`select ${REPLY_HERE} as reply_here from x_posts.posts where id = $1::bigint`, [id])).rows[0];
+	if (found === undefined) throw new NotFound(`No post ${id}`);
+	if (found.reply_here === false) throw new NotMentioned();
 	const { token: bearer, username } = await accessToken(client, fetcher, creds, now);
 	const replyId = await signedOut(client, () => createReply(fetcher, bearer, id, body));
 	await client.query("insert into x_posts.replies (reply_id, post_id, text, username, created_at) values ($1::bigint, $2::bigint, $3, $4, $5) on conflict (reply_id) do nothing", [replyId, id, body, username, now]);

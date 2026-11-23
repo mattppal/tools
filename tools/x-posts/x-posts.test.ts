@@ -7,7 +7,7 @@ import type { Database, WithDb } from "../../worker/db.ts";
 import api, { DB_DOWN, xPostsApi } from "./api.ts";
 import { QUEUE_OPEN } from "./query.ts";
 import { type FeedPost, parseFeedRequest, type SinceFeed, type WindowFeed } from "./feed.ts";
-import { checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
+import { addressed, checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
 import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE_CLOSED, requeueJob, sweep } from "./queue.ts";
 
 const openApi = xPostsApi({ queueOpen: true });
@@ -46,9 +46,10 @@ beforeEach(async () => {
 });
 
 let nextId = 1859876543210987000n;
-type Seed = { text?: string; handle?: string; name?: string; at?: Date; likes?: number; reply?: boolean };
+type Seed = { text?: string; handle?: string; name?: string; at?: Date; likes?: number; reply?: boolean; mentions?: boolean };
+const MATT_X_ID = "1518984544421965824";
 
-function xPost({ text = "mattyp mattyp mattyp", handle = "someone", name, at = new Date(NOW.getTime() - 3_600_000), likes = 1, reply = false }: Seed = {}): { post: XPost; user: XUser } {
+function xPost({ text = "mattyp mattyp mattyp", handle = "someone", name, at = new Date(NOW.getTime() - 3_600_000), likes = 1, reply = false, mentions = false }: Seed = {}): { post: XPost; user: XUser } {
 	const id = (++nextId).toString();
 	const author = `u${handle}`;
 	return {
@@ -60,6 +61,7 @@ function xPost({ text = "mattyp mattyp mattyp", handle = "someone", name, at = n
 			lang: "en",
 			conversation_id: id,
 			...(reply ? { in_reply_to_user_id: "42" } : {}),
+			...(mentions ? { entities: { mentions: [{ id: MATT_X_ID, username: "mattyp" }] } } : {}),
 			public_metrics: { like_count: likes, retweet_count: 0, reply_count: 0, quote_count: 0, bookmark_count: 0, impression_count: 10 },
 		},
 		user: { id: author, username: handle, name: name ?? handle.toUpperCase() },
@@ -72,9 +74,9 @@ async function seed(items: Seed[], { now = NOW, ingestedAt = now }: { now?: Date
 	const rows = toPostRows({ posts: made.map((item) => item.post), users: new Map(made.map((item) => [item.user.id, item.user])) }, now, blocklist);
 	for (const row of rows) {
 		await pg.query(
-			`insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, lang, conversation_id, is_reply, is_quote, likes, reposts, replies, quotes, bookmarks, impressions, metrics_at, flags, screen_version, status, reason, decided_by, decided_at, ingested_at)
-			values ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::text[], 1, $21, $22, $23, $24, $25)`,
-			[row.id, row.authorId, row.handle, row.name, row.cleanName, row.text, row.cleanText, row.createdAt, row.lang, row.conversationId, row.isReply, row.isQuote, row.metrics.likes, row.metrics.reposts, row.metrics.replies, row.metrics.quotes, row.metrics.bookmarks, row.metrics.impressions, now, row.flags, ...screenDecision(row.flags, row.notes, now), ingestedAt],
+			`insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, lang, conversation_id, is_reply, is_quote, likes, reposts, replies, quotes, bookmarks, impressions, metrics_at, flags, screen_version, status, reason, decided_by, decided_at, ingested_at, addressed)
+			values ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::text[], 1, $21, $22, $23, $24, $25, $26::text[])`,
+			[row.id, row.authorId, row.handle, row.name, row.cleanName, row.text, row.cleanText, row.createdAt, row.lang, row.conversationId, row.isReply, row.isQuote, row.metrics.likes, row.metrics.reposts, row.metrics.replies, row.metrics.quotes, row.metrics.bookmarks, row.metrics.impressions, now, row.flags, ...screenDecision(row.flags, row.notes, now), ingestedAt, row.addressed],
 		);
 	}
 	return rows.map((row) => row.id);
@@ -501,7 +503,7 @@ test("the callback checks the state, sends the verifier, and stores only sealed 
 });
 
 test("a reply posts to X as a reply to that post and shows on the post", async () => {
-	const [id] = await seed([{ text: "@mattyp mattyp mattyp" }]);
+	const [id] = await seed([{ text: "@mattyp mattyp mattyp", mentions: true }]);
 	await connectAs();
 	const x = fakeOAuthX([() => Response.json({ data: { id: "1990000000000000001", text: "thanks" } }, { status: 201 })]);
 	const response = await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "  thanks  " } });
@@ -515,7 +517,7 @@ test("a reply posts to X as a reply to that post and shows on the post", async (
 });
 
 test("an expiring token is refreshed and the rotated refresh token is saved first", async () => {
-	const [id] = await seed([{}]);
+	const [id] = await seed([{ mentions: true }]);
 	await connectAs();
 	await pg.query("update x_posts.account set expires_at = $1", [new Date(Date.now() + 60_000)]);
 	const x = fakeOAuthX([tokenAnswer("access-2", "refresh-2"), () => Response.json({ data: { id: "1990000000000000002" } }, { status: 201 })]);
@@ -529,7 +531,7 @@ test("an expiring token is refreshed and the rotated refresh token is saved firs
 });
 
 test("a refused refresh asks Matt to connect again and stops further sends", async () => {
-	const [id] = await seed([{}]);
+	const [id] = await seed([{ mentions: true }]);
 	await connectAs();
 	await pg.query("update x_posts.account set expires_at = $1", [new Date(Date.now() - 1000)]);
 	const x = fakeOAuthX([() => Response.json({ error: "invalid_request", error_description: "Value passed for the token was invalid." }, { status: 400 })]);
@@ -542,16 +544,36 @@ test("a refused refresh asks Matt to connect again and stops further sends", asy
 });
 
 test("X refusing a reply passes its reason through and records nothing", async () => {
-	const [id] = await seed([{}]);
+	const [id] = await seed([{ mentions: true }]);
 	await connectAs();
-	const detail = "Reply to this conversation is not allowed because you have not been mentioned or otherwise engaged by the author of the post you are replying to.";
+	const detail = "You are not allowed to create a Tweet with duplicate content.";
 	const x = fakeOAuthX([() => Response.json({ title: "Forbidden", detail, status: 403 }, { status: 403 })]);
 	const response = await sendAs("/reply", x.fetcher, { method: "POST", body: { id, text: "hi" } });
 	expect(response.status).toBe(502);
-	expect(((await response.json()) as { error: string }).error).toBe(`X didn't post it: ${detail.slice(0, 200)}`);
+	expect(((await response.json()) as { error: string }).error).toBe(`X didn't post it: ${detail}`);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "x".repeat(281) } })).status).toBe(400);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "   " } })).status).toBe(400);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id: "123", text: "hi" } })).status).toBe(404);
+	expect((await pg.query("select count(*)::int as n from x_posts.replies")).rows[0]).toEqual({ n: 0 });
+});
+
+test("posts that don't @mention Matt reply on X, before sending and when X refuses", async () => {
+	const [plain, mention, toMatt, older] = await seed([{}, { mentions: true }, { text: "@mattyp mattyp mattyp" }, { text: "mattyp mattyp mattyp" }]);
+	expect(addressed({ id: "1", text: "", in_reply_to_user_id: MATT_X_ID, entities: { mentions: [{ id: "7" }, { id: MATT_X_ID }, { id: "bad" }] } })).toEqual(["7", MATT_X_ID]);
+	await pg.query("update x_posts.posts set addressed = null where id = any($1::bigint[])", [[toMatt, older]]);
+	const before = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: { id: string; replyHere: boolean | null }[] };
+	expect(before.posts.every((post) => post.replyHere === null)).toBe(true);
+	await connectAs();
+	const listed = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: { id: string; replyHere: boolean | null }[] };
+	expect(Object.fromEntries(listed.posts.map((post) => [post.id, post.replyHere]))).toEqual({ [plain ?? ""]: false, [mention ?? ""]: true, [toMatt ?? ""]: true, [older ?? ""]: false });
+	const early = await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id: plain, text: "hi" } });
+	expect(early.status).toBe(422);
+	expect(await early.json()).toEqual({ error: "X only takes replies from here on posts that @mention you.", onX: true });
+	const refused = fakeOAuthX([() => Response.json({ title: "Forbidden", detail: "You can only reply to or quote posts where you are mentioned or are the author.", status: 403 }, { status: 403 })]);
+	const late = await sendAs("/reply", refused.fetcher, { method: "POST", body: { id: mention, text: "hi" } });
+	expect(late.status).toBe(422);
+	expect(await late.json()).toEqual({ error: "X only takes replies from here on posts that @mention you.", onX: true });
+	expect((await pg.query("select count(*)::int as n from x_posts.replies")).rows[0]).toEqual({ n: 0 });
 });
 
 test("reply checks fit X's 512-character query and batch about 11 posts per search", () => {

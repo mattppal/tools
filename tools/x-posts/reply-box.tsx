@@ -1,5 +1,5 @@
 import { type RefObject, useState } from "react";
-import { Button } from "../../src/kit/button.tsx";
+import { Button, buttonVariants } from "../../src/kit/button.tsx";
 import type { OwnerPost } from "./owner.ts";
 import type { Reply } from "./reply.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
@@ -18,6 +18,8 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 export function ReplyBox({ post, send, draft, onDraft, onSent, inputRef }: { post: OwnerPost; send: Send; draft: string; onDraft: (text: string) => void; onSent: (reply: Reply) => void; inputRef: RefObject<HTMLTextAreaElement | null> }) {
 	const [sending, setSending] = useState<string | null>(null);
 	const [error, setError] = useState<{ message: string; connect: boolean; text: string } | null>(null);
+	const [refused, setRefused] = useState(false);
+	const onX = post.replyHere === false || refused;
 	const reply = post.reply;
 	if (reply !== null)
 		return (
@@ -50,6 +52,11 @@ export function ReplyBox({ post, send, draft, onDraft, onSent, inputRef }: { pos
 			onDraft("");
 			onSent(sent);
 		} catch (failure) {
+			if (failure instanceof ReplyFailure && failure.onX) {
+				setRefused(true);
+				setSending(null);
+				return;
+			}
 			const connect = failure instanceof ReplyFailure && failure.connect;
 			setError({ message: failure instanceof Error ? failure.message : String(failure), connect, text });
 		}
@@ -71,17 +78,25 @@ export function ReplyBox({ post, send, draft, onDraft, onSent, inputRef }: { pos
 				onKeyDown={(event) => {
 					if (!isSendKey(event, MAC)) return;
 					event.preventDefault();
-					if (ready) void submit();
+					if (onX) window.open(intentUrl(post.id, draft.trim()), "_blank", "noreferrer");
+					else if (ready) void submit();
 				}}
 			/>
 			<div className={styles.replyBar}>
 				<span className={styles.count} data-over={over || undefined}>
 					{length}/{REPLY_MAX}
 				</span>
-				<Button size="sm" variant="primary" disabled={!ready} title={MAC ? "⌘ Enter" : "Ctrl Enter"} onClick={() => void submit()}>
-					Reply
-				</Button>
+				{onX ? (
+					<a className={buttonVariants({ size: "sm", variant: "primary" })} href={intentUrl(post.id, draft.trim())} target="_blank" rel="noreferrer" title={MAC ? "⌘ Enter" : "Ctrl Enter"}>
+						Reply on X
+					</a>
+				) : (
+					<Button size="sm" variant="primary" disabled={!ready} title={MAC ? "⌘ Enter" : "Ctrl Enter"} onClick={() => void submit()}>
+						Reply
+					</Button>
+				)}
 			</div>
+			{onX ? <p className={styles.muted}>No @mention, so X only takes this reply on X. Your draft goes with it.</p> : null}
 			{error === null ? null : (
 				<p className={styles.error}>
 					{error.message}{" "}
@@ -102,6 +117,7 @@ export class ReplyFailure extends Error {
 	constructor(
 		message: string,
 		readonly connect: boolean,
+		readonly onX: boolean,
 	) {
 		super(message);
 	}

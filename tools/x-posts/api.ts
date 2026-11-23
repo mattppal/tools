@@ -6,7 +6,7 @@ import { blocklistRequest, listPosts, POST_STATUSES, readStatus, replaceBlocklis
 import { checkNow, runIngest } from "./ingest.ts";
 import { CHECK_NOW_COOLDOWN_MS, LIVE_INGEST, QUEUE_OPEN } from "./query.ts";
 import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, QUEUE_CLOSED, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue, skipBacklog } from "./queue.ts";
-import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, pkce, replyRequest, saveAccount, sendReply, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
+import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, NotMentioned, pkce, replyRequest, saveAccount, sendReply, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
 import type { Fetch } from "./x.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -145,6 +145,7 @@ export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, i
 						return Response.json(await db((client) => sendReply(client, { fetcher, creds, now }, input)), { headers: NO_STORE });
 					} catch (failure) {
 						if (failure instanceof Disconnected) return Response.json({ error: failure.message, connect: true }, { status: 409, headers: NO_STORE });
+						if (failure instanceof NotMentioned) return Response.json({ error: failure.message, onX: true }, { status: 422, headers: NO_STORE });
 						if (failure instanceof XRefused) return Response.json({ error: failure.message }, { status: 502, headers: NO_STORE });
 						throw failure;
 					}

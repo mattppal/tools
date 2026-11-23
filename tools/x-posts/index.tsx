@@ -54,10 +54,10 @@ async function sendReply(body: { id: string; text: string }): Promise<Reply> {
 	try {
 		response = await fetch(`${API}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 	} catch (error) {
-		throw new ReplyFailure(describe(error), false);
+		throw new ReplyFailure(describe(error), false, false);
 	}
-	const json = (await response.json().catch(() => null)) as (Reply & { error?: string; connect?: boolean }) | null;
-	if (!response.ok || json === null) throw new ReplyFailure(json?.error ?? `Request failed with ${response.status}`, json?.connect === true);
+	const json = (await response.json().catch(() => null)) as (Reply & { error?: string; connect?: boolean; onX?: boolean }) | null;
+	if (!response.ok || json === null) throw new ReplyFailure(json?.error ?? `Request failed with ${response.status}`, json?.connect === true, json?.onX === true);
 	return json;
 }
 
@@ -260,7 +260,7 @@ function PostBody({ post, time, action }: { post: OwnerPost; time: string; actio
 }
 
 function PostFoot({ post }: { post: OwnerPost }) {
-	const meta = [post.status === "pending" ? null : post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	const meta = [post.status === "pending" ? null : post.status, post.replyHere === false && post.reply === null ? "Reply on X" : null, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return meta.length === 0 ? null : <p className={styles.meta}>{meta.join(" · ")}</p>;
 }
 

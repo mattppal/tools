@@ -2,7 +2,7 @@ import type { Database, WithDb } from "../../worker/db.ts";
 import { queueNotice, Refused } from "../liaison/notices.ts";
 import { ACTIVE_INTERVAL_MINUTES, ACTIVE_WINDOW_MINUTES, INTERVAL_MINUTES, MONTHLY_READ_BUDGET, PAGES_PER_RUN, REFRESH_CALLS_PER_RUN, REFRESH_SHARE, STALE_NOTICE_MS } from "./query.ts";
 import { rejectingFlags, SCREEN_VERSION, screen, validHandle } from "./screen.ts";
-import { type Fetch, lookupMetrics, type Rate, searchRecent, type XMetrics, type XPage, XError } from "./x.ts";
+import { type Fetch, lookupMetrics, type Rate, searchRecent, type XMetrics, type XPage, type XPost, XError } from "./x.ts";
 
 export type SyncState = {
 	sinceId: string | null;
@@ -110,6 +110,7 @@ export type PostRow = {
 	name: string;
 	cleanName: string;
 	avatarUrl: string | null;
+	addressed: string[];
 	text: string;
 	cleanText: string;
 	createdAt: string;
@@ -121,6 +122,11 @@ export type PostRow = {
 	flags: string[];
 	notes: string[];
 };
+
+export function addressed(post: XPost): string[] {
+	const ids = [...(post.entities?.mentions ?? []).map((mention) => mention.id), post.in_reply_to_user_id];
+	return [...new Set(ids.filter((id): id is string => typeof id === "string" && /^\d{1,20}$/.test(id)))];
+}
 
 export function toPostRows(page: Pick<XPage, "posts" | "users">, now: Date, blocklist: readonly string[] = []): PostRow[] {
 	return page.posts.map((post) => {
@@ -138,6 +144,7 @@ export function toPostRows(page: Pick<XPage, "posts" | "users">, now: Date, bloc
 			handle,
 			name,
 			cleanName: screened.cleanName,
+			addressed: addressed(post),
 			avatarUrl: typeof user?.profile_image_url === "string" && user.profile_image_url.startsWith("https://pbs.twimg.com/") ? user.profile_image_url : null,
 			text,
 			cleanText: screened.cleanText,
@@ -167,10 +174,10 @@ async function insertPosts(client: Database, rows: PostRow[], now: Date): Promis
 	let inserted = 0;
 	for (const row of rows.toSorted((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))) {
 		const result = await client.query(
-			`insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, lang, conversation_id, is_reply, is_quote, likes, reposts, replies, quotes, bookmarks, impressions, metrics_at, flags, screen_version, status, reason, decided_by, decided_at, avatar_url)
-			values ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::text[], $21, $22, $23, $24, $25, $26)
+			`insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, lang, conversation_id, is_reply, is_quote, likes, reposts, replies, quotes, bookmarks, impressions, metrics_at, flags, screen_version, status, reason, decided_by, decided_at, avatar_url, addressed)
+			values ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::text[], $21, $22, $23, $24, $25, $26, $27::text[])
 			on conflict (id) do nothing`,
-			[row.id, row.authorId, row.handle, row.name, row.cleanName, row.text, row.cleanText, row.createdAt, row.lang, row.conversationId, row.isReply, row.isQuote, row.metrics.likes, row.metrics.reposts, row.metrics.replies, row.metrics.quotes, row.metrics.bookmarks, row.metrics.impressions, now, row.flags, SCREEN_VERSION, ...screenDecision(row.flags, row.notes, now), row.avatarUrl],
+			[row.id, row.authorId, row.handle, row.name, row.cleanName, row.text, row.cleanText, row.createdAt, row.lang, row.conversationId, row.isReply, row.isQuote, row.metrics.likes, row.metrics.reposts, row.metrics.replies, row.metrics.quotes, row.metrics.bookmarks, row.metrics.impressions, now, row.flags, SCREEN_VERSION, ...screenDecision(row.flags, row.notes, now), row.avatarUrl, row.addressed],
 		);
 		inserted += result.rowCount ?? 0;
 	}
