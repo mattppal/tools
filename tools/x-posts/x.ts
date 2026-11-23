@@ -101,6 +101,13 @@ export async function searchRecent(fetcher: Fetch, token: string, { sinceId, nex
 	};
 }
 
+export async function searchReplies(fetcher: Fetch, token: string, query: string, startTime: Date): Promise<{ posts: XPost[]; rate: Rate }> {
+	const params = new URLSearchParams({ query, max_results: "100", start_time: startTime.toISOString(), "tweet.fields": "created_at,referenced_tweets,note_tweet" });
+	const { json, rate } = await get(fetcher, token, `${X_API}/tweets/search/recent?${params}`, { nextToken: false, sinceId: false });
+	const posts = Array.isArray(json["data"]) ? (json["data"] as XPost[]) : [];
+	return { posts: posts.filter((post) => typeof post?.id === "string" && /^\d{1,19}$/.test(post.id) && typeof post.text === "string"), rate };
+}
+
 export async function lookupMetrics(fetcher: Fetch, token: string, ids: readonly string[]): Promise<{ metrics: Map<string, XMetrics>; rate: Rate }> {
 	const params = new URLSearchParams({ ids: ids.join(","), "tweet.fields": "public_metrics" });
 	const { json, rate } = await get(fetcher, token, `${X_API}/tweets?${params}`, { nextToken: false, sinceId: false });

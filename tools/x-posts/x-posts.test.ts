@@ -12,6 +12,7 @@ import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE
 
 const openApi = xPostsApi({ queueOpen: true });
 const closedApi = xPostsApi({ queueOpen: false });
+import { checkReplies, QUERY_MAX, replyQueries, replyQuery } from "./reply-check.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
@@ -551,6 +552,56 @@ test("X refusing a reply passes its reason through and records nothing", async (
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "x".repeat(281) } })).status).toBe(400);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id, text: "   " } })).status).toBe(400);
 	expect((await sendAs("/reply", fakeOAuthX([]).fetcher, { method: "POST", body: { id: "123", text: "hi" } })).status).toBe(404);
+});
+
+test("reply checks fit X's 512-character query and batch about 11 posts per search", () => {
+	const ids = Array.from({ length: 30 }, (_, index) => (1859876543210987000n + BigInt(index)).toString());
+	const chunks = replyQueries("mattyp", ids);
+	expect(chunks.flat()).toEqual(ids);
+	expect(chunks[0]?.length).toBe(11);
+	for (const chunk of chunks) expect(replyQuery("mattyp", chunk).length).toBeLessThanOrEqual(QUERY_MAX);
+});
+
+test("a reply Matt made on X shows on the post, and checks are cached and skip posts already answered", async () => {
+	const [onX, viaTools, unanswered] = await seed([{ at: new Date(NOW.getTime() - 3 * 3_600_000) }, { at: new Date(NOW.getTime() - 2 * 3_600_000) }, {}]);
+	await connectAs();
+	await pg.query("insert into x_posts.replies (reply_id, post_id, text, username, created_at) values (1990000000000000009, $1::bigint, 'sent here', 'mattyp', $2)", [viaTools, NOW]);
+	const x = fakeOAuthX([
+		() =>
+			Response.json({
+				data: [
+					{ id: "1990000000000000010", text: "on it", created_at: "2026-11-22T19:30:00.000Z", referenced_tweets: [{ type: "replied_to", id: onX }] },
+					{ id: "1990000000000000011", text: "elsewhere", created_at: "2026-11-22T19:31:00.000Z", referenced_tweets: [{ type: "replied_to", id: "1234" }] },
+				],
+				meta: { result_count: 2 },
+			}),
+	]);
+	expect(await checkReplies(db, { fetcher: x.fetcher, creds: { clientId: "client", clientSecret: "client-secret" }, now: NOW })).toEqual({ checked: 2, found: 1, read: 2, error: null });
+	expect(x.calls).toHaveLength(1);
+	const sent = new URL(x.calls[0]?.url ?? "");
+	expect(sent.pathname).toBe("/2/tweets/search/recent");
+	expect(sent.searchParams.get("query")).toBe(`from:mattyp (in_reply_to_tweet_id:${unanswered} OR in_reply_to_tweet_id:${onX})`);
+	expect(x.calls[0]?.authorization).toBe("Bearer access-1");
+	const listed = (await (await sendAs("/posts", fakeOAuthX([]).fetcher)).json()) as { posts: { id: string; reply: { url: string; text: string } | null }[] };
+	const byId = new Map<string | undefined, unknown>(listed.posts.map((post) => [post.id, post.reply]));
+	expect(byId.get(onX)).toMatchObject({ url: "https://x.com/mattyp/status/1990000000000000010", text: "on it" });
+	expect(byId.get(viaTools)).toMatchObject({ text: "sent here" });
+	expect(byId.get(unanswered)).toBeNull();
+	expect((await pg.query("select via from x_posts.replies order by reply_id")).rows).toEqual([{ via: "tools" }, { via: "x" }]);
+	expect((await pg.query("select month_reads from x_posts.sync_state")).rows[0]).toEqual({ month_reads: 2 });
+	const none = fakeOAuthX([]);
+	expect((await checkReplies(db, { fetcher: none.fetcher, creds: { clientId: "client", clientSecret: "client-secret" }, now: new Date(NOW.getTime() + 60_000) })).checked).toBe(0);
+	const later = fakeOAuthX([() => Response.json({ meta: { result_count: 0 } })]);
+	expect((await checkReplies(db, { fetcher: later.fetcher, creds: { clientId: "client", clientSecret: "client-secret" }, now: new Date(NOW.getTime() + 6 * 60_000) })).checked).toBe(1);
+});
+
+test("reply checks make no X call before X is connected or once X signed Matt out", async () => {
+	await seed([{}]);
+	const creds = { clientId: "client", clientSecret: "client-secret" };
+	expect(await checkReplies(db, { fetcher: fakeOAuthX([]).fetcher, creds, now: NOW })).toMatchObject({ checked: 0, error: "Connect X first." });
+	await connectAs();
+	await pg.query("update x_posts.account set last_error = 'X signed you out. Connect X again.'");
+	expect((await checkReplies(db, { fetcher: fakeOAuthX([]).fetcher, creds, now: NOW })).checked).toBe(0);
 });
 
 test("reply length counts like X", () => {

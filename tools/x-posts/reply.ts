@@ -106,7 +106,7 @@ export async function readAccount(client: Database): Promise<XAccount | null> {
 	return row === undefined ? null : { username: row.username, connectedAt: iso(row.connected_at), lastError: row.last_error };
 }
 
-async function accessToken(client: Database, fetcher: Fetch, creds: Credentials, now: Date): Promise<{ token: string; username: string }> {
+export async function accessToken(client: Database, fetcher: Fetch, creds: Credentials, now: Date): Promise<{ token: string; username: string }> {
 	await client.query("begin");
 	let failure: Error | null = null;
 	try {

@@ -71,7 +71,7 @@ type Inbox = {
 	select: (id: string) => void;
 	pane: ReactNode;
 	paneFor: (id: string) => ReactNode;
-	replyFor: (id: string) => ReactNode;
+	replyFor: (post: OwnerPost) => ReactNode;
 };
 
 const NARROW = "(max-width: 900px)";
@@ -131,9 +131,13 @@ function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inb
 		selected: narrow ? (posts.find((post) => post.id === chosen) ?? null) : selected,
 		pane: narrow ? null : pane,
 		paneFor: (id) => (narrow && chosen === id ? pane : null),
-		replyFor: (id) =>
-			narrow && chosen !== id ? (
-				<Button size="sm" variant="quiet" className={styles.rowReply} onClick={() => select(id)}>
+		replyFor: (post) =>
+			post.reply !== null ? (
+				<a className={styles.rowReplied} href={post.reply.url} target="_blank" rel="noreferrer" title={when(post.reply.at)}>
+					Replied
+				</a>
+			) : narrow && chosen !== post.id ? (
+				<Button size="sm" variant="quiet" className={styles.rowReply} onClick={() => select(post.id)}>
 					Reply
 				</Button>
 			) : null,
@@ -256,7 +260,7 @@ function PostBody({ post, time, action }: { post: OwnerPost; time: string; actio
 }
 
 function PostFoot({ post }: { post: OwnerPost }) {
-	const meta = [post.reply === null ? null : "replied", post.status === "pending" ? null : post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
+	const meta = [post.status === "pending" ? null : post.status, ...post.flags, post.reason].filter((part): part is string => part !== null && part !== "");
 	return meta.length === 0 ? null : <p className={styles.meta}>{meta.join(" · ")}</p>;
 }
 
@@ -265,7 +269,7 @@ function PostFoot({ post }: { post: OwnerPost }) {
 function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; fresh: boolean; inbox: Inbox }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined} {...selectable(post.id, inbox)}>
-			<PostBody post={post} time={ago(post.createdAt, now)} action={inbox.replyFor(post.id)} />
+			<PostBody post={post} time={ago(post.createdAt, now)} action={inbox.replyFor(post)} />
 			<PostFoot post={post} />
 			{inbox.paneFor(post.id)}
 		</li>
@@ -404,7 +408,7 @@ function PostItem({ post, canDecide, onDecided, inbox }: { post: OwnerPost; canD
 	}
 	return (
 		<li className={styles.postRow} {...selectable(post.id, inbox)}>
-			<PostBody post={post} time={when(post.createdAt)} action={inbox.replyFor(post.id)} />
+			<PostBody post={post} time={when(post.createdAt)} action={inbox.replyFor(post)} />
 			<PostFoot post={post} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>

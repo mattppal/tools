@@ -383,7 +383,7 @@
 		border-radius: inherit;
 	}
 
-	.inbox li :is(button, textarea) {
+	.inbox li :is(button, textarea, .rowReplied) {
 		position: relative;
 		z-index: 1;
 	}
@@ -394,6 +394,27 @@
 	margin-left: auto;
 	color: var(--text-3);
 	font-weight: var(--weight-body);
+}
+
+.rowReplied {
+	margin-block: -10px;
+	margin-left: auto;
+	padding: 10px 0 10px var(--space-3);
+	color: var(--text-3);
+	text-decoration: none;
+	text-underline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.rowReplied:hover {
+		color: var(--text-1);
+		text-decoration: underline;
+	}
+}
+
+.rowReplied:focus-visible {
+	color: var(--text-1);
+	text-decoration: underline;
 }
 
 .skip {
