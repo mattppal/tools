@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "../../src/kit/button.tsx";
-import { useToolPath } from "../../src/router.tsx";
+import { Link, useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
 import type { OwnerPost, Status } from "./owner.ts";
 import type { JobState } from "./queue.ts";
@@ -12,23 +12,21 @@ import { Avatar, ago, CopyLink, describe, type Load, LoadState, PostLink, replyS
 import styles from "./x-posts.module.css";
 
 const SECTIONS: readonly ToolSection[] = [
-	{ path: "/", label: "Live" },
+	{ path: "/", label: "Receipts" },
 	{ path: "/mentions", label: "Mentions" },
-	{ path: "/posts", label: "Posts" },
 	{ path: "/queue", label: "Queue" },
-	{ path: "/blocklist", label: "Blocklist" },
 ];
+
+const QUEUE_TOOLS = [
+	{ path: "/queue", label: "Jobs" },
+	{ path: "/queue/review", label: "Review" },
+	{ path: "/queue/blocklist", label: "Blocklist" },
+] as const;
 
 const FILTERS = [
 	{ status: "pending", label: "Pending" },
-	{ status: null, label: "All" },
-	{ status: "queued", label: "Queued" },
-	{ status: "printed", label: "Printed" },
-	{ status: "overflow", label: "Overflow" },
-	{ status: "summarized", label: "Summarized" },
 	{ status: "rejected", label: "Rejected" },
-	{ status: "unconfirmed", label: "Unconfirmed" },
-	{ status: "failed", label: "Failed" },
+	{ status: null, label: "All" },
 ] as const;
 
 const sendReply = replySender("/reply");
@@ -154,7 +152,7 @@ function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; f
 	);
 }
 
-function LivePage({ checks, status, refreshStatus }: { checks: number; status: Load<Status>; refreshStatus: () => void }) {
+function LivePage({ status, refreshStatus }: { status: Load<Status>; refreshStatus: () => void }) {
 	const [posts, retry] = useLoad<{ posts: OwnerPost[]; nextBefore: string | null }>(`/posts?limit=${LIVE_LIMIT}`);
 	const seen = useRef<Set<string> | null>(null);
 	const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
@@ -165,9 +163,6 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 	}, LIVE_POLL_MS);
 	useVisibleInterval(refreshStatus, 30_000);
 	useEffect(() => {
-		if (checks > 0) retry();
-	}, [checks, retry]);
-	useEffect(() => {
 		if (posts.status !== "ready") return;
 		const ids = posts.data.posts.map((post) => post.id);
 		if (seen.current !== null) {
@@ -176,15 +171,11 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 		}
 		seen.current = new Set(ids);
 	}, [posts]);
-	const sync = status.status === "ready" ? status.data.sync : null;
+	const syncError = status.status === "ready" ? status.data.sync.lastError : null;
 	const inbox = useInbox(posts, status);
 	return (
 		<>
-			<p className={styles.muted} aria-live="polite">
-				{sync === null
-					? "Watching for new posts."
-					: `Checked ${sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}.`}
-			</p>
+			{syncError === null ? null : <p className={styles.error}>{syncError}</p>}
 			{posts.status !== "ready" ? (
 				<LoadState load={posts} retry={retry} />
 			) : posts.data.posts.length === 0 ? (
@@ -203,60 +194,40 @@ function LivePage({ checks, status, refreshStatus }: { checks: number; status: L
 	);
 }
 
-function CheckNow({ onChecked }: { onChecked: () => void }) {
-	const [busy, setBusy] = useState(false);
-	const [note, setNote] = useState<string | null>(null);
-	async function check() {
-		setBusy(true);
-		setNote(null);
-		try {
-			const result = await request<{ status: string; inserted?: number }>("/check", { method: "POST", body: {} });
-			setNote(result.status === "not due" ? "Checked moments ago" : `${result.inserted ?? 0} new`);
-			onChecked();
-		} catch (failure) {
-			setNote(describe(failure));
-		}
-		setBusy(false);
-	}
+function QueueTools() {
+	const path = useToolPath();
+	const current = path === "/posts" ? "/queue/review" : path === "/blocklist" ? "/queue/blocklist" : path;
 	return (
-		<span className={styles.checkNow}>
-			{note === null ? null : <span className={styles.muted}>{note}</span>}
-			<Button size="sm" loading={busy} disabled={busy} onClick={() => void check()}>
-				Check now
-			</Button>
-		</span>
+		<nav className={styles.subnav} aria-label="Queue">
+			{QUEUE_TOOLS.map((tool) => (
+				<Link key={tool.path} href={`/x-posts${tool.path}`} aria-current={current === tool.path ? "page" : undefined}>
+					{tool.label}
+				</Link>
+			))}
+		</nav>
 	);
 }
 
-function Details({ status }: { status: Load<Status> }) {
-	if (status.status !== "ready") return <p className={styles.muted}>{status.status === "error" ? status.message : "Loading"}</p>;
-	const data = status.data;
+function Details({ data }: { data: Status }) {
 	const rows: [string, string][] = [
-		["Query", data.query],
 		["Ingest", data.live ? "On" : "Off"],
 		["Print queue", data.queueOpen ? "Open" : "Closed"],
-		["Matched", `${data.shadow.matched.toLocaleString("en-US")} since ${when(data.shadow.since)}`],
-		["Auto-rejected", `${data.shadow.autoRejected.toLocaleString("en-US")}${Object.keys(data.shadow.rejectedByFlag).length === 0 ? "" : ` (${Object.entries(data.shadow.rejectedByFlag).map(([flag, n]) => `${flag} ${n}`).join(", ")})`}`],
-		["Addressed", `${data.shadow.addressed.toLocaleString("en-US")}, ${(data.shadow.addressedRate * 100).toFixed(1)}%`],
-		["Would print", `${data.shadow.wouldPrint.toLocaleString("en-US")} of ${data.shadow.passedScreen.toLocaleString("en-US")} that passed the screen`],
-		["Last success", when(data.sync.lastSuccessAt)],
-		["Next run", data.sync.nextRunAt === null ? "Due" : when(data.sync.nextRunAt)],
+		["Last check", when(data.sync.lastSuccessAt)],
 		["Reads this month", `${data.reads.used.toLocaleString("en-US")} of ${data.reads.budget.toLocaleString("en-US")}${data.reads.capped ? ", capped by X" : ""}`],
-		["Printed or queued today", `${data.today.printedOrQueued} of ${data.today.dailyCap}`],
-		["Batch size", `Up to ${data.today.batchCap} posts`],
-		...Object.entries(data.counts).map(([key, value]): [string, string] => [key[0]?.toUpperCase() + key.slice(1), value.toLocaleString("en-US")]),
+		["Replies as", data.x === null ? "Not connected" : `@${data.x.username}${data.x.lastError === null ? "" : `, ${data.x.lastError}`}`],
 	];
-	rows.push(["Replies as", data.x === null ? "Not connected" : `@${data.x.username}${data.x.lastError === null ? "" : `, ${data.x.lastError}`}`]);
-	if (data.sync.lastError !== null) rows.push(["Last error", data.sync.lastError]);
 	return (
-		<dl className={styles.details}>
-			{rows.map(([label, value]) => (
-				<div key={label} className={styles.detailRow}>
-					<dt>{label}</dt>
-					<dd>{value}</dd>
-				</div>
-			))}
-		</dl>
+		<details className={styles.disclosure}>
+			<summary>Details</summary>
+			<dl className={styles.details}>
+				{rows.map(([label, value]) => (
+					<div key={label} className={styles.detailRow}>
+						<dt>{label}</dt>
+						<dd>{value}</dd>
+					</div>
+				))}
+			</dl>
+		</details>
 	);
 }
 
@@ -408,9 +379,9 @@ function QueuePage({ status, refresh }: { status: Load<Status>; refresh: () => v
 	return (
 		<>
 			<p className={styles.muted}>
-				{status.data.today.printedOrQueued} of {status.data.today.dailyCap} posts printed or queued today. A job that may have printed is never sent again on its own.
+				{status.data.today.printedOrQueued} of {status.data.today.dailyCap} printed today.
 			</p>
-			<SkipBacklog pending={status.data.counts.pending ?? 0} refresh={refresh} />
+			{(status.data.counts.pending ?? 0) > 0 ? <SkipBacklog pending={status.data.counts.pending ?? 0} refresh={refresh} /> : null}
 			{error === null ? null : <p className={styles.error}>{error}</p>}
 			{jobs.length === 0 ? (
 				<p className={styles.muted}>No print jobs yet.</p>
@@ -431,6 +402,7 @@ function QueuePage({ status, refresh }: { status: Load<Status>; refresh: () => v
 					))}
 				</ul>
 			)}
+			<Details data={status.data} />
 		</>
 	);
 }
@@ -471,31 +443,24 @@ function BlocklistPage({ status, refresh }: { status: Load<Status>; refresh: () 
 export default function XPosts() {
 	const path = useToolPath();
 	const [status, refresh] = useLoad<Status>("/status");
-	const [checks, setChecks] = useState(0);
+	const review = path === "/queue/review" || path === "/posts";
+	const queue = path === "/queue" || review || path === "/queue/blocklist" || path === "/blocklist";
 	const page =
 		path === "/queue" ? (
 			<QueuePage status={status} refresh={refresh} />
-		) : path === "/blocklist" ? (
+		) : path === "/queue/blocklist" || path === "/blocklist" ? (
 			<BlocklistPage status={status} refresh={refresh} />
 		) : path === "/mentions" ? (
 			<MentionsPage connected={status.status === "ready" ? status.data.x !== null : null} />
-		) : path === "/posts" ? (
+		) : review ? (
 			<PostsPage status={status} refreshStatus={refresh} />
 		) : (
-			<LivePage checks={checks} status={status} refreshStatus={refresh} />
+			<LivePage status={status} refreshStatus={refresh} />
 		);
-	const actions =
-		path === "/" && status.status === "ready" && status.data.live ? (
-			<CheckNow
-				onChecked={() => {
-					refresh();
-					setChecks((count) => count + 1);
-				}}
-			/>
-		) : undefined;
 	return (
-		<ToolLayout title="X posts" actions={actions} sections={SECTIONS} panel={{ label: "Details", content: <Details status={status} /> }}>
-			<div className={styles.page} data-wide={path === "/" || path === "/posts" || undefined}>
+		<ToolLayout title="X posts" sections={SECTIONS}>
+			<div className={styles.page} data-wide={path === "/" || review || undefined}>
+				{queue ? <QueueTools /> : null}
 				{page}
 			</div>
 		</ToolLayout>

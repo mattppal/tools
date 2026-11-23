@@ -21,7 +21,7 @@ export const SHOTS: Shot[] = [
 	{ name: "workouts-{viewport}", path: "/workouts" },
 	{ name: "sleep-{viewport}", path: "/sleep" },
 	{ name: "x-posts-live-{viewport}", path: "/x-posts" },
-	{ name: "x-posts-{viewport}", path: "/x-posts/posts", clicks: ["All"] },
+	{ name: "x-posts-{viewport}", path: "/x-posts/queue/review", clicks: ["All"] },
 	{ name: "x-posts-queue-{viewport}", path: "/x-posts/queue" },
 ];
 

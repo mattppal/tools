@@ -224,10 +224,38 @@
 	font-weight: var(--weight-body);
 }
 
-.checkNow {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
+.subnav {
+	display: flex;
+	gap: var(--space-4);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+}
+
+.subnav a {
+	color: var(--text-3);
+	text-decoration: none;
+}
+
+.subnav a[aria-current],
+.subnav a:focus-visible {
+	color: var(--text-1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.subnav a:hover {
+		color: var(--text-1);
+	}
+}
+
+.disclosure summary {
+	width: fit-content;
+	color: var(--text-3);
+	font-size: var(--text-sm);
+	cursor: pointer;
+}
+
+.disclosure[open] summary {
+	margin-bottom: var(--space-3);
 }
 
 .replyBox {
