@@ -365,10 +365,35 @@
 	}
 
 	.replyPane[data-inline] {
-		position: static;
+		position: relative;
+		z-index: 1;
 		padding: 0;
 		background: none;
 	}
+
+	.inbox .postRow,
+	.inbox .liveRow {
+		position: relative;
+	}
+
+	.inbox .postLink::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+	}
+
+	.inbox li :is(button, textarea) {
+		position: relative;
+		z-index: 1;
+	}
+}
+
+.rowReply {
+	margin-block: -9px;
+	margin-left: auto;
+	color: var(--text-3);
+	font-weight: var(--weight-body);
 }
 
 .skip {

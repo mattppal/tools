@@ -71,6 +71,7 @@ type Inbox = {
 	select: (id: string) => void;
 	pane: ReactNode;
 	paneFor: (id: string) => ReactNode;
+	replyFor: (id: string) => ReactNode;
 };
 
 const NARROW = "(max-width: 900px)";
@@ -89,6 +90,10 @@ function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inb
 	const [chosen, setChosen] = useState<string | null>(null);
 	const input = useRef<HTMLTextAreaElement>(null);
 	const narrow = useNarrow();
+	const select = (id: string) => {
+		flushSync(() => setChosen(id));
+		input.current?.focus();
+	};
 	const [sent, setSent] = useState<ReadonlyMap<string, Reply>>(new Map());
 	const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(new Map());
 	const posts = (load.status === "ready" ? load.data.posts : []).map((post) => (post.reply === null && sent.has(post.id) ? { ...post, reply: sent.get(post.id) ?? null } : post));
@@ -123,13 +128,16 @@ function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inb
 	);
 	return {
 		posts,
-		selected,
+		selected: narrow ? (posts.find((post) => post.id === chosen) ?? null) : selected,
 		pane: narrow ? null : pane,
-		paneFor: (id) => (narrow && selected?.id === id ? pane : null),
-		select: (id) => {
-			flushSync(() => setChosen(id));
-			input.current?.focus();
-		},
+		paneFor: (id) => (narrow && chosen === id ? pane : null),
+		replyFor: (id) =>
+			narrow && chosen !== id ? (
+				<Button size="sm" variant="quiet" className={styles.rowReply} onClick={() => select(id)}>
+					Reply
+				</Button>
+			) : null,
+		select,
 	};
 }
 
@@ -232,7 +240,7 @@ function PostLink({ post, children }: { post: OwnerPost; children: string }) {
 	);
 }
 
-function PostBody({ post, time }: { post: OwnerPost; time: string }) {
+function PostBody({ post, time, action }: { post: OwnerPost; time: string; action: ReactNode }) {
 	return (
 		<>
 			<p className={styles.liveHead}>
@@ -240,6 +248,7 @@ function PostBody({ post, time }: { post: OwnerPost; time: string }) {
 				<span className={styles.liveName}>{post.name || post.handle}</span>
 				<span>@{post.handle}</span>
 				<PostLink post={post}>{time}</PostLink>
+				{action}
 			</p>
 			<p className={styles.text}>{post.text}</p>
 		</>
@@ -256,7 +265,7 @@ function PostFoot({ post }: { post: OwnerPost }) {
 function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; fresh: boolean; inbox: Inbox }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined} {...selectable(post.id, inbox)}>
-			<PostBody post={post} time={ago(post.createdAt, now)} />
+			<PostBody post={post} time={ago(post.createdAt, now)} action={inbox.replyFor(post.id)} />
 			<PostFoot post={post} />
 			{inbox.paneFor(post.id)}
 		</li>
@@ -395,7 +404,7 @@ function PostItem({ post, canDecide, onDecided, inbox }: { post: OwnerPost; canD
 	}
 	return (
 		<li className={styles.postRow} {...selectable(post.id, inbox)}>
-			<PostBody post={post} time={when(post.createdAt)} />
+			<PostBody post={post} time={when(post.createdAt)} action={inbox.replyFor(post.id)} />
 			<PostFoot post={post} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
