@@ -5,11 +5,13 @@ import { join } from "node:path";
 import type { Caller } from "../../worker/access.ts";
 import type { Database, WithDb } from "../../worker/db.ts";
 import api, { DB_DOWN, xPostsApi } from "./api.ts";
+import { QUEUE_OPEN } from "./query.ts";
 import { type FeedPost, parseFeedRequest, type SinceFeed, type WindowFeed } from "./feed.ts";
 import { checkNow, runIngest, screenDecision, toPostRows } from "./ingest.ts";
 import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE_CLOSED, requeueJob, sweep } from "./queue.ts";
 
 const openApi = xPostsApi({ queueOpen: true });
+const closedApi = xPostsApi({ queueOpen: false });
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
@@ -79,7 +81,7 @@ async function seed(items: Seed[], { now = NOW, ingestedAt = now }: { now?: Date
 
 async function send(path: string, { method = "GET", body, caller = REVIEW, open = true }: { method?: string; body?: unknown; caller?: Caller; open?: boolean } = {}): Promise<Response> {
 	const url = `https://tools.test/api/tools/x-posts${path}`;
-	return await (open ? openApi : api)(new Request(url, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }), {
+	return await (open ? openApi : closedApi)(new Request(url, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }), {
 		env: {} as Env,
 		ctx: { waitUntil() {} } as never,
 		path: new URL(url).pathname.replace("/api/tools/x-posts", ""),
@@ -563,4 +565,27 @@ test("Cmd+Enter sends on a Mac and Ctrl+Enter elsewhere; plain Enter makes a new
 	const key = (metaKey: boolean, ctrlKey: boolean, k = "Enter") => ({ key: k, metaKey, ctrlKey });
 	expect([isSendKey(key(true, false), true), isSendKey(key(false, true), true), isSendKey(key(false, false), true)]).toEqual([true, false, false]);
 	expect([isSendKey(key(false, true), false), isSendKey(key(true, false), false), isSendKey(key(false, true, "a"), false)]).toEqual([true, false, false]);
+});
+
+test("the deployed API has the print queue open", async () => {
+	expect(QUEUE_OPEN).toBe(true);
+	await seed([{}]);
+	const response = await api(new Request("https://tools.test/api/tools/x-posts/jobs/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bridge: "mini" }) }), {
+		env: {} as Env,
+		ctx: { waitUntil() {} } as never,
+		path: "/jobs/claim",
+		db,
+		caller: BRIDGE,
+	});
+	expect(response.status).toBe(204);
+	expect(response.headers.get("x-pending-total")).toBe("1");
+});
+
+test("opening the queue skips every post still pending from the closed period, without a summary", async () => {
+	const ids = await seed([{}, {}, { text: "mattyp mattyp mattyp call 415-555-1234" }]);
+	const sql = await readFile(join(import.meta.dirname, "migrations", "0004-open-queue.sql"), "utf-8");
+	await pg.exec(`set search_path to x_posts; ${sql}; set search_path to public;`);
+	expect([await status(ids[0] ?? ""), await status(ids[1] ?? ""), await status(ids[2] ?? "")]).toEqual(["overflow", "overflow", "rejected"]);
+	await db((c) => sweep(c, new Date(NOW.getTime() + 25 * 3_600_000), true));
+	expect((await pg.query("select count(*)::int as n from x_posts.jobs")).rows[0]).toEqual({ n: 0 });
 });

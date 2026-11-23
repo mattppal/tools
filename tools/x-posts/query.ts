@@ -1,7 +1,7 @@
 export const QUERY = '"mattyp mattyp mattyp" -is:retweet';
 
 export const LIVE_INGEST = true;
-export const QUEUE_OPEN = false;
+export const QUEUE_OPEN = true;
 
 export const MONTHLY_READ_BUDGET = 12_000;
 

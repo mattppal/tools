@@ -353,7 +353,7 @@ function Details({ status }: { status: Load<Status> }) {
 	const rows: [string, string][] = [
 		["Query", data.query],
 		["Ingest", data.live ? "On" : "Off"],
-		["Print queue", data.queueOpen ? "Open" : "Closed, shadow mode"],
+		["Print queue", data.queueOpen ? "Open" : "Closed"],
 		["Matched", `${data.shadow.matched.toLocaleString("en-US")} since ${when(data.shadow.since)}`],
 		["Auto-rejected", `${data.shadow.autoRejected.toLocaleString("en-US")}${Object.keys(data.shadow.rejectedByFlag).length === 0 ? "" : ` (${Object.entries(data.shadow.rejectedByFlag).map(([flag, n]) => `${flag} ${n}`).join(", ")})`}`],
 		["Addressed", `${data.shadow.addressed.toLocaleString("en-US")}, ${(data.shadow.addressedRate * 100).toFixed(1)}%`],

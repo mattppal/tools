@@ -20,7 +20,7 @@ export class Conflict extends Error {}
 
 export class NotFound extends Error {}
 
-export const QUEUE_CLOSED = "The print queue is closed while x-posts runs in shadow mode";
+export const QUEUE_CLOSED = "The print queue is closed";
 export class Closed extends Error {}
 
 const postId = z.string().regex(/^[1-9]\d{0,18}$/, "Post ids are strings of 1 to 19 digits");
@@ -382,7 +382,7 @@ export async function sweep(client: Database, now: Date, open: boolean): Promise
 				await client.query(
 					`update x_posts.posts set status = 'overflow', reason = $3, decided_by = 'sweep', decided_at = $1, summarized_at = case when $4 then null else $1::timestamptz end
 					where status = 'pending' and ingested_at < $1::timestamptz - make_interval(hours => $2)`,
-					[now, REVIEW_TIMEOUT_HOURS, open ? "not reviewed" : "not reviewed (shadow mode)", open],
+					[now, REVIEW_TIMEOUT_HOURS, open ? "not reviewed" : "not reviewed (queue closed)", open],
 				)
 			).rowCount ?? 0;
 		const jobs = open && overflowed > 0 ? (await buildJobs(client, [], now)).jobs : [];
