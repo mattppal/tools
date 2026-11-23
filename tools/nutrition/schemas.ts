@@ -61,7 +61,28 @@ export const targetsInput = z.strictObject({
 	current_kcal_target: z.number().int().positive().optional().describe("Sets the phase tracker's current kcal target, for example to apply the suggested kcal"),
 });
 
+export const PHASE_KINDS = ["maintain", "cut", "gain"] as const;
+
+const tenths = (value: number) => Math.abs(value * 10 - Math.round(value * 10)) < 1e-9;
+
+export const phaseInput = z
+	.strictObject({
+		kind: z.enum(PHASE_KINDS).optional().describe("A kind other than the open phase's closes it and starts a new phase on start_date"),
+		start_date: isoDate.optional().describe("May be in the future. Required when kind changes"),
+		start_weight_override_lb: z.number().positive().lt(1000).nullable().optional().describe("null clears it, so the start weight is the 7-day average on start_date"),
+		target_rate_per_week: z.number().min(-0.02).max(0.02).optional().describe("Fraction of bodyweight per week, compounded. Negative on a cut: -0.005 is 0.5% a week. Send this or target_lb_per_week"),
+		target_lb_per_week: z.number().optional().describe("Pounds per week, negative on a cut. Converted to target_rate_per_week with the phase's start weight"),
+		weeks: z.number().int().min(1).max(52).optional(),
+		tolerance_lb: z.number().min(0.1).max(9.9).refine(tenths, "Use steps of 0.1 lb").optional(),
+		max_weekly_kcal_change: z.number().int().positive().optional(),
+		min_logged_days: z.number().int().min(1).max(7).optional(),
+		current_kcal_target: z.number().int().positive().optional(),
+	})
+	.refine((input) => Object.values(input).some((value) => value !== undefined), "Send at least one field")
+	.refine((input) => input.target_rate_per_week === undefined || input.target_lb_per_week === undefined, "Send target_rate_per_week or target_lb_per_week, not both");
+
 export type FoodInput = z.infer<typeof foodInput>;
 export type FoodChanges = z.infer<typeof foodChanges>;
 export type DayUpdate = z.infer<typeof dayUpdate>;
 export type TargetsInput = z.infer<typeof targetsInput>;
+export type PhaseInput = z.infer<typeof phaseInput>;

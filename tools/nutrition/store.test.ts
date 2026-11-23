@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { deliverDue } from "../../worker/webhooks.ts";
-import { addTargets, changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, getSteps, Rejected, updateDay } from "./store.ts";
+import { addTargets, changeFood, closeDayFromUi, getDay, getExpenditure, getHistory, getPhase, getSteps, Rejected, setPhase, updateDay } from "./store.ts";
 import { foodChanges } from "./schemas.ts";
 import liaison from "../liaison/webhook.ts";
 import webhook from "./webhook.ts";
@@ -190,6 +190,54 @@ test("summarizes the open phase", async () => {
 	const phase = await getPhase(client, "2026-11-22");
 	expect(phase?.summary.startWeight).toBe(180.6);
 	expect(phase?.summary.current).toMatchObject({ week: 0, verdict: "on track" });
+});
+
+test("a phase switch needs a start weight to turn pounds into a rate", async () => {
+	await expect(setPhase(client, { kind: "cut", start_date: "2026-11-30", target_lb_per_week: -0.5 }, "bot")).rejects.toThrow(
+		"No weigh-in in the 7 days ending 2026-11-30 and no start_weight_override_lb",
+	);
+	await expect(setPhase(client, { kind: "cut", start_date: "2026-11-23" }, "bot")).rejects.toThrow("needs target_rate_per_week or target_lb_per_week");
+	await expect(setPhase(client, { kind: "cut", target_rate_per_week: -0.005 }, "bot")).rejects.toThrow("needs start_date");
+	await expect(setPhase(client, { kind: "cut", start_date: "2026-11-22", target_rate_per_week: -0.005 }, "bot")).rejects.toThrow("after the open maintain phase's start");
+	await expect(setPhase(client, { kind: "cut", start_date: "2026-11-23", target_lb_per_week: -10 }, "bot")).rejects.toThrow("over the 0.02 limit");
+	await expect(setPhase(client, { kind: "gain", start_date: "2026-11-23", target_rate_per_week: -0.005 }, "bot")).rejects.toThrow("A gain's rate is positive");
+	await expect(setPhase(client, { target_rate_per_week: 0.001 }, "bot")).rejects.toThrow("A maintain phase's rate is 0");
+	expect((await pg.query("select kind from nutrition.phases")).rows).toEqual([{ kind: "maintain" }]);
+});
+
+test("a future cut closes maintain the day before, and maintain shows until the cut starts", async () => {
+	const update = await setPhase(client, { kind: "cut", start_date: "2026-11-23", target_lb_per_week: -0.5, weeks: 12, current_kcal_target: 2450 }, "bot");
+	expect(update).toMatchObject({
+		phase: { kind: "cut", startDate: "2026-11-23", settings: { targetRatePerWeek: -0.00277, weeks: 12, currentKcalTarget: 2450, startWeightOverrideLb: null, toleranceLb: 0.5 }, summary: { lbPerWeekAtStart: -0.5 } },
+		startWeightLb: 180.6,
+		closed: { kind: "maintain", startDate: "2026-11-22", endDate: "2026-11-22" },
+		previous: { kind: "maintain", startDate: "2026-11-22", targetRatePerWeek: 0, currentKcalTarget: 2750 },
+	});
+	expect(await getPhase(client, "2026-11-22")).toMatchObject({ kind: "maintain", upcoming: { kind: "cut", startDate: "2026-11-23" } });
+	expect(await getPhase(client, "2026-11-23")).toMatchObject({ kind: "cut", upcoming: null });
+	expect((await getDay(client, "2026-11-22")).phase).toBe("maintain");
+
+	const retried = await setPhase(client, { kind: "cut", start_date: "2026-11-23", target_lb_per_week: -0.5, weeks: 12, current_kcal_target: 2450 }, "bot");
+	expect(retried).toMatchObject({ closed: null, previous: {}, phase: { settings: update.phase.settings } });
+	expect((await pg.query("select count(*)::int as n from nutrition.phases")).rows).toEqual([{ n: 2 }]);
+	expect((await pg.query("select count(*)::int as n from nutrition.phase_tracker_changes")).rows).toEqual([{ n: 0 }]);
+});
+
+test("same-kind edits stay in place and log each changed field", async () => {
+	await expect(setPhase(client, { start_date: "2026-11-22" }, "bot")).rejects.toThrow("after 2026-11-22, when the previous phase ended");
+	const edit = await setPhase(client, { weeks: 16, tolerance_lb: 0.5, start_weight_override_lb: 182 }, "bot");
+	expect(edit).toMatchObject({ closed: null, previous: { weeks: 12, startWeightOverrideLb: null }, startWeightLb: 182, phase: { settings: { weeks: 16, targetRatePerWeek: -0.00277 } } });
+	expect(Object.keys(edit.previous).toSorted()).toEqual(["startWeightOverrideLb", "weeks"]);
+	await addTargets(
+		client,
+		{ effective_from: "2026-11-23", kcal: { min: 2350, max: 2550 }, protein_g: { min: 180, max: 220 }, fat_g: { min: 60, max: 90 }, carbs_g: { min: 200, max: 300 }, change: "Cut", current_kcal_target: 2400 },
+		"bot",
+	);
+	expect((await pg.query("select field, old_value, new_value, changed_by from nutrition.phase_tracker_changes order by id")).rows).toEqual([
+		{ field: "start_weight_override_lb", old_value: null, new_value: "182", changed_by: "bot" },
+		{ field: "weeks", old_value: "12", new_value: "16", changed_by: "bot" },
+		{ field: "current_kcal_target", old_value: "2450", new_value: "2400", changed_by: "bot" },
+	]);
 });
 
 test("steps come from activity when Withings has the day", async () => {

@@ -6,7 +6,7 @@ import { listAppleWorkouts } from "../activity/apple-health.ts";
 import { listMeasures, listWorkouts } from "../activity/health.ts";
 import { type BodyComp, estimateExpenditure, MEASURED_MIN_DAYS, type ExpenditureResult, type IntakeDay, type LoggedSession, type StepsDay, type TrackerDay, type WatchWorkout, type WeighIn } from "./expenditure.ts";
 import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
-import type { DayUpdate, FoodChanges, FoodInput, TargetsInput } from "./schemas.ts";
+import type { DayUpdate, FoodChanges, FoodInput, PhaseInput, TargetsInput } from "./schemas.ts";
 import { formatSource, parseSource } from "./sources.ts";
 import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, type Macro, type MacroProgress, macroProgress, type Range, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
 
@@ -265,11 +265,14 @@ export async function addTargets(client: Database, input: TargetsInput, actor: A
 		);
 		if (rowCount === 0) throw new Rejected(`Targets already start on ${input.effective_from}. Versions are never edited, so pick another date.`);
 		if (input.current_kcal_target !== undefined) {
-			const { rowCount: trackers } = await client.query(
-				"update nutrition.phase_trackers set current_kcal_target = $1 where phase_id = (select id from nutrition.phases where end_date is null)",
-				[input.current_kcal_target],
-			);
-			if (trackers === 0) throw new Rejected("No open phase has a tracker.");
+			const tracker = (
+				await client.query<Row>(
+					"select t.phase_id, t.current_kcal_target from nutrition.phase_trackers t join nutrition.phases p on p.id = t.phase_id where p.end_date is null for update of t",
+				)
+			).rows[0];
+			if (tracker === undefined) throw new Rejected("No open phase has a tracker.");
+			await client.query("update nutrition.phase_trackers set current_kcal_target = $1 where phase_id = $2", [input.current_kcal_target, tracker["phase_id"]]);
+			await auditTracker(client, num(tracker["phase_id"]), { current_kcal_target: [num(tracker["current_kcal_target"]), input.current_kcal_target] }, actor);
 		}
 		const targets = await targetsOn(client, input.effective_from);
 		if (targets === null) throw new Error("The new plan version did not read back");
@@ -277,17 +280,14 @@ export async function addTargets(client: Database, input: TargetsInput, actor: A
 	});
 }
 
-export type PhaseView = { kind: string; startDate: string; settings: TrackerSettings; summary: PhaseSummary } | null;
+export type UpcomingPhase = { kind: string; startDate: string };
+export type PhaseView = { kind: string; startDate: string; settings: TrackerSettings; summary: PhaseSummary; upcoming: UpcomingPhase | null } | null;
 
-export async function getPhase(client: Database, date = today()): Promise<PhaseView> {
-	const { rows } = await client.query<Row>(
-		`select p.kind, p.start_date::text as start_date, t.*
-		from nutrition.phases p join nutrition.phase_trackers t on t.phase_id = p.id
-		where p.end_date is null`,
-	);
-	const row = rows[0];
-	if (row === undefined) return null;
-	const settings: TrackerSettings = {
+const TRACKED_PHASE = `select p.id, p.kind, p.start_date::text as start_date, t.*
+	from nutrition.phases p join nutrition.phase_trackers t on t.phase_id = p.id`;
+
+function trackerSettings(row: Row): TrackerSettings {
+	return {
 		kind: String(row["kind"]),
 		startDate: String(row["start_date"]),
 		startWeightOverrideLb: numOrNull(row["start_weight_override_lb"]),
@@ -298,12 +298,166 @@ export async function getPhase(client: Database, date = today()): Promise<PhaseV
 		minLoggedDays: num(row["min_logged_days"]),
 		currentKcalTarget: num(row["current_kcal_target"]),
 	};
+}
+
+async function phaseView(client: Database, settings: TrackerSettings, date: string, upcoming: UpcomingPhase | null): Promise<NonNullable<PhaseView>> {
 	const since = addDays(settings.startDate, -35);
 	const weights: WeightPoint[] = (
 		await client.query<Row>("select measured_on::text as date, rolling_7d, rolling_14d from nutrition.weight_trend where measured_on >= $1 order by measured_on", [addDays(since, -28)])
 	).rows.map((weight) => ({ date: String(weight["date"]), rolling7d: num(weight["rolling_7d"]), rolling14d: num(weight["rolling_14d"]) }));
 	const days = await fullDays(client, since, date);
-	return { kind: settings.kind, startDate: settings.startDate, settings, summary: phaseSummary(settings, weights, days, date) };
+	return { kind: settings.kind, startDate: settings.startDate, settings, summary: phaseSummary(settings, weights, days, date), upcoming };
+}
+
+export async function getPhase(client: Database, date = today()): Promise<PhaseView> {
+	const covering = (await client.query<Row>(`${TRACKED_PHASE} where p.start_date <= $1 and (p.end_date is null or p.end_date >= $1) order by p.start_date desc limit 1`, [date])).rows[0];
+	const open = (await client.query<Row>(`${TRACKED_PHASE} where p.end_date is null`)).rows[0];
+	const shown = covering ?? open;
+	if (shown === undefined) return null;
+	const upcoming = open !== undefined && open["id"] !== shown["id"] ? { kind: String(open["kind"]), startDate: String(open["start_date"]) } : null;
+	return phaseView(client, trackerSettings(shown), date, upcoming);
+}
+
+type TrackerColumn = "start_date" | "start_weight_override_lb" | "target_rate_per_week" | "weeks" | "tolerance_lb" | "max_weekly_kcal_change" | "min_logged_days" | "current_kcal_target";
+
+const TRACKER_FIELDS: readonly [keyof TrackerSettings, TrackerColumn | null][] = [
+	["kind", null],
+	["startDate", "start_date"],
+	["startWeightOverrideLb", "start_weight_override_lb"],
+	["targetRatePerWeek", "target_rate_per_week"],
+	["weeks", "weeks"],
+	["toleranceLb", "tolerance_lb"],
+	["maxWeeklyKcalChange", "max_weekly_kcal_change"],
+	["minLoggedDays", "min_logged_days"],
+	["currentKcalTarget", "current_kcal_target"],
+];
+
+const TRACKER_DEFAULTS = { toleranceLb: 0.5, maxWeeklyKcalChange: 150, minLoggedDays: 5 };
+const MAX_WEEKLY_RATE = 0.02;
+
+async function auditTracker(client: Database, phaseId: number, changes: Partial<Record<TrackerColumn, [unknown, unknown]>>, actor: Actor): Promise<void> {
+	for (const [field, [before, after]] of Object.entries(changes) as [TrackerColumn, [unknown, unknown]][]) {
+		if (before === after) continue;
+		await client.query("insert into nutrition.phase_tracker_changes (phase_id, field, old_value, new_value, changed_by) values ($1, $2, $3, $4, $5)", [
+			phaseId,
+			field,
+			before === null || before === undefined ? null : String(before),
+			after === null ? null : String(after),
+			actor,
+		]);
+	}
+}
+
+async function sevenDayWeight(client: Database, date: string): Promise<number | null> {
+	const { rows } = await client.query<Row>("select rolling_7d from nutrition.weight_trend where measured_on between $1::date - 6 and $1::date order by measured_on desc limit 1", [date]);
+	return numOrNull(rows[0]?.["rolling_7d"]);
+}
+
+const roundRate = (rate: number) => (Math.sign(rate) * Math.round(Math.abs(rate) * 1e5)) / 1e5;
+
+export type PhaseUpdate = {
+	phase: NonNullable<PhaseView>;
+	startWeightLb: number | null;
+	closed: { kind: string; startDate: string; endDate: string } | null;
+	previous: Partial<TrackerSettings>;
+};
+
+export async function setPhase(client: Database, input: PhaseInput, actor: Actor): Promise<PhaseUpdate> {
+	return transaction(client, async () => {
+		const open = (
+			await client.query<Row>(
+				`select p.id, p.kind, p.start_date::text as start_date, t.phase_id as tracked, t.start_weight_override_lb, t.target_rate_per_week, t.weeks, t.tolerance_lb, t.max_weekly_kcal_change, t.min_logged_days, t.current_kcal_target
+				from nutrition.phases p left join nutrition.phase_trackers t on t.phase_id = p.id where p.end_date is null for update of p`,
+			)
+		).rows[0];
+		const before = open !== undefined && open["tracked"] != null ? trackerSettings(open) : null;
+		const openKind = open === undefined ? null : String(open["kind"]);
+		const openStart = open === undefined ? null : String(open["start_date"]);
+		const starting = open === undefined || (input.kind !== undefined && input.kind !== openKind);
+
+		if (starting) {
+			if (input.kind === undefined) throw new Rejected("No phase is open. Send kind and start_date to start one.");
+			if (input.start_date === undefined) throw new Rejected(`Starting a ${input.kind} phase needs start_date.`);
+			if (openStart !== null && input.start_date <= openStart) throw new Rejected(`start_date must be after the open ${openKind} phase's start, ${openStart}.`);
+			if (input.target_rate_per_week === undefined && input.target_lb_per_week === undefined) throw new Rejected(`A new ${input.kind} phase needs target_rate_per_week or target_lb_per_week.`);
+		}
+
+		const kind = input.kind ?? openKind ?? "";
+		const startDate = input.start_date ?? openStart ?? "";
+		if (!starting && open !== undefined && startDate !== openStart) {
+			const previousEnd = (await client.query<Row>("select max(end_date)::text as end_date from nutrition.phases where id <> $1", [open["id"]])).rows[0]?.["end_date"];
+			if (typeof previousEnd === "string" && startDate <= previousEnd) throw new Rejected(`start_date must be after ${previousEnd}, when the previous phase ended.`);
+		}
+
+		const override = input.start_weight_override_lb !== undefined ? input.start_weight_override_lb : starting ? null : (before?.startWeightOverrideLb ?? null);
+		const startWeightLb = override ?? (await sevenDayWeight(client, startDate));
+		let rate = input.target_rate_per_week ?? (starting ? undefined : before?.targetRatePerWeek);
+		if (input.target_lb_per_week !== undefined) {
+			if (startWeightLb === null) {
+				throw new Rejected(
+					`No weigh-in in the 7 days ending ${startDate} and no start_weight_override_lb, so ${input.target_lb_per_week} lb a week can't become a rate. Send start_weight_override_lb or target_rate_per_week.`,
+				);
+			}
+			rate = roundRate(input.target_lb_per_week / startWeightLb);
+		}
+		if (rate === undefined) throw new Rejected(`The open ${kind} phase has no tracker yet. Send target_rate_per_week or target_lb_per_week.`);
+		if (Math.abs(rate) > MAX_WEEKLY_RATE) throw new Rejected(`${rate} of bodyweight a week is over the ${MAX_WEEKLY_RATE} limit. target_rate_per_week is a fraction, not pounds.`);
+		if (kind === "maintain" && rate !== 0) throw new Rejected(`A maintain phase's rate is 0, not ${rate}.`);
+		if (kind === "cut" && rate >= 0) throw new Rejected(`A cut's rate is negative, not ${rate}.`);
+		if (kind === "gain" && rate <= 0) throw new Rejected(`A gain's rate is positive, not ${rate}.`);
+
+		const weeks = input.weeks ?? before?.weeks;
+		const currentKcalTarget = input.current_kcal_target ?? before?.currentKcalTarget;
+		if (weeks === undefined || currentKcalTarget === undefined) throw new Rejected("There is no tracker to copy from. Send weeks and current_kcal_target.");
+		const after: TrackerSettings = {
+			kind,
+			startDate,
+			startWeightOverrideLb: override,
+			targetRatePerWeek: rate,
+			weeks,
+			toleranceLb: input.tolerance_lb ?? before?.toleranceLb ?? TRACKER_DEFAULTS.toleranceLb,
+			maxWeeklyKcalChange: input.max_weekly_kcal_change ?? before?.maxWeeklyKcalChange ?? TRACKER_DEFAULTS.maxWeeklyKcalChange,
+			minLoggedDays: input.min_logged_days ?? before?.minLoggedDays ?? TRACKER_DEFAULTS.minLoggedDays,
+			currentKcalTarget,
+		};
+
+		const comparedTo: Partial<TrackerSettings> = { ...before, kind: openKind ?? undefined, startDate: openStart ?? undefined };
+		const previous: Partial<TrackerSettings> = {};
+		for (const [key] of TRACKER_FIELDS) {
+			if (open !== undefined && comparedTo[key] !== after[key]) Object.assign(previous, { [key]: comparedTo[key] ?? null });
+		}
+
+		let closed: PhaseUpdate["closed"] = null;
+		let phaseId: unknown;
+		if (starting) {
+			if (open !== undefined) {
+				const endDate = addDays(startDate, -1);
+				await client.query("update nutrition.phases set end_date = $1 where id = $2", [endDate, open["id"]]);
+				closed = { kind: openKind ?? "", startDate: openStart ?? "", endDate };
+			}
+			phaseId = (await client.query<Row>("insert into nutrition.phases (kind, start_date) values ($1, $2) returning id", [kind, startDate])).rows[0]?.["id"];
+		} else {
+			phaseId = open?.["id"];
+			if (startDate !== openStart) await client.query("update nutrition.phases set start_date = $1 where id = $2", [startDate, phaseId]);
+			const changes: Partial<Record<TrackerColumn, [unknown, unknown]>> = {};
+			for (const [key, column] of TRACKER_FIELDS) {
+				if (column !== null && comparedTo[key] !== after[key]) changes[column] = [comparedTo[key], after[key]];
+			}
+			await auditTracker(client, num(phaseId), changes, actor);
+		}
+		await client.query(
+			`insert into nutrition.phase_trackers (phase_id, start_weight_override_lb, target_rate_per_week, weeks, tolerance_lb, max_weekly_kcal_change, min_logged_days, current_kcal_target)
+			values ($1, $2, $3, $4, $5, $6, $7, $8)
+			on conflict (phase_id) do update set start_weight_override_lb = excluded.start_weight_override_lb, target_rate_per_week = excluded.target_rate_per_week, weeks = excluded.weeks,
+				tolerance_lb = excluded.tolerance_lb, max_weekly_kcal_change = excluded.max_weekly_kcal_change, min_logged_days = excluded.min_logged_days, current_kcal_target = excluded.current_kcal_target`,
+			[phaseId, after.startWeightOverrideLb, after.targetRatePerWeek, after.weeks, after.toleranceLb, after.maxWeeklyKcalChange, after.minLoggedDays, after.currentKcalTarget],
+		);
+
+		const saved = (await client.query<Row>(`${TRACKED_PHASE} where p.id = $1`, [phaseId])).rows[0];
+		if (saved === undefined) throw new Error("The phase did not read back");
+		const phase = await phaseView(client, trackerSettings(saved), today(), null);
+		return { phase, startWeightLb, closed, previous };
+	});
 }
 
 const dayKcal = (plan: string) => `coalesce(

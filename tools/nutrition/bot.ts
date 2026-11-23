@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { defineMcpTool, type McpScope, McpToolError, toolMcp } from "../../worker/mcp.ts";
 import { today } from "./dates.ts";
-import { dayUpdate, foodChanges, isoDate, targetsInput } from "./schemas.ts";
-import { addTargets, changeFood, discardTestDay, getDay, getPhase, Rejected, TEST_DAYS_FROM, updateDay } from "./store.ts";
+import { dayUpdate, foodChanges, isoDate, phaseInput, targetsInput } from "./schemas.ts";
+import { addTargets, changeFood, discardTestDay, getDay, getPhase, Rejected, setPhase, TEST_DAYS_FROM, updateDay } from "./store.ts";
 
 const date = isoDate.optional().describe("Defaults to today in Matt's time zone");
 
@@ -49,8 +49,17 @@ export const nutritionMcp = toolMcp({
 			run: (input, { db }) => asTool(() => db((client) => addTargets(client, input, "bot"))),
 		}),
 		defineMcpTool({
+			name: "update_phase",
+			description:
+				"Set the phase tracker. Omitted fields stay as they are. A kind other than the open phase's closes it the day before start_date and starts a new phase; otherwise the open phase is edited in place and each change is logged. Send the rate as target_rate_per_week (a fraction) or target_lb_per_week, negative on a cut. Returns the phase, the start weight used, the phase it closed, and the previous value of every field that changed.",
+			input: phaseInput,
+			idempotent: true,
+			run: (input, { db }) => asTool(() => db((client) => setPhase(client, input, "bot"))),
+		}),
+		defineMcpTool({
 			name: "get_phase_summary",
-			description: "The open phase's weekly tracker: planned and actual weight, logged kcal, measured TDEE, verdict, and suggested kcal for next week. Also returns the day's totals.",
+			description:
+				"The weekly tracker of the phase covering the date: planned and actual weight, logged kcal, measured TDEE, verdict, and suggested kcal for next week, plus the upcoming phase when one starts later. Also returns the day's totals.",
 			input: z.strictObject({ date }),
 			readOnly: true,
 			run: ({ date: day }, { db }) =>

@@ -34,7 +34,7 @@ export type PhaseWeek = {
 	kcalChange: number | null;
 };
 
-export type PhaseSummary = { startWeight: number | null; weeks: PhaseWeek[]; current: PhaseWeek | null };
+export type PhaseSummary = { startWeight: number | null; lbPerWeekAtStart: number | null; weeks: PhaseWeek[]; current: PhaseWeek | null };
 
 const KCAL_PER_LB = 3500;
 const TDEE_WINDOW_DAYS = 28;
@@ -124,5 +124,6 @@ export function phaseSummary(settings: TrackerSettings, weights: readonly Weight
 			row.kcalChange = row.nextWeekKcal - settings.currentKcalTarget;
 		}
 	}
-	return { startWeight, weeks, current: weeks.findLast((week) => week.started) ?? null };
+	const lbPerWeekAtStart = startWeight === null ? null : Math.round(startWeight * settings.targetRatePerWeek * 1000) / 1000;
+	return { startWeight, lbPerWeekAtStart, weeks, current: weeks.findLast((week) => week.started) ?? null };
 }

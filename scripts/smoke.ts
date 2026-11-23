@@ -31,7 +31,7 @@ const IMAGE_PATH = /["'`(](\/[\w./-]+\.(?:png|svg|webp|avif|jpe?g|gif|ico))["'`)
 const SCRIPT_PATH = /<script[^>]+src="(\/assets\/[\w.-]+\.js)"/g;
 
 export const TEST_DAY = "2099-01-01";
-export const SMOKE_TOOLS = ["discard_test_day", "get_phase_summary", "log_food", "update_day", "update_targets"];
+export const SMOKE_TOOLS = ["discard_test_day", "get_phase_summary", "log_food", "update_day", "update_phase", "update_targets"];
 
 type McpResult = { isError?: boolean; content?: { text?: string }[]; structuredContent?: Record<string, unknown>; tools?: { name: string; inputSchema: Schema }[] };
 type Schema = { type?: string; additionalProperties?: unknown; properties?: Record<string, Schema>; items?: Schema; anyOf?: Schema[]; oneOf?: Schema[]; allOf?: Schema[] };

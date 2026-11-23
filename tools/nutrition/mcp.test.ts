@@ -12,6 +12,9 @@ for (const slug of ["nutrition", "activity", "liaison"]) {
 	const files = await Promise.all((await readdir(dir)).toSorted().map((name) => readFile(join(dir, name), "utf-8")));
 	await pg.exec(`create schema ${slug}; set search_path to ${slug}; ${files.join(";\n")}; set search_path to public;`);
 }
+const maintain = await pg.query<{ id: number }>("insert into nutrition.phases (kind, start_date) values ('maintain', '2026-11-22') returning id");
+await pg.query("insert into nutrition.phase_trackers (phase_id, weeks, current_kcal_target) values ($1, 12, 2750)", [maintain.rows[0]?.id]);
+await pg.query("insert into nutrition.weigh_ins (measured_on, source, weight_lb) values ('2026-11-20', 'sheet', 181), ('2026-11-21', 'sheet', 179)");
 const client = {
 	query: async (text: string, values?: unknown[]) => {
 		const result = await pg.query(text, values);
@@ -73,6 +76,7 @@ test("the skill names exactly the tools the server lists, and only get_phase_sum
 	const botSection = skill.slice(skill.indexOf("## Bot"), skill.indexOf("### Requests"));
 	const documented = [...botSection.matchAll(/^\| `([a-z_]+)` \|/gm)].map(([, name]) => name);
 	expect(documented.toSorted()).toEqual(tools.map((tool) => tool.name).toSorted());
+	expect(skill).toContain("`baseline`, `elimination`, and `reintroduction` are read-only kinds");
 	expect(tools.filter((tool) => tool.annotations?.readOnlyHint).map((tool) => tool.name)).toEqual(["get_phase_summary"]);
 });
 
@@ -140,7 +144,7 @@ async function rowsOn(date: string): Promise<number> {
 
 test("the smoke identity works only on test days and cleans up after itself", async () => {
 	const listed = (await (await post({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { "content-type": HEADERS["content-type"], accept: HEADERS.accept }, "POST", SMOKE)).json()) as { result: { tools: { name: string }[] } };
-	expect(listed.result.tools.map((tool) => tool.name).toSorted()).toEqual(["discard_test_day", "get_phase_summary", "log_food", "update_day", "update_targets"]);
+	expect(listed.result.tools.map((tool) => tool.name).toSorted()).toEqual(["discard_test_day", "get_phase_summary", "log_food", "update_day", "update_phase", "update_targets"]);
 	expect((await call("discard_test_day", { date: "2099-03-01" })).content[0]?.text).toContain("Tool discard_test_day not found");
 
 	for (const [name, args] of [
@@ -154,6 +158,7 @@ test("the smoke identity works only on test days and cleans up after itself", as
 	}
 	const targets = await call("update_targets", { effective_from: "2099-03-01", kcal: { min: 1, max: 2 }, protein_g: { min: 1, max: 2 }, fat_g: { min: 1, max: 2 }, carbs_g: { min: 1, max: 2 }, change: "smoke" }, SMOKE);
 	expect(targets.content[0]?.text).toBe("The smoke identity can't call update_targets: it changes more than one test day.");
+	expect((await call("update_phase", { weeks: 1 }, SMOKE)).content[0]?.text).toBe("The smoke identity can't call update_phase: it changes more than one test day.");
 	expect(await rowsOn("2026-11-22")).toBe(0);
 	expect((await pg.query("select 1 from nutrition.plan_versions where effective_from = '2099-03-01'")).rows).toEqual([]);
 
@@ -164,4 +169,19 @@ test("the smoke identity works only on test days and cleans up after itself", as
 	expect(discarded.structuredContent).toEqual({ date: "2099-03-01", liaisonDeliveries: 0, deliveries: 0, entries: 1, weighIns: 1, days: 1 });
 	expect(await rowsOn("2099-03-01")).toBe(0);
 	expect((await call("discard_test_day", { date: "2026-11-22" }, SMOKE)).content[0]?.text).toContain("only works on test days");
+});
+
+test("Matt's cut converts half a pound a week at the start weight, and a retry closes nothing", async () => {
+	const cut = { kind: "cut", start_date: "2026-11-23", target_lb_per_week: -0.5, weeks: 12, current_kcal_target: 2450 };
+	const retried = await call("update_phase", cut);
+	const result = retried.structuredContent as { phase: { kind: string; settings: { targetRatePerWeek: number }; summary: { lbPerWeekAtStart: number } }; startWeightLb: number; closed: unknown; previous: unknown };
+	expect(result).toMatchObject({ phase: { kind: "cut", settings: { targetRatePerWeek: -0.00278 }, summary: { lbPerWeekAtStart: -0.5 } }, startWeightLb: 180, closed: null, previous: {} });
+	expect((await pg.query("select kind, end_date::text from nutrition.phases order by start_date")).rows).toEqual([
+		{ kind: "maintain", end_date: "2026-11-22" },
+		{ kind: "cut", end_date: null },
+	]);
+	const both = await call("update_phase", { target_rate_per_week: -0.005, target_lb_per_week: -1 });
+	expect({ isError: both.isError, text: both.content[0]?.text }).toEqual({ isError: true, text: expect.stringContaining("not both") });
+	const camel = await call("update_phase", { startDate: "2026-11-24" });
+	expect(camel.content[0]?.text).toContain("Unrecognized key");
 });

@@ -17,7 +17,7 @@ Every bar and chart can be inspected. Hovering, keyboard focus, or a tap on a ph
 - History (`/nutrition/history`). One row per day, newest first, with the entry count and the day's steps in the muted text when there are any. A three-way filter, saved in the browser, picks what shows. Logged, the default, shows days with entries that aren't partial. With partial adds partial days, marked "Partial" in the row's muted text. All days adds days with no entries. A muted line under the list says how many days are hidden. Days with entries and a plan get a thin kcal bar along the bottom of the row, drawn against the plan range (`kcalRange` from `/history`) and tinted like Today's. The bar sits beside the row's link rather than inside it, so tapping it opens the tooltip and tapping the rest of the row opens the day. The tooltip gives "Kcal", the date, and kcal against the range. A day is partial when it is closed and its kcal is under `PARTIAL_DAY_SHARE` (50%, in `types.ts`) of its target: the midpoint of that day's plan range, or the phase tracker's kcal target when no plan version covers it.
 - Weight (`/nutrition/weight`). One range drives everything on the page: 90 days, 1 year, all, a From and To date, or a mouse drag across the chart. Under the controls is a summary of the range: start and end average, change, mean weight, and weekly rate. A second row shows Expenditure, the average daily estimate for the range, with its margin, then Measured when the range has enough logged days, and the average steps a day. The Expenditure number opens the right panel: the average split into resting, daily living, steps, training, and digesting food, the calibration in a sentence (with more than two windows, a Calibration list of each window's dates, source, TDEE, implied scale, and share of the fit), and each day's total with its measured steps (or "Active energy" when Apple Health's active energy stood in), workouts, and intake, newest first, the last 28 days until "Show all". Summary cells sit in `minmax(0, 1fr)` tracks and their text wraps, so a long value never runs into the next cell. The chart draws the 7-day, 14-day, or 28-day average in `--chart-accent` over muted weigh-ins, and either layer can be hidden. Hovering, or tapping on a phone, snaps to the nearest weigh-in. A dashed crosshair appears, with the date on the x-axis and both the weigh-in and the trend value on the y-axis. Dragging with a mouse still selects a range. Changes in the summary and the table are tinted by direction: on a cut, a loss reads as good and a gain as bad, and the reverse on a gain. Any other phase uses neutral blue for a loss and amber for a gain. The tint grows with the size of the change, from 30% at small values to full at 2 lb for one weigh-in, 3 lb for the range, or 1 lb a week. Values that round to zero stay untinted. The table below lists date, weight, the chosen average, and the change from the previous weigh-in, 50 rows a page, sortable by any column. Under 640 px each row stacks onto two lines. A source filter appears only when the data has more than one source. The page loads every weigh-in once and filters in the browser.
 - Steps (`/nutrition/steps`). Built from the same pieces as Weight in `series.tsx`: the range control, the 7, 14, or 28-day switch, the chart with hover and drag, and the sortable table. Daily steps draw as muted bars from zero with the trend line over them. The summary shows the average a day, the total, the change in daily average against the same number of days just before the range, tinted green for more and red for fewer, and how many days met the target when a plan sets one. On top of the axis readout, the chart's tooltip gives the steps against that day's target. Days with no steps, or zero, are left out rather than drawn as zero. A Day, Week, or Month switch (`?group=week` or `?group=month`, no parameter for Day) groups the chart and table. Weeks start on Monday. Each bar and row is the average steps a day over the days in it that have data, with the count ("9,840 avg · 7 days"), how many of those days met the target, and the change from the previous week or month. The bucket that holds today is marked partial: a lighter bar with a dashed edge, and "partial" in the row. Its tooltip gives the average a day and the days at target. Grouped views widen the range to whole weeks or months, and the summary covers that widened range. They hide the average switch and the trend line. Hover, tap, drag, and the keyboard work as on the day chart. The grouping lives in `groups.ts`.
-- Phase (`/nutrition/phase`). The open phase's verdict and suggested kcal for next week, then the weekly rows.
+- Phase (`/nutrition/phase`). For the phase covering today, the verdict and suggested kcal for next week, then the weekly rows.
 
 ## API
 
@@ -33,21 +33,22 @@ All routes are under `/api/tools/nutrition` and sit behind Cloudflare Access.
 | `GET /weights` | Every weigh-in with its source and 7, 14, and 28 day averages, oldest first. |
 | `GET /expenditure?from=&to=` | The unified expenditure estimate for the range: `tdee` and `plusMinus`, `basis` (`estimated` or `calibrated`), `loggedDays`, `measured` (or null) and `minDays`, the logged days it needs, `scale` with its calibration `windows` (each with `kind`, `source`, dates, `tdee`, `plusMinus`, its implied `scale`, and its `weight`, the share of the fit), average `components`, and one entry per day in `days`, plus `avgSteps` and `stepDays`. Defaults to the last 90 days. |
 | `GET /steps` | Every day with steps, Withings first and the bot second, with calendar-window 7, 14, and 28 day averages and the plan's steps target for that day, oldest first. |
-| `GET /phase` | The open phase, its tracker settings, and the weekly summary. |
+| `GET /phase` | The phase covering today, its tracker settings, the weekly summary, and `upcoming`, the phase that starts later, or null. |
 | `POST /mcp` | The bot's MCP server. |
 
 A rejected write, such as an edit to a closed day, returns `409 { error }`.
 
 ## Bot
 
-`bot.ts` mounts four tools with `toolMcp` from `worker/mcp.ts`. Only the `nutrition` bot can call them.
+`bot.ts` mounts five tools with `toolMcp` from `worker/mcp.ts`. Only the `nutrition` bot can call them.
 
 | Tool | Flow |
 | --- | --- |
 | `log_food` | Add, edit, or remove entries on one day. Returns the day. Same rules as `POST /day/food`. |
 | `update_day` | Read the day, or set bodyweight, steps, scores, notes, estimated totals, or closed. |
 | `update_targets` | Start a new plan version with kcal and macro ranges and an optional `steps_target`, and optionally set the tracker's current kcal target. |
-| `get_phase_summary` | The tracker week and the day's progress. Read-only. |
+| `update_phase` | Switch the phase (cut, maintain, gain) or change the open phase's tracker settings. Partial: omitted fields stay as they are. |
+| `get_phase_summary` | The tracker week of the phase covering the date, the upcoming phase if one starts later, and the day's progress. Read-only. |
 
 The bot sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` from the `nutrition-bot` Access service token, and an explicit `User-Agent`. That token is its only credential; `Authorization: Bearer <BOT_TOKEN_NUTRITION>` still works until the bearer-removal PR, but isn't needed. A 302 to `cloudflareaccess.com` means the Access headers are missing or wrong, a 403 naming the bot means the route is outside its scopes, and a 403 with Cloudflare error 1010 means Browser Integrity Check blocked a client's default User-Agent, such as Python urllib's.
 
@@ -56,6 +57,17 @@ Since the 2026-11-22 cutover the bot logs each food through `log_food` as Matt r
 Every day the tools return, from `log_food`, `update_day`, and `get_phase_summary`, lists each food with its `source` in the same format the bot sends: `USDA FDC <id> (<label>)`, `Open Food Facts <barcode> (<label>)`, or the estimate note as written. It is rebuilt from `sourceKind`, `sourceRef`, and `sourceLabel`, which stay in the response, and the parenthesized label is left off when it is empty. Tracker-export days return the export's note. `GET /day` returns the same field.
 
 A retry is safe with the same body. An add whose `client_key` exists is skipped, an edit sets the same values again, and a remove of an entry that is already gone is skipped. A remove of an entry that sits on another day is rejected.
+
+### Phases
+
+`update_phase` takes `kind`, `start_date`, `start_weight_override_lb`, `target_rate_per_week` or `target_lb_per_week`, `weeks`, `tolerance_lb`, `max_weekly_kcal_change`, `min_logged_days`, and `current_kcal_target`, all optional, at least one required. It sets only `maintain`, `cut`, and `gain`. `baseline`, `elimination`, and `reintroduction` are read-only kinds: they stay in history from the import, and no tool sets them.
+
+- The rate is a fraction of bodyweight a week, compounded: `-0.005` is 0.5% a week. A cut is negative, a gain positive, and maintain is 0. The fraction can't exceed 0.02 either way. Send `target_rate_per_week`, or `target_lb_per_week` in pounds with the same sign, never both. Pounds become the fraction, rounded to 5 places, by dividing by the phase's start weight: `start_weight_override_lb`, else the 7-day average on `start_date`. With no weigh-in in the 7 days ending on `start_date` and no override, the call is rejected.
+- A `kind` other than the open phase's starts a new phase. It needs `start_date`, after the open phase's start and possibly in the future, and exactly one of the two rate fields. The open phase ends the day before, its rows stay as history, and the new tracker copies `weeks`, `tolerance_lb`, `max_weekly_kcal_change`, `min_logged_days`, and `current_kcal_target` unless the call sends them. The override starts empty.
+- Without a kind change, the open phase is edited in place, `start_date` included as long as it stays after the previous phase's end. Each changed field, and each `current_kcal_target` that `update_targets` changes, writes a row to `nutrition.phase_tracker_changes` (`phase_id`, `field`, `old_value`, `new_value`, `changed_at`, `changed_by`), which is the history of in-place edits.
+- It returns `{ phase, startWeightLb, closed, previous }`. `phase` has the shape `get_phase_summary` returns, with `settings.targetRatePerWeek` and `summary.lbPerWeekAtStart`, the rate in pounds at the start weight. `startWeightLb` is the weight the pounds were divided by, and `closed` is the `{ kind, startDate, endDate }` of the phase this call ended, or null. `previous` holds the old value of each field that changed, keyed like `settings`.
+- A retry with identical arguments returns the same phase with `closed: null` and an empty `previous`, and never closes a second phase: the kind already matches, so it is an in-place edit that changes nothing.
+- `get_phase_summary` and `GET /phase` show the phase covering the date. Until a future phase starts, they keep showing the current one, with the new one in `upcoming` as `{ kind, startDate }`.
 
 Every object in a tool's input is strict. An argument name the tool doesn't know, such as `bodyweight` for `bodyweight_lb` or `calories` on a food, fails the call with `isError: true` and `Unrecognized key`, instead of being dropped while the call reports success.
 
@@ -105,6 +117,12 @@ Start a plan version, and read the tracker:
 { "jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": { "name": "get_phase_summary", "arguments": { "date": "2099-01-01" } } }
 ```
 
+Start Matt's cut on 2026-11-23, losing half a pound a week:
+
+```json
+{ "jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": { "name": "update_phase", "arguments": { "kind": "cut", "start_date": "2026-11-23", "target_lb_per_week": -0.5, "weeks": 12, "current_kcal_target": 2450 } } }
+```
+
 ## Webhook
 
 Closing a day in the UI POSTs to `NUTRITION_WEBHOOK_URL`. Closing it through `update_day` sends nothing, because the bot already knows.
@@ -121,7 +139,8 @@ Closing a day in the UI POSTs to `NUTRITION_WEBHOOK_URL`. Closing it through `up
 
 Schema `nutrition`. See `migrations/0001-create-schema.sql`.
 
-- `days`, `food_entries`, `plan_versions`, `phases`, `phase_trackers`, `weigh_ins`, `deliveries`.
+- `days`, `food_entries`, `plan_versions`, `phases`, `phase_trackers`, `phase_tracker_changes`, `weigh_ins`, `deliveries`.
+- One phase is open (`end_date` null). Closed phases keep their tracker rows. Tracker rows are edited in place, and `phase_tracker_changes` logs every edit (`migrations/0006-phase-tracker-changes.sql`).
 - Views: `daily_weights` takes one weigh-in a day, preferring Withings, then the bot, then the sheet, then the daily files. `weight_trend` adds unrounded rolling averages, and `day_totals` sums the entries.
 - Plan versions are never edited. A change starts a new version on its `effective_from` date. `steps_target` is optional and carries forward from the previous version unless `update_targets` sets it or sends `null`. No target means Today shows bare steps. Targets never move with steps.
 - Steps come from `activity.daily_activity` when Withings has the day, and from the bot's `update_day` steps otherwise. Withings wins.
