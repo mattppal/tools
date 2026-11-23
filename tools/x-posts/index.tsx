@@ -460,6 +460,54 @@ function jobLine(job: JobState): string {
 	return [what, job.status, when(job.createdAt), tries, job.error].filter((part): part is string => part !== null).join(" · ");
 }
 
+function SkipBacklog({ pending, refresh }: { pending: number; refresh: () => void }) {
+	const [cutover, setCutover] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [result, setResult] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	async function skip(before: string) {
+		setBusy(true);
+		setError(null);
+		try {
+			const { skipped } = await request<{ skipped: number }>("/backlog/skip", { method: "POST", body: { before } });
+			setResult(`Skipped ${skipped.toLocaleString("en-US")} ${skipped === 1 ? "post" : "posts"} matched before ${when(before)}.`);
+			setCutover(null);
+			refresh();
+		} catch (failure) {
+			setError(describe(failure));
+		}
+		setBusy(false);
+	}
+	if (cutover !== null) {
+		return (
+			<div className={styles.skip}>
+				<p className={styles.muted}>Skip every pending post matched before {when(cutover)}? They go to overflow and never print, not even in a summary.</p>
+				{error === null ? null : <p className={styles.error}>{error}</p>}
+				<div className={styles.actions}>
+					<Button size="sm" variant="destructive" loading={busy} disabled={busy} onClick={() => void skip(cutover)}>
+						Skip them
+					</Button>
+					<Button size="sm" variant="quiet" disabled={busy} onClick={() => setCutover(null)}>
+						Cancel
+					</Button>
+				</div>
+			</div>
+		);
+	}
+	return (
+		<div className={styles.skip}>
+			<p className={styles.muted}>
+				{result ?? `${pending.toLocaleString("en-US")} ${pending === 1 ? "post is" : "posts are"} waiting for review.`} At the bridge cutover, skip the backlog so only posts matched after it print.
+			</p>
+			<div className={styles.actions}>
+				<Button size="sm" variant="quiet" disabled={pending === 0} onClick={() => setCutover(new Date().toISOString())}>
+					Skip backlog
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 function QueuePage({ status, refresh }: { status: Load<Status>; refresh: () => void }) {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -481,6 +529,7 @@ function QueuePage({ status, refresh }: { status: Load<Status>; refresh: () => v
 			<p className={styles.muted}>
 				{status.data.today.printedOrQueued} of {status.data.today.dailyCap} posts printed or queued today. A job that may have printed is never sent again on its own.
 			</p>
+			<SkipBacklog pending={status.data.counts.pending ?? 0} refresh={refresh} />
 			{error === null ? null : <p className={styles.error}>{error}</p>}
 			{jobs.length === 0 ? (
 				<p className={styles.muted}>No print jobs yet.</p>

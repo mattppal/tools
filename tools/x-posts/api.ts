@@ -5,7 +5,7 @@ import { FeedError, parseFeedRequest, readFeed } from "./feed.ts";
 import { blocklistRequest, listPosts, POST_STATUSES, readStatus, replaceBlocklist } from "./owner.ts";
 import { checkNow, runIngest } from "./ingest.ts";
 import { CHECK_NOW_COOLDOWN_MS, LIVE_INGEST, QUEUE_OPEN } from "./query.ts";
-import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, QUEUE_CLOSED, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue } from "./queue.ts";
+import { ackJob, ackRequest, applyDecisions, BadRequest, claimJob, claimRequest, Closed, Conflict, QUEUE_CLOSED, decisionsRequest, NotFound, pendingTotal, requeueJob, reviewQueue, skipBacklog } from "./queue.ts";
 import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, pkce, replyRequest, saveAccount, sendReply, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
 import type { Fetch } from "./x.ts";
 
@@ -23,6 +23,7 @@ function databaseDown(error: unknown): boolean {
 }
 const BOT_ROUTES = new Set(["GET /feed", "GET /review", "POST /decisions", "POST /jobs/claim", "POST /jobs/ack"]);
 const requeueRequest = z.strictObject({ jobId: z.uuid() });
+const skipRequest = z.strictObject({ before: z.iso.datetime({ offset: true }) });
 const OAUTH_COOKIE = "x_oauth";
 const OAUTH_COOKIE_MAX_AGE_S = 15 * 60;
 const CLEAR_OAUTH = `${OAUTH_COOKIE}=; Path=${CALLBACK_PATH}; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
@@ -174,6 +175,10 @@ export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, i
 				case "POST /jobs/requeue": {
 					const { jobId } = await body(request, requeueRequest);
 					return Response.json({ jobId: await db((client) => requeueJob(client, jobId, now)) }, { headers: NO_STORE });
+				}
+				case "POST /backlog/skip": {
+					const { before } = await body(request, skipRequest);
+					return Response.json({ before: new Date(before).toISOString(), skipped: await db((client) => skipBacklog(client, new Date(before), now)) }, { headers: NO_STORE });
 				}
 				case "PUT /blocklist": {
 					const { terms } = await body(request, blocklistRequest);

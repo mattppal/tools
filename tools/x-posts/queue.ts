@@ -173,6 +173,19 @@ export async function postsInJobsToday(client: Database, now: Date): Promise<num
 	return Number(row?.used ?? 0);
 }
 
+export const CUTOVER_REASON = "matched before the bridge cutover";
+
+export async function skipBacklog(client: Database, before: Date, now: Date): Promise<number> {
+	if (before.getTime() > now.getTime()) throw new BadRequest("before can't be in the future");
+	const result = await client.query(
+		"update x_posts.posts set status = 'overflow', reason = $2, decided_by = 'matt', decided_at = $3, summarized_at = $3 where status = 'pending' and ingested_at < $1",
+		[before, CUTOVER_REASON, now],
+	);
+	const skipped = result.rowCount ?? 0;
+	console.log(JSON.stringify({ xPosts: "skip backlog", actor: "matt", before: iso(before), skipped }));
+	return skipped;
+}
+
 export async function pendingTotal(client: Database): Promise<number> {
 	return Number((await client.query<{ n: number }>("select count(*)::int as n from x_posts.posts where status = 'pending'")).rows[0]?.n ?? 0);
 }

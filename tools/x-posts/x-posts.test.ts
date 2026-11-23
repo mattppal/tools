@@ -589,3 +589,19 @@ test("opening the queue skips every post still pending from the closed period, w
 	await db((c) => sweep(c, new Date(NOW.getTime() + 25 * 3_600_000), true));
 	expect((await pg.query("select count(*)::int as n from x_posts.jobs")).rows[0]).toEqual({ n: 0 });
 });
+
+test("Matt's backlog skip at the cutover overflows only posts pending from before it, with no summary", async () => {
+	const before = await seed([{}, {}, { text: "mattyp mattyp mattyp call 415-555-1234" }], { ingestedAt: new Date(NOW.getTime() - 3_600_000) });
+	const [after] = await seed([{}], { ingestedAt: new Date(NOW.getTime() + 60_000) });
+	expect((await send("/backlog/skip", { method: "POST", body: { before: NOW.toISOString() }, caller: REVIEW })).status).toBe(403);
+	expect((await send("/backlog/skip", { method: "POST", body: { before: new Date(Date.now() + 3_600_000).toISOString() }, caller: MATT })).status).toBe(400);
+	const response = await send("/backlog/skip", { method: "POST", body: { before: NOW.toISOString() }, caller: MATT });
+	expect(await response.json()).toEqual({ before: NOW.toISOString(), skipped: 2 });
+	expect([await status(before[0] ?? ""), await status(before[1] ?? ""), await status(before[2] ?? ""), await status(after ?? "")]).toEqual(["overflow", "overflow", "rejected", "pending"]);
+	const skipped = (await pg.query<{ reason: string; decided_by: string; summarized: boolean }>("select reason, decided_by, summarized_at is not null as summarized from x_posts.posts where id = $1::bigint", [before[0]])).rows[0];
+	expect(skipped).toEqual({ reason: "matched before the bridge cutover", decided_by: "matt", summarized: true });
+	expect(await (await send("/backlog/skip", { method: "POST", body: { before: NOW.toISOString() }, caller: MATT })).json()).toMatchObject({ skipped: 0 });
+	await db((c) => sweep(c, new Date(NOW.getTime() + 25 * 3_600_000), true));
+	const summaries = (await pg.query<{ count: number }>("select (payload->'summary'->>'count')::int as count from x_posts.jobs where kind = 'summary'")).rows;
+	expect(summaries).toEqual([{ count: 1 }]);
+});
