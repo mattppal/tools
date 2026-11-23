@@ -30,7 +30,7 @@ const ROUTES = [
 ] as const;
 
 const GRANTS: Record<BotName, readonly string[]> = {
-	nutrition: ["nutrition POST /mcp", "activity GET /days", "activity GET /weights", "activity GET /health"],
+	nutrition: ["nutrition POST /mcp", "activity GET /days", "activity GET /weights", "activity GET /health", "activity GET /sleep"],
 	coach: ["workouts POST /sync", "activity GET /workouts"],
 	coordinator: ["liaison POST /notices", "liaison GET /deliveries"],
 	smoke: ["nutrition POST /mcp", "activity GET /days", "activity GET /weights", "activity GET /health", "activity GET /workouts", "activity GET /sleep", "activity GET /measures", "activity GET /intraday"],
