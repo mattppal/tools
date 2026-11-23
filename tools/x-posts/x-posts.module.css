@@ -59,14 +59,6 @@
 	overflow-wrap: anywhere;
 }
 
-.clean {
-	margin: 0;
-	font-size: var(--text-xs);
-	line-height: var(--leading-xs);
-	color: var(--text-3);
-	overflow-wrap: anywhere;
-}
-
 .actions {
 	display: flex;
 	gap: var(--space-2);
@@ -323,7 +315,11 @@
 
 .inbox .postRow,
 .inbox .liveRow {
-	cursor: default;
+	cursor: pointer;
+}
+
+.inbox .replyPane {
+	cursor: auto;
 }
 
 .inbox [aria-current] {
@@ -368,8 +364,9 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 
-	.replyPane {
+	.replyPane[data-inline] {
 		position: static;
-		order: -1;
+		padding: 0;
+		background: none;
 	}
 }

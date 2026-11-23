@@ -1,4 +1,5 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 import { Button } from "../../src/kit/button.tsx";
 import { useToolPath } from "../../src/router.tsx";
 import { ToolLayout, type ToolSection } from "../../src/shell/tool-layout.tsx";
@@ -69,28 +70,42 @@ type Inbox = {
 	selected: OwnerPost | null;
 	select: (id: string) => void;
 	pane: ReactNode;
+	paneFor: (id: string) => ReactNode;
 };
+
+const NARROW = "(max-width: 900px)";
+
+function subscribeNarrow(onChange: () => void): () => void {
+	const media = window.matchMedia(NARROW);
+	media.addEventListener("change", onChange);
+	return () => media.removeEventListener("change", onChange);
+}
+
+function useNarrow(): boolean {
+	return useSyncExternalStore(subscribeNarrow, () => window.matchMedia(NARROW).matches);
+}
 
 function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inbox {
 	const [chosen, setChosen] = useState<string | null>(null);
-	const [focus, setFocus] = useState(0);
+	const input = useRef<HTMLTextAreaElement>(null);
+	const narrow = useNarrow();
 	const [sent, setSent] = useState<ReadonlyMap<string, Reply>>(new Map());
 	const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(new Map());
 	const posts = (load.status === "ready" ? load.data.posts : []).map((post) => (post.reply === null && sent.has(post.id) ? { ...post, reply: sent.get(post.id) ?? null } : post));
 	const selected = posts.find((post) => post.id === chosen) ?? posts.find((post) => post.reply === null) ?? posts[0] ?? null;
 	const connected = isConnected(status);
 	const pane = (
-		<aside className={styles.replyPane} aria-label="Reply">
+		<aside className={styles.replyPane} aria-label="Reply" data-inline={narrow || undefined}>
 			{status.status === "ready" && !connected ? <ConnectX /> : null}
 			{selected === null ? (
 				<p className={styles.muted}>Pick a post to reply.</p>
 			) : (
 				<>
 					<div className={styles.postFoot}>
-						<p className={styles.meta}>@{selected.handle}</p>
+						<p className={styles.meta}>{narrow ? "" : `@${selected.handle}`}</p>
 						<CopyLink url={selected.url} />
 					</div>
-					<p className={styles.paneText}>{selected.text}</p>
+					{narrow ? null : <p className={styles.paneText}>{selected.text}</p>}
 					{connected || selected.reply !== null ? (
 						<ReplyBox
 							key={selected.id}
@@ -99,7 +114,7 @@ function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inb
 							draft={drafts.get(selected.id) ?? ""}
 							onDraft={(text) => setDrafts((all) => new Map(all).set(selected.id, text))}
 							onSent={(reply) => setSent((all) => new Map(all).set(selected.id, reply))}
-							focus={focus}
+							inputRef={input}
 						/>
 					) : null}
 				</>
@@ -109,10 +124,11 @@ function useInbox(load: Load<{ posts: OwnerPost[] }>, status: Load<Status>): Inb
 	return {
 		posts,
 		selected,
-		pane,
+		pane: narrow ? null : pane,
+		paneFor: (id) => (narrow && selected?.id === id ? pane : null),
 		select: (id) => {
-			setChosen(id);
-			setFocus((count) => count + 1);
+			flushSync(() => setChosen(id));
+			input.current?.focus();
 		},
 	};
 }
@@ -122,7 +138,7 @@ function selectable(id: string, inbox: Inbox) {
 		tabIndex: 0,
 		"aria-current": inbox.selected?.id === id || undefined,
 		onClick: (event: MouseEvent<HTMLElement>) => {
-			if ((event.target as HTMLElement).closest("a, button")) return;
+			if ((event.target as HTMLElement).closest("a, button, textarea, aside")) return;
 			inbox.select(id);
 		},
 		onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
@@ -235,17 +251,14 @@ function PostFoot({ post }: { post: OwnerPost }) {
 	return meta.length === 0 ? null : <p className={styles.meta}>{meta.join(" · ")}</p>;
 }
 
-function printsDifferently(post: OwnerPost): boolean {
-	const plain = (text: string) => text.replace(/@\w+/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-	return plain(post.cleanText) !== plain(post.text);
-}
+
 
 function LivePost({ post, now, fresh, inbox }: { post: OwnerPost; now: number; fresh: boolean; inbox: Inbox }) {
 	return (
 		<li className={styles.liveRow} data-fresh={fresh || undefined} {...selectable(post.id, inbox)}>
 			<PostBody post={post} time={ago(post.createdAt, now)} />
-			{printsDifferently(post) ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
 			<PostFoot post={post} />
+			{inbox.paneFor(post.id)}
 		</li>
 	);
 }
@@ -383,7 +396,6 @@ function PostItem({ post, canDecide, onDecided, inbox }: { post: OwnerPost; canD
 	return (
 		<li className={styles.postRow} {...selectable(post.id, inbox)}>
 			<PostBody post={post} time={when(post.createdAt)} />
-			{printsDifferently(post) ? <p className={styles.clean}>Prints as: {post.cleanText}</p> : null}
 			<PostFoot post={post} />
 			{post.status === "pending" && canDecide ? (
 				<div className={styles.actions}>
@@ -396,6 +408,7 @@ function PostItem({ post, canDecide, onDecided, inbox }: { post: OwnerPost; canD
 				</div>
 			) : null}
 			{error === null ? null : <p className={styles.error}>{error}</p>}
+			{inbox.paneFor(post.id)}
 		</li>
 	);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useState } from "react";
 import { Button } from "../../src/kit/button.tsx";
 import type { OwnerPost } from "./owner.ts";
 import type { Reply } from "./reply.ts";
@@ -15,13 +15,9 @@ function intentUrl(postId: string, text: string): string {
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-export function ReplyBox({ post, send, draft, onDraft, onSent, focus }: { post: OwnerPost; send: Send; draft: string; onDraft: (text: string) => void; onSent: (reply: Reply) => void; focus: number }) {
+export function ReplyBox({ post, send, draft, onDraft, onSent, inputRef }: { post: OwnerPost; send: Send; draft: string; onDraft: (text: string) => void; onSent: (reply: Reply) => void; inputRef: RefObject<HTMLTextAreaElement | null> }) {
 	const [sending, setSending] = useState<string | null>(null);
 	const [error, setError] = useState<{ message: string; connect: boolean; text: string } | null>(null);
-	const input = useRef<HTMLTextAreaElement>(null);
-	useEffect(() => {
-		if (focus > 0) input.current?.focus();
-	}, [focus]);
 	const reply = post.reply;
 	if (reply !== null)
 		return (
@@ -62,7 +58,7 @@ export function ReplyBox({ post, send, draft, onDraft, onSent, focus }: { post: 
 	return (
 		<div className={styles.replyBox}>
 			<textarea
-				ref={input}
+				ref={inputRef}
 				className={styles.replyInput}
 				rows={3}
 				value={draft}
