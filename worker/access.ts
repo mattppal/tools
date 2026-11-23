@@ -14,7 +14,7 @@ export const BOTS = {
 		serviceToken: "nutrition-bot",
 		clientId: "46f516f5dd0738abfa72def83722f0da.access",
 		bearer: "BOT_TOKEN_NUTRITION",
-		tools: { nutrition: ["GET *", "POST /mcp"], activity: ["GET /days", "GET /weights", "GET /health"] },
+		tools: { nutrition: ["GET *", "POST /mcp"], activity: ["GET /days", "GET /weights", "GET /health", "GET /sleep"] },
 	},
 	coach: {
 		serviceToken: "coach-bot",

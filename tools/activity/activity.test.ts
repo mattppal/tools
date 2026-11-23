@@ -491,7 +491,7 @@ test("activity reads are for bots, and each bot reads only its routes", async ()
 	const routes = ["/days", "/weights", "/health", "/workouts", "/apple-health/workouts", "/sleep", "/measures", "/intraday"];
 	const status = async (caller: BotName | "owner") => Object.fromEntries(await Promise.all(routes.map(async (route) => [route, (await read(route, caller)).status])));
 	expect(await status("owner")).toEqual(Object.fromEntries(routes.map((route) => [route, 401])));
-	expect(await status("nutrition")).toEqual({ "/days": 200, "/weights": 200, "/health": 200, "/workouts": 403, "/apple-health/workouts": 403, "/sleep": 403, "/measures": 403, "/intraday": 403 });
+	expect(await status("nutrition")).toEqual({ "/days": 200, "/weights": 200, "/health": 200, "/workouts": 403, "/apple-health/workouts": 403, "/sleep": 200, "/measures": 403, "/intraday": 403 });
 	expect(await status("coach")).toEqual({ "/days": 403, "/weights": 403, "/health": 403, "/workouts": 200, "/apple-health/workouts": 200, "/sleep": 403, "/measures": 403, "/intraday": 403 });
 	expect(Object.values(await status("apple-health")).every((code) => code === 403)).toBe(true);
 	expect(await (await read("/intraday", "coach")).json()).toEqual({ error: "Forbidden: bot coach may not call GET /intraday on activity" });
