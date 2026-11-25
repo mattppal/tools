@@ -73,7 +73,7 @@ Change `delivery.tla` in the same PR as the code, so that `claim.cfg` and `claim
 | `tools/liaison/webhook.ts`, `tools/liaison/migrations/0001-create-deliveries.sql` | `queueForLiaison` (insert) and the claim columns. Each close or finish inserts one row here and one in its own table under the same id; the two rows are sent independently, so each is one row of the model. |
 | `tools/liaison/api.ts` | `deliverDue` for one notice right after it's queued |
 
-Last confirmed against commit `2f42587`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
+Last confirmed against commit `06e509f`. When a covered file changes after that commit, check that the model still describes it before you trust a pass, then move this commit forward.
 
 ## Not covered
 
