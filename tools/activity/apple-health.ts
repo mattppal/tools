@@ -464,6 +464,7 @@ export async function listAppleWorkouts(client: Database, from: string, to: stri
 	const { rows } = await client.query<Item>(
 		`select a.*, a.local_date::text as date,
 			(select w.id::text from activity.withings_workouts w where w.started_at < a.ended_at and w.ended_at > a.started_at
+				and w.started_at > a.started_at - (select max(ended_at - started_at) from activity.withings_workouts)
 				order by abs(extract(epoch from w.started_at - a.started_at)) limit 1) as withings_id
 		from activity.apple_health_workouts a where a.local_date between $1 and $2 order by a.started_at`,
 		[from, to],
