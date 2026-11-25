@@ -19,6 +19,12 @@ export function addDays(date: string, days: number): string {
 	return isoDate(dayNumber(date) + days);
 }
 
+const CLOCK = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" });
+
+export function clockTime(instant: string): string {
+	return CLOCK.format(new Date(instant));
+}
+
 export function today(now = new Date()): string {
 	return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }

@@ -25,7 +25,14 @@ const entryEdit = foodInput
 	.refine((edit) => (edit.id === undefined) !== (edit.client_key === undefined), "Send exactly one of id or client_key");
 
 export const foodChanges = z.strictObject({
-	add: z.array(foodInput.extend({ client_key: clientKey.optional().describe("Same key on a retry makes the add a no-op") })).optional(),
+	add: z
+		.array(
+			foodInput.extend({
+				client_key: clientKey.optional().describe("Same key on a retry makes the add a no-op"),
+				logged_at: z.iso.datetime({ offset: true }).optional().describe("When the food was eaten, like 2026-11-25T12:30:00-08:00. Defaults to now"),
+			}),
+		)
+		.optional(),
 	edit: z.array(entryEdit).optional(),
 	remove: z
 		.array(z.union([z.number().int(), clientKey]))

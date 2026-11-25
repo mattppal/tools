@@ -24,6 +24,7 @@ export type FoodEntry = {
 	sourceLabel: string;
 	source: string;
 	clientKey: string;
+	loggedAt: string | null;
 };
 
 export type CheckIn = {

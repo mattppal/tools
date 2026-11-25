@@ -25,7 +25,7 @@ function expectFits(event: LiaisonEvent): void {
 
 function widestDay(): DayView {
 	const range = { min: WIDEST_NUMBER, max: WIDEST_NUMBER };
-	const entry = { id: WIDEST_NUMBER, food: NASTY_TEXTS[0] ?? "", qty: WIDEST_NUMBER, unit: "", kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: null, sourceKind: "estimate" as const, sourceRef: null, sourceLabel: "", source: "", clientKey: "" };
+	const entry = { id: WIDEST_NUMBER, food: NASTY_TEXTS[0] ?? "", qty: WIDEST_NUMBER, unit: "", kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: null, sourceKind: "estimate" as const, sourceRef: null, sourceLabel: "", source: "", clientKey: "", loggedAt: null };
 	return {
 		date: "2099-12-31",
 		closed: true,

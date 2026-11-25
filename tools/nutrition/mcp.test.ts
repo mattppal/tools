@@ -100,6 +100,18 @@ test("every day read returns each food's source as the bot wrote it", async () =
 	}
 });
 
+test("each food returns when it was logged, from logged_at on the add or the time of the call", async () => {
+	const before = Date.now();
+	const logged = await call("log_food", { date: "2099-02-05", add: [{ ...yogurt, client_key: "bot:time:0", logged_at: "2099-02-05T12:30:00-08:00" }, { ...yogurt, client_key: "bot:time:1" }] });
+	const [given, now] = (logged.structuredContent as { entries: { loggedAt: string }[] }).entries;
+	expect(given?.loggedAt).toBe("2099-02-05T20:30:00.000Z");
+	expect(Date.parse(now?.loggedAt ?? "")).toBeGreaterThanOrEqual(before - 1000);
+	const bad = await call("log_food", { date: "2099-02-05", add: [{ ...yogurt, client_key: "bot:time:2", logged_at: "12:30" }] });
+	expect(bad.isError).toBe(true);
+	const edit = await call("log_food", { date: "2099-02-05", edit: [{ client_key: "bot:time:0", logged_at: "2099-02-05T13:00:00Z" }] });
+	expect(edit.content[0]?.text).toContain("Unrecognized key");
+});
+
 test("an argument name the tool does not know fails the call instead of being dropped", async () => {
 	const cases: [string, Record<string, unknown>][] = [
 		["update_day", { date: "2099-02-02", bodyweight: 180 }],

@@ -114,6 +114,22 @@
 	list-style: none;
 }
 
+.logs {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.logTime {
+	margin: 0;
+	padding: 0 var(--space-1);
+	font-size: var(--text-xs);
+	font-weight: inherit;
+	line-height: var(--leading-xs);
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+}
+
 .entry {
 	display: flex;
 	align-items: center;

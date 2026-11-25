@@ -5,8 +5,9 @@ import { Skeleton } from "../../src/kit/skeleton.tsx";
 import { navigate, useSearchParam } from "../../src/router.tsx";
 import { Icon } from "../../src/shell/icons.tsx";
 import { ToolLayout } from "../../src/shell/tool-layout.tsx";
-import { addDays, today } from "./dates.ts";
+import { addDays, clockTime, today } from "./dates.ts";
 import { Inspect, TipLines } from "./inspect.tsx";
+import { groupLogs } from "./logs.ts";
 import styles from "./nutrition.module.css";
 import type { CheckIn, DayView, FoodEntry, Macro, MacroProgress } from "./types.ts";
 import { dayLabel, request, SOURCE_TAGS, tenths, useJson, VIEWS, whole, withEntries } from "./ui.tsx";
@@ -146,11 +147,12 @@ function DaySummary({ day }: { day: DayView }) {
 	);
 }
 
-function Entries({ day, onOpen }: { day: DayView; onOpen: (entry: FoodEntry) => void }) {
-	if (day.entries.length === 0) return <p className={styles.empty}>{day.closed ? "Nothing was logged on this day." : "Nothing logged yet."}</p>;
+type EntriesProps = { day: DayView; onOpen: (entry: FoodEntry) => void };
+
+function EntryList({ entries, day, onOpen }: EntriesProps & { entries: FoodEntry[] }) {
 	return (
 		<ul className={styles.entries}>
-			{day.entries.map((entry) => (
+			{entries.map((entry) => (
 				<li key={entry.id}>
 					<button type="button" className={styles.entry} disabled={day.closed || entry.id < 0} onClick={() => onOpen(entry)}>
 						<span className={styles.entryMain}>
@@ -167,6 +169,22 @@ function Entries({ day, onOpen }: { day: DayView; onOpen: (entry: FoodEntry) => 
 				</li>
 			))}
 		</ul>
+	);
+}
+
+function Entries({ day, onOpen }: EntriesProps) {
+	if (day.entries.length === 0) return <p className={styles.empty}>{day.closed ? "Nothing was logged on this day." : "Nothing logged yet."}</p>;
+	const logs = groupLogs(day.entries);
+	if (logs.length === 1 && logs[0]?.at === null) return <EntryList entries={day.entries} day={day} onOpen={onOpen} />;
+	return (
+		<div className={styles.logs}>
+			{logs.map((log) => (
+				<section key={log.entries[0]?.id}>
+					<h2 className={styles.logTime}>{log.at === null ? "No time" : clockTime(log.at)}</h2>
+					<EntryList entries={log.entries} day={day} onOpen={onOpen} />
+				</section>
+			))}
+		</div>
 	);
 }
 
@@ -259,7 +277,7 @@ export function Today() {
 		const parsed = parse(editor.draft);
 		if (typeof parsed === "string") return setEditor({ ...editor, error: parsed });
 		if (editor.id === null) {
-			const pending: FoodEntry = { id: -Date.now(), ...parsed, fiber_g: null, sourceKind: "estimate", sourceRef: null, sourceLabel: "", source: "", clientKey: editor.clientKey };
+			const pending: FoodEntry = { id: -Date.now(), ...parsed, fiber_g: null, sourceKind: "estimate", sourceRef: null, sourceLabel: "", source: "", clientKey: editor.clientKey, loggedAt: new Date().toISOString() };
 			void change(day, [...day.entries, pending], { add: [{ ...parsed, client_key: editor.clientKey }] }, editor);
 		} else {
 			const id = editor.id;
