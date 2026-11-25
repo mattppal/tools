@@ -1,5 +1,6 @@
 import type { Database } from "../../worker/db.ts";
 import { type HaeEvent, HaeScanner } from "./hae-scanner.ts";
+import { HourCompactor } from "./hourly.ts";
 
 type Item = Record<string, unknown>;
 
@@ -9,6 +10,7 @@ export type SleepStage = (typeof SLEEP_STAGES)[keyof typeof SLEEP_STAGES];
 const UNKNOWN_SOURCE = "Apple Health";
 const WITHINGS_SOURCE = /withings|health ?mate/i;
 const CHUNK = 2000;
+const HOUR_VALUES = 50_000;
 export const MAX_BODY_BYTES = 95 * 1024 * 1024;
 const MAX_PENDING_CHARS = 8_000_000;
 const DAY_METRICS = new Set(["step_count", "walking_running_distance", "active_energy", "basal_energy_burned"]);
@@ -161,6 +163,8 @@ const SAMPLE_RECORDS = `jsonb_to_recordset($1::jsonb) as r (metric text, source 
 		avg numeric, max numeric, extra jsonb)`;
 
 const HOUR_SUMMARY = (measured: string, ended: string) => `(${ended} = ${measured} + interval '1 hour' and date_trunc('hour', ${measured}, 'UTC') = ${measured})`;
+const NOT_SUMMARY = (measured: string, ended: string) => `not coalesce(${HOUR_SUMMARY(measured, ended)}, false)`;
+const COMPACTED = (alias: string) => `coalesce(${alias}.extra ? 'seconds', false)`;
 
 const SAMPLES_SQL = `insert into activity.apple_health_samples (metric, source, measured_at, ended_at, utc_offset_min, units, qty, min, avg, max, extra)
 	select r.metric, r.source, r.measured::timestamptz, r.ended::timestamptz, r.offset_min, r.units, r.qty, r.min, r.avg, r.max, r.extra
@@ -168,7 +172,7 @@ const SAMPLES_SQL = `insert into activity.apple_health_samples (metric, source, 
 	where ${HOUR_SUMMARY("r.measured::timestamptz", "r.ended::timestamptz")} or not exists (
 		select 1 from activity.apple_health_samples s
 		where s.metric = r.metric and s.source in (r.source, '${UNKNOWN_SOURCE}') and s.measured_at = date_trunc('hour', r.measured::timestamptz, 'UTC')
-			and ${HOUR_SUMMARY("s.measured_at", "s.ended_at")})
+			and ${HOUR_SUMMARY("s.measured_at", "s.ended_at")} and (s.source = r.source or not ${COMPACTED("s")}))
 	on conflict (metric, source, measured_at) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, units = excluded.units,
 		qty = excluded.qty, min = excluded.min, avg = excluded.avg, max = excluded.max, extra = excluded.extra, updated_at = now()
 	where (activity.apple_health_samples.ended_at, activity.apple_health_samples.utc_offset_min, activity.apple_health_samples.units, activity.apple_health_samples.qty,
@@ -181,6 +185,36 @@ const SUPERSEDED_SQL = `delete from activity.apple_health_samples s
 		and s.metric = r.metric and s.source in (r.source, '${UNKNOWN_SOURCE}')
 		and s.measured_at >= r.measured::timestamptz and s.measured_at < r.ended::timestamptz
 		and not (s.source = r.source and s.measured_at = r.measured::timestamptz)`;
+
+const hourRecords = (alias: string) => `jsonb_to_recordset($1::jsonb) as ${alias} (metric text, source text, measured text, ended text, offset_min integer, units text, "values" jsonb)`;
+
+const NO_REAL_SUMMARY = `not exists (
+	select 1 from activity.apple_health_samples h
+	where h.metric = r.metric and h.source in (r.source, '${UNKNOWN_SOURCE}') and h.measured_at = date_trunc('hour', r.measured::timestamptz, 'UTC')
+		and ${HOUR_SUMMARY("h.measured_at", "h.ended_at")} and not ${COMPACTED("h")})`;
+
+const HOURS_REPLACED_SQL = `delete from activity.apple_health_samples s
+	using ${hourRecords("r")}
+	where s.metric = r.metric and s.source = r.source
+		and s.measured_at >= date_trunc('hour', r.measured::timestamptz, 'UTC') and s.measured_at < date_trunc('hour', r.measured::timestamptz, 'UTC') + interval '1 hour'
+		and ${NOT_SUMMARY("s.measured_at", "s.ended_at")} and ${NO_REAL_SUMMARY}
+		and not exists (select 1 from ${hourRecords("k")} where k.metric = s.metric and k.source = s.source and k.measured::timestamptz = s.measured_at)`;
+
+const HOURS_SQL = `with written as (
+	insert into activity.apple_health_samples (metric, source, measured_at, ended_at, utc_offset_min, units, qty, extra)
+	select r.metric, r.source, r.measured::timestamptz, r.ended::timestamptz, r.offset_min, r.units,
+		(select sum(v::numeric) from jsonb_array_elements_text(r."values") as v), jsonb_build_object('seconds', jsonb_array_length(r."values"))
+	from ${hourRecords("r")}
+	where ${NO_REAL_SUMMARY}
+	on conflict (metric, source, measured_at) do update set ended_at = excluded.ended_at, utc_offset_min = excluded.utc_offset_min, units = excluded.units,
+		qty = excluded.qty, min = null, avg = null, max = null, extra = excluded.extra, updated_at = now()
+	where (${COMPACTED("activity.apple_health_samples")} or ${NOT_SUMMARY("activity.apple_health_samples.measured_at", "activity.apple_health_samples.ended_at")})
+		and (activity.apple_health_samples.ended_at, activity.apple_health_samples.utc_offset_min, activity.apple_health_samples.units, activity.apple_health_samples.qty,
+			activity.apple_health_samples.min, activity.apple_health_samples.avg, activity.apple_health_samples.max, activity.apple_health_samples.extra)
+		is distinct from (excluded.ended_at, excluded.utc_offset_min, excluded.units, excluded.qty, null, null, null, excluded.extra)
+	returning extra
+)
+select coalesce(sum((extra->>'seconds')::integer), 0)::integer as seconds from written`;
 
 const WORKOUTS_SQL = `insert into activity.apple_health_workouts (id, name, source, local_date, started_at, ended_at, duration_s, active_kcal, total_kcal, distance_m, elevation_m,
 		hr_avg, hr_min, hr_max, location, data)
@@ -231,6 +265,7 @@ class Ingest {
 	private metrics = new Map<number, Metric>();
 	private sleep = new Map<string, SleepRow>();
 	private samples = new Map<string, SampleRow>();
+	private hours = new HourCompactor<SampleRow>();
 	private workouts = new Map<string, WorkoutRow>();
 	private pending = 0;
 	private names = new Set<string>();
@@ -335,6 +370,10 @@ class Ingest {
 		}
 		this.received.samples++;
 		if (DAY_METRICS.has(name)) this.dates.add(row.measured.slice(0, 10));
+		if (!this.hourly && DAY_METRICS.has(name) && row.extra === null && row.min === null && row.avg === null && row.max === null && HourCompactor.fits(row)) {
+			this.hours.add(row, Date.parse(row.measured));
+			return;
+		}
 		this.samples.set(`${name}/${source}/${row.measured}`, row);
 	}
 
@@ -353,7 +392,7 @@ class Ingest {
 		this.workouts.set(workout.id, workout);
 	}
 
-	async flush(): Promise<void> {
+	private async flush(): Promise<void> {
 		this.changed.sleep += await this.write(SLEEP_SQL, this.sleep);
 		if (this.hourly && this.samples.size > 0) {
 			const records = JSON.stringify([...this.samples.values()]);
@@ -372,13 +411,32 @@ class Ingest {
 		return rowCount ?? 0;
 	}
 
+	async close(): Promise<void> {
+		const { hours, raw } = this.hours.drain();
+		for (let start = 0; start < hours.length; ) {
+			let end = start;
+			let values = 0;
+			while (end < hours.length && end - start < CHUNK && values < HOUR_VALUES) values += hours[end++]?.values.length ?? 0;
+			const records = JSON.stringify(hours.slice(start, end));
+			await this.client.query(HOURS_REPLACED_SQL, [records]);
+			const { rows } = await this.client.query<{ seconds: number }>(HOURS_SQL, [records]);
+			this.changed.samples += rows[0]?.seconds ?? 0;
+			start = end;
+		}
+		for (const row of raw) {
+			this.samples.set(`${row.metric}/${row.source}/${row.measured}`, row);
+			await this.flushWhenFull();
+		}
+		await this.flush();
+	}
+
 	async finish(): Promise<IngestCounts> {
 		for (const metric of this.metrics.values()) {
 			if (metric.name !== null) await this.drain(metric, metric.name);
 			else this.skipped.invalid += metric.pending.length;
 		}
 		this.metrics.clear();
-		await this.flush();
+		await this.close();
 		if (this.dates.size > 0) await this.client.query(DAYS_SQL, [[...this.dates].toSorted()]);
 		return this.counts();
 	}
@@ -424,14 +482,14 @@ export async function ingestAppleHealth(
 		await ingest.take(scanner.push(decoder.decode()));
 	} catch (error) {
 		if (!(error instanceof TooLarge) && !(error instanceof SyntaxError)) throw error;
-		await ingest.flush();
+		await ingest.close();
 		const message = error instanceof TooLarge ? error.message : `The body isn't valid JSON: ${error.message}`;
 		await recordPush(client, push, ingest.counts(message));
 		return { ok: false, status: error instanceof TooLarge ? 413 : 422, error: message };
 	}
 	const invalid = scanner.end();
 	if (invalid !== null) {
-		await ingest.flush();
+		await ingest.close();
 		await recordPush(client, push, ingest.counts(invalid));
 		return { ok: false, status: 422, error: invalid };
 	}

@@ -338,6 +338,136 @@ test("per-second steps and distance compact into hourly rows with the same daily
 	]);
 });
 
+type Tick = { metric: string; units: string; source?: string; at: number; offsetH: number; qty: number };
+
+const stamp = (at: number, offsetH: number) => {
+	const local = new Date(at + offsetH * 3600_000).toISOString().slice(0, 19).replace("T", " ");
+	const sign = offsetH < 0 ? "-" : "+";
+	return `${local} ${sign}${String(Math.abs(offsetH)).padStart(2, "0")}00`;
+};
+
+const pushTicks = (ticks: Tick[]) => {
+	const metrics = new Map<string, { name: string; units: string; data: Record<string, unknown>[] }>();
+	for (const tick of ticks) {
+		const metric = metrics.get(tick.metric) ?? { name: tick.metric, units: tick.units, data: [] };
+		metrics.set(tick.metric, metric);
+		metric.data.push({ date: stamp(tick.at, tick.offsetH), qty: tick.qty, ...(tick.source === undefined ? {} : { source: tick.source }) });
+	}
+	return post(JSON.stringify({ data: { metrics: [...metrics.values()] } }));
+};
+
+const START = Date.parse("2026-11-21T05:00:00Z");
+const day = (): Tick[] =>
+	Array.from({ length: 6 * 3600 }, (_, s) => s).flatMap((s): Tick[] => {
+		const at = START + s * 1000;
+		const ticks: Tick[] = [];
+		if (s % 3 === 0) ticks.push({ metric: "step_count", units: "count", at, offsetH: -8, qty: 0.37 + (s % 7) / 10 });
+		if (s % 5 === 0) ticks.push({ metric: "walking_running_distance", units: "km", at, offsetH: -8, qty: 0.000731 });
+		if (s % 4 === 0) ticks.push({ metric: "active_energy", units: "kJ", at, offsetH: -8, qty: 0.0913 });
+		if (s % 6 === 0) ticks.push({ metric: "basal_energy_burned", units: "kcal", at, offsetH: -8, qty: 0.0187 });
+		if (s % 300 === 0) ticks.push({ metric: "step_count", units: "count", source: "Matt’s iPhone", at, offsetH: -8, qty: 31 });
+		return ticks;
+	});
+
+const totals = async () =>
+	rows(`select (measured_at at time zone 'UTC' + make_interval(mins => utc_offset_min))::date::text as day, metric, source, sum(qty)::text as total
+		from activity.apple_health_samples group by 1, 2, 3 order by 1, 2, 3`);
+const daysRows = async () => rows("select day::text, steps, active_kcal::text, total_kcal::text, distance_m::text, device, raw from activity.days order by day");
+const resetSamples = () => pg.exec("delete from activity.apple_health_samples; delete from activity.days;");
+
+async function hourByHour(ticks: Tick[]): Promise<void> {
+	const hours = [...new Set(ticks.map((tick) => Math.floor(tick.at / 3600_000)))].toSorted((a, b) => a - b);
+	for (const hour of hours) await pushTicks(ticks.filter((tick) => Math.floor(tick.at / 3600_000) === hour));
+}
+
+test("a per-second push writes one row per interior hour with the same daily totals and days as raw rows, and changes nothing when sent again", async () => {
+	const ticks = day();
+	await resetSamples();
+	await hourByHour(ticks);
+	const rawTotals = await totals();
+	const rawDays = await daysRows();
+	const rawRows = (await rows("select count(*)::int as n from activity.apple_health_samples"))[0]?.["n"];
+	expect(rawRows).toBe(ticks.length);
+	await resetSamples();
+
+	const response = (await (await pushTicks(ticks)).json()) as { received: { samples: number }; changed: { samples: number } };
+	expect(response.received.samples).toBe(ticks.length);
+	expect(response.changed.samples).toBe(ticks.length);
+	expect(await totals()).toEqual(rawTotals);
+	expect(await daysRows()).toEqual(rawDays);
+	expect(rawDays.map((row) => row["day"])).toEqual(["2026-11-20", "2026-11-21"]);
+	const stored = await rows("select metric, source, count(*)::int as n, count(*) filter (where extra ? 'seconds')::int as hours from activity.apple_health_samples group by 1, 2 order by 1, 2");
+	expect(stored).toEqual([
+		{ metric: "active_energy", source: "Apple Health", n: 900 + 900 + 4, hours: 4 },
+		{ metric: "basal_energy_burned", source: "Apple Health", n: 600 + 600 + 4, hours: 4 },
+		{ metric: "step_count", source: "Apple Health", n: 1200 + 1200 + 4, hours: 4 },
+		{ metric: "step_count", source: "Matt’s iPhone", n: 12 + 12 + 4, hours: 4 },
+		{ metric: "walking_running_distance", source: "Apple Health", n: 720 + 720 + 4, hours: 4 },
+	]);
+	expect(await rows("select measured_at::text, ended_at::text, extra from activity.apple_health_samples where extra is not null and metric = 'step_count' and source = 'Apple Health' order by measured_at limit 1")).toEqual([
+		{ measured_at: "2026-11-21 06:00:00+00", ended_at: "2026-11-21 07:00:00+00", extra: { seconds: 1200 } },
+	]);
+
+	const again = (await (await pushTicks(ticks)).json()) as { changed: { samples: number } };
+	expect(again.changed.samples).toBe(0);
+	expect(await totals()).toEqual(rawTotals);
+});
+
+test("an hour first sent in part and later inside a full push is counted once, and a later partial push for it adds nothing twice", async () => {
+	const ticks = day();
+	await resetSamples();
+	await hourByHour(ticks);
+	const rawTotals = await totals();
+	const rawDays = await daysRows();
+	await resetSamples();
+
+	const third = START + 2 * 3600_000;
+	await pushTicks(ticks.filter((tick) => tick.at >= third && tick.at < third + 1800_000));
+	await pushTicks(ticks);
+	expect(await totals()).toEqual(rawTotals);
+	expect(await daysRows()).toEqual(rawDays);
+	await pushTicks(ticks.filter((tick) => tick.at >= third + 900_000 && tick.at < third + 2700_000));
+	expect(await totals()).toEqual(rawTotals);
+	expect(await daysRows()).toEqual(rawDays);
+});
+
+test("Health Auto Export's own hourly summaries win over hours the Worker summed, in either order", async () => {
+	const ticks = day();
+	const hour = "2026-11-21 00:00:00 -0800";
+	const summary = { data: { metrics: [{ name: "step_count", units: "count", data: [{ date: hour, qty: 999 }] }] } };
+	const steps = "select source, qty::float8 as qty, extra from activity.apple_health_samples where metric = 'step_count' and source = 'Apple Health' and measured_at >= '2026-11-21T08:00:00Z' and measured_at < '2026-11-21T09:00:00Z' order by source, measured_at";
+
+	await pushTicks(ticks);
+	await post(JSON.stringify(summary), `Bearer ${TOKEN}`, "/apple-health", "hours");
+	const after = await rows(steps);
+	expect(after).toEqual([{ source: "Apple Health", qty: 999, extra: null }]);
+
+	await pushTicks(ticks);
+	expect(await rows(steps)).toEqual(after);
+
+	await resetSamples();
+	await post(JSON.stringify(summary), `Bearer ${TOKEN}`, "/apple-health", "hours");
+	await pushTicks(ticks);
+	expect(await rows(steps)).toEqual(after);
+});
+
+test("an hour whose readings change time zone across local midnight keeps each part on its own day", async () => {
+	const at = (minute: number) => Date.parse("2026-11-21T07:00:00Z") + minute * 60_000;
+	await resetSamples();
+	const ticks: Tick[] = [
+		...[0, 10, 20].map((minute) => ({ metric: "step_count", units: "count", at: at(minute) - 3600_000, offsetH: -8, qty: 5 })),
+		...[0, 10, 20].map((minute) => ({ metric: "step_count", units: "count", at: at(minute), offsetH: -8, qty: 7 })),
+		...[40, 50].map((minute) => ({ metric: "step_count", units: "count", at: at(minute), offsetH: -7, qty: 11 })),
+		...[0, 10].map((minute) => ({ metric: "step_count", units: "count", at: at(minute) + 3600_000, offsetH: -7, qty: 3 })),
+	];
+	await hourByHour(ticks);
+	const rawTotals = await totals();
+	await resetSamples();
+	await pushTicks(ticks);
+	expect(await totals()).toEqual(rawTotals);
+	expect(rawTotals.map((row) => row["day"])).toEqual(["2026-11-20", "2026-11-21"]);
+});
+
 test("0008 deletes the metrics tools doesn't keep and compacts per-second energy into hourly rows with the same totals", async () => {
 	await pg.query(
 		`insert into activity.apple_health_samples (metric, source, measured_at, ended_at, utc_offset_min, units, qty, min, avg, max) values
