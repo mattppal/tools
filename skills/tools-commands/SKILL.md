@@ -37,7 +37,7 @@ Land a PR only with `bun run land <pr>`. Pushing anything else to `main`, such a
 
 ## Database
 
-The `env.DB` binding is Hyperdrive in front of the PlanetScale Postgres database `tools` (org `mattppalmer`). `docs/database.md` is the full reference. For Postgres itself (schema, indexes, query plans, connections), read PlanetScale's `skills/postgres/SKILL.md`. To review the database's safety settings, query load, or Traffic Control, read `skills/planetscale-postgres-safety-review/SKILL.md`. Where `postgres` says to send application traffic to PgBouncer on port 6432, ignore it here: Hyperdrive is the pool and connects on 5432. Tool APIs get `db(...)` in their context. Every API request gets one connection from `withRequestDb` in `worker/db.ts`, which closes it with `ctx.waitUntil(client.end())` after the response. Never create a `pg` client at module scope.
+The `env.DB` binding is Hyperdrive in front of the PlanetScale Postgres database `tools` (org `matt-palmer`). `docs/database.md` is the full reference. For Postgres itself (schema, indexes, query plans, connections), read PlanetScale's `skills/postgres/SKILL.md`. To review the database's safety settings, query load, or Traffic Control, read `skills/planetscale-postgres-safety-review/SKILL.md`. Where `postgres` says to send application traffic to PgBouncer on port 6432, ignore it here: Hyperdrive is the pool and connects on 5432. Tool APIs get `db(...)` in their context. Every API request gets one connection from `withRequestDb` in `worker/db.ts`, which closes it with `ctx.waitUntil(client.end())` after the response. Never create a `pg` client at module scope.
 
 | Where | Branch | Hyperdrive config |
 | --- | --- | --- |

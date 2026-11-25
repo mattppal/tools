@@ -1,4 +1,4 @@
-const ORG = "mattppalmer";
+const ORG = "matt-palmer";
 const DATABASE = "tools";
 
 const MIGRATE_MAX_TTL_SECONDS = 60 * 60;

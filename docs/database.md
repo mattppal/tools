@@ -1,6 +1,6 @@
 # Database
 
-The Worker reaches PlanetScale Postgres (org `mattppalmer`, database `tools`) through the Hyperdrive binding `env.DB`.
+The Worker reaches PlanetScale Postgres (org `matt-palmer`, database `tools`) through the Hyperdrive binding `env.DB`.
 
 | Where | PlanetScale branch | How it connects |
 | --- | --- | --- |
