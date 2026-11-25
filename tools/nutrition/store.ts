@@ -47,6 +47,7 @@ function toEntry(row: Row): FoodEntry {
 		sourceLabel: String(row["source_label"]),
 		source: formatSource(row["source_kind"] as SourceKind, (row["source_ref"] as string | null) ?? null, String(row["source_label"])),
 		clientKey: String(row["client_key"]),
+		loggedAt: row["logged_at"] == null ? null : new Date(row["logged_at"] as string | Date).toISOString(),
 	};
 }
 
@@ -139,7 +140,18 @@ const keyColumn = (target: number | string): "id" | "client_key" => (typeof targ
 
 const entryName = (target: number | string): string => (typeof target === "number" ? String(target) : `with client_key ${target}`);
 
+const LOGGED_AT_LEAD_MS = 5 * 60_000;
+
+function checkLoggedAt(date: string, loggedAt: string, now: Date): void {
+	const at = new Date(loggedAt);
+	if (at.getTime() > now.getTime() + LOGGED_AT_LEAD_MS) throw new Rejected(`logged_at ${loggedAt} is in the future. Send when the food was eaten, no later than now.`);
+	const day = today(at);
+	if (day !== date) throw new Rejected(`logged_at ${loggedAt} falls on ${day} in America/Los_Angeles, not ${date}. Log the food on ${day}, or send a time on ${date}.`);
+}
+
 export async function changeFood(client: Database, date: string, changes: FoodChanges, actor: Actor): Promise<DayView> {
+	const now = new Date();
+	for (const add of changes.add ?? []) if (add.logged_at !== undefined) checkLoggedAt(date, add.logged_at, now);
 	return transaction(client, async () => {
 		await ensureOpenDay(client, date);
 		for (const target of changes.remove ?? []) {
@@ -158,7 +170,7 @@ export async function changeFood(client: Database, date: string, changes: FoodCh
 			if (rowCount === 0) throw new Rejected(`No entry ${entryName(target)} on ${date}.`);
 		}
 		for (const add of changes.add ?? []) {
-			const columns = { source_kind: "estimate", source_ref: null, source_label: "", ...entryColumns(add), day: date, client_key: add.client_key ?? crypto.randomUUID(), created_by: actor };
+			const columns = { source_kind: "estimate", source_ref: null, source_label: "", ...entryColumns(add), day: date, client_key: add.client_key ?? crypto.randomUUID(), created_by: actor, ...(add.logged_at === undefined ? {} : { logged_at: add.logged_at }) };
 			const names = Object.keys(columns);
 			await client.query(
 				`insert into nutrition.food_entries (${names.join(", ")}) values (${names.map((_, index) => `$${index + 1}`).join(", ")}) on conflict (client_key) do nothing`,

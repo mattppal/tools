@@ -132,8 +132,8 @@ async function run(client: Client, plan: PlanFile, days: DailyFile[], weights: S
 		for (const [index, food] of foods.entries()) {
 			const source = sourceOf(day, food);
 			await client.query(
-				`insert into nutrition.food_entries (day, food, qty, unit, kcal, protein_g, carbs_g, fat_g, fiber_g, source_kind, source_ref, source_label, client_key, created_by)
-				values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'import')
+				`insert into nutrition.food_entries (day, food, qty, unit, kcal, protein_g, carbs_g, fat_g, fiber_g, source_kind, source_ref, source_label, client_key, created_by, logged_at)
+				values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'import', null)
 				on conflict (client_key) do update set food = excluded.food, qty = excluded.qty, unit = excluded.unit, kcal = excluded.kcal, protein_g = excluded.protein_g,
 					carbs_g = excluded.carbs_g, fat_g = excluded.fat_g, fiber_g = excluded.fiber_g, source_kind = excluded.source_kind, source_ref = excluded.source_ref, source_label = excluded.source_label`,
 				[day.date, food.food, food.qty, food.unit, food.kcal, food.protein_g, food.carbs_g, food.fat_g, food.fiber_g ?? null, source.kind, source.ref, source.label, `import:${day.date}:${index}`],
