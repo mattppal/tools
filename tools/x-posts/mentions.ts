@@ -23,10 +23,10 @@ export type Mention = { id: string; handle: string; name: string; avatarUrl: str
 export type MentionSync = { lastRunAt: string | null; lastSuccessAt: string | null; lastError: string | null; paused: "budget" | "capped" | null; spentMills: number; capMills: number };
 export type SyncResult = { status: "disconnected" | "paused" | "ok" | "error"; mentions: number; replies: number; users: number; spentMills: number; error: string | null };
 
-type SyncRow = { since_id: string | null; own_since_id: string | null; month: string; spent_mills: number; paused_month: string | null; paused_reason: "budget" | "capped" | null };
+type SyncRow = { since_id: string | null; own_since_id: string | null; month: string; spent_mills: number; paused_month: string | null; paused_reason: "budget" | "capped" | null; last_run_at: Date | string | null; last_error: string | null };
 
 function readSync(client: Database): Promise<SyncRow | undefined> {
-	return client.query<SyncRow>("select since_id, own_since_id, month, spent_mills, paused_month, paused_reason from x_posts.mention_sync").then((result) => result.rows[0]);
+	return client.query<SyncRow>("select since_id, own_since_id, month, spent_mills, paused_month, paused_reason, last_run_at, last_error from x_posts.mention_sync").then((result) => result.rows[0]);
 }
 
 async function saveUsers(client: Database, users: readonly XUser[], now: Date): Promise<void> {
@@ -64,13 +64,14 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 	let spent = state.month === month ? state.spent_mills : 0;
 	if (state.paused_month === month) return { ...result, status: "paused", spentMills: spent };
 	let paused: "budget" | "capped" | null = null;
+	const stored: Record<string, unknown> = { ...state };
 	let wrote = false;
 	const save = async (patch: Record<string, unknown>) => {
-		const keys = Object.keys(patch);
-		const saved = await withDb((client) =>
-			client.query(`update x_posts.mention_sync set ${keys.map((key, index) => `${key} = $${index + 1}`).join(", ")} where ${keys.map((key, index) => `${key} is distinct from $${index + 1}`).join(" or ")}`, Object.values(patch)),
-		);
-		if ((saved.rowCount ?? 0) > 0) wrote = true;
+		const changed = Object.entries(patch).filter(([key, value]) => stored[key] !== value);
+		if (changed.length === 0) return;
+		await withDb((client) => client.query(`update x_posts.mention_sync set ${changed.map(([key], index) => `${key} = $${index + 1}`).join(", ")}`, changed.map(([, value]) => value)));
+		Object.assign(stored, Object.fromEntries(changed));
+		wrote = true;
 	};
 	const fits = (worst: number) => {
 		if (spent + worst <= cap) return true;
@@ -93,7 +94,7 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 			spent += found.posts.length * MENTION_MILLS;
 			newest ??= found.newestId;
 			const authors = [...new Set(found.posts.flatMap((post) => (typeof post.author_id === "string" ? [post.author_id] : [])))];
-			const known = new Set(await withDb(async (client) => (await client.query<{ id: string }>("select id from x_posts.x_users where id = any($1::text[])", [authors])).rows.map((row) => row.id)));
+			const known = authors.length === 0 ? new Set<string>() : new Set(await withDb(async (client) => (await client.query<{ id: string }>("select id from x_posts.x_users where id = any($1::text[])", [authors])).rows.map((row) => row.id)));
 			const unknown = authors.filter((id) => !known.has(id));
 			const users = unknown.length === 0 ? [] : await lookupUsers(fetcher, token, unknown);
 			spent += users.length * USER_MILLS;
@@ -140,13 +141,10 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 		result.status = "paused";
 		await save({ paused_month: month, paused_reason: paused });
 	}
-	await withDb((client) =>
-		client.query(
-			`update x_posts.mention_sync set last_run_at = $1, last_error = $2, last_success_at = case when $3 then $1 else last_success_at end
-			where $4 or last_error is distinct from $2 or last_run_at is null or last_run_at < $1::timestamptz - make_interval(mins => $5)`,
-			[now, result.error, result.status !== "error", wrote, RUN_HEARTBEAT_MINUTES],
-		),
-	);
+	const lastRunAt = state.last_run_at === null ? null : new Date(state.last_run_at);
+	if (wrote || state.last_error !== result.error || lastRunAt === null || now.getTime() - lastRunAt.getTime() > RUN_HEARTBEAT_MINUTES * 60_000) {
+		await save(result.status === "error" ? { last_run_at: now, last_error: result.error } : { last_run_at: now, last_success_at: now, last_error: null });
+	}
 	result.spentMills = spent;
 	console.log(JSON.stringify({ xPosts: "mentions", actor: "cron", ...result }));
 	return result;
