@@ -102,6 +102,30 @@ async function claimOne(db: WithDb, webhook: Webhook, claimId: string, only: rea
 	);
 }
 
+export async function dueWebhooks(db: WithDb, webhooks: readonly Webhook[], env: Env): Promise<Webhook[]> {
+	const targeted = webhooks.filter((webhook) => webhookTarget(webhook, env) !== null);
+	if (targeted.length === 0) return [];
+	const due = await db(
+		async (client) =>
+			(
+				await client.query<{ table_name: string }>(
+					targeted
+						.map(
+							(webhook, index) =>
+								`select $${index + 1}::text as table_name where exists (
+									select 1 from ${webhook.table}
+									where delivered_at is null and next_attempt_at <= now() and (claimed_until is null or claimed_until < now())
+								)`,
+						)
+						.join(" union all "),
+					targeted.map((webhook) => webhook.table),
+				)
+			).rows,
+	);
+	const tables = new Set(due.map((row) => row.table_name));
+	return targeted.filter((webhook) => tables.has(webhook.table));
+}
+
 export function deliverSoon(ctx: ExecutionContext, env: Env, webhook: Webhook, deliveryIds: readonly string[]): void {
 	ctx.waitUntil(
 		withRequestDb(env.DB, ctx, (db) => deliverDue(db, webhook, env, deliveryIds)).catch((error: unknown) => {

@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import type { WithDb } from "./db.ts";
-import { defineWebhook, deliverDue, retryDelayMinutes } from "./webhooks.ts";
+import { defineWebhook, deliverDue, dueWebhooks, retryDelayMinutes } from "./webhooks.ts";
 
 declare global {
 	interface Env {
@@ -149,4 +149,17 @@ test("waits without a target", async () => {
 
 test("backs off 1, 2, 4, 8, 16, 32, then every 60 minutes", () => {
 	expect([1, 2, 3, 4, 5, 6, 7, 8, 30].map(retryDelayMinutes)).toEqual([1, 2, 4, 8, 16, 32, 60, 60, 60]);
+});
+
+test("the cron's outbox check is read-only and names only outboxes with a due, unclaimed row", async () => {
+	const unset = defineWebhook({ table: "hooks.missing", urlSecret: "TEST_WEBHOOK_URL", keySecret: "TEST_WEBHOOK_KEY", deliveryHeader: "X-Test-Delivery" });
+	expect(await dueWebhooks(db, [webhook, unset], {} as Env)).toEqual([]);
+	expect(await dueWebhooks(db, [webhook], env)).toEqual([]);
+	await pg.exec("update hooks.deliveries set next_attempt_at = now() - interval '1 second', claimed_until = now() + interval '1 minute'");
+	expect(await dueWebhooks(db, [webhook], env)).toEqual([]);
+	await pg.exec("update hooks.deliveries set claimed_until = now() - interval '1 second'");
+	const before = (await pg.query<{ xmin: string }>("select xmin::text from hooks.deliveries")).rows[0]?.xmin;
+	expect(await dueWebhooks(db, [webhook], env)).toEqual([webhook]);
+	expect((await pg.query<{ xmin: string }>("select xmin::text from hooks.deliveries")).rows[0]?.xmin).toBe(before);
+	expect(received).toHaveLength(0);
 });

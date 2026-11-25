@@ -40,7 +40,7 @@ Workouts and Nutrition are the working examples. Copy from the file that already
 | `index.tsx` | yes | Default-exported React component. Loaded lazily. Render `ToolLayout` at the top. |
 | `SKILL.md` | yes | The tool's skill. `name: tool-<slug>`. The build fails without it. |
 | `api.ts` | no | `export default defineToolApi(handler)`. Served at `/api/tools/<slug>/*`. |
-| `cron.ts` | no | `export default defineToolCron(async ({ env, ctx, db }) => ...)`. Runs every minute from the Worker's scheduled handler. Throw when the job fails, rather than logging and returning. The handler logs the error and queues one liaison notice per failing source per UTC hour (`worker/cron-alerts.ts`). |
+| `cron.ts` | no | `export default defineToolCron(async ({ env, ctx, db, scheduledAt }) => ...)`. Runs every minute from the Worker's scheduled handler; return early unless `onCadence(scheduledAt, n)` to run every `n` minutes. Write only when a value changed, so the database can idle between real work. Throw when the job fails, rather than logging and returning. The handler logs the error and queues one liaison notice per failing source per UTC hour (`worker/cron-alerts.ts`). |
 | `debug.ts` | no | `export default defineToolDebug(async ({ env, db }) => rows)`. Rows show under the tool in the Debug section of `/settings`. |
 | `*.module.css` | no | Styles, using the tokens in `src/styles/tokens.css`. |
 

@@ -19,12 +19,12 @@ Shows today's prescribed session from training-log, logs it set by set in the gy
 
 training-log is the source of truth, and the `workouts` schema holds a read model of it. Requests and screens read only the database. Nothing reads GitHub per request.
 
-`sync.ts` keeps the mirror current. `cron.ts` runs it on the Worker's one-minute trigger through `defineToolCron`, and bots can force a run with `POST /sync`. `debug.ts` shows the synced commit, the last check, and any sync error under Workouts on `/settings`.
+`sync.ts` keeps the mirror current. `cron.ts` runs it every 5 minutes (`onCadence` on the Worker's one-minute trigger) through `defineToolCron`, and bots can force a run with `POST /sync`. `debug.ts` shows the synced commit, the last check, and any sync error under Workouts on `/settings`.
 
-1. `GET /repos/mattppal/training-log/commits/main` with `Accept: application/vnd.github.sha` and `If-None-Match` set to the stored ETag. A 304 ends the run and doesn't count against the rate limit.
+1. `GET /repos/mattppal/training-log/commits/main` with `Accept: application/vnd.github.sha` and `If-None-Match` set to the stored ETag. A 304 ends the run and doesn't count against the rate limit. An unchanged HEAD writes `repo_sync` only to clear an error, save a new ETag, or refresh `checked_at` once an hour (`CHECK_HEARTBEAT_MINUTES`), so "Last check" can trail the real check by up to an hour. A repeated error isn't rewritten either.
 2. When HEAD moved, `GET /git/trees/<sha>?recursive=1`, and keep blobs matching `program/*.json`, `sessions/*.json`, and `prs/profile.json`, plus any `sessions/*.md` that has no `.json` twin. Some rest days exist only as a Markdown note; `parseSessionNote` keeps its frontmatter, heading, and body. A forced sync (`POST /sync?force=1`) picks up files that a filter change newly includes while HEAD stays the same.
 3. Fetch only the blobs whose SHA differs from `repo_files.sha`, at most 40 per run to stay under the Worker's subrequest limit.
-4. In one transaction, under an advisory lock, upsert those files, delete paths that left the tree, and record `head_sha`. When more than 40 blobs changed, the run saves its batch, clears the ETag, and leaves `head_sha` alone, so the next minute picks up the rest.
+4. In one transaction, under an advisory lock, upsert those files, delete paths that left the tree, and record `head_sha`. When more than 40 blobs changed, the run saves its batch, clears the ETag, and leaves `head_sha` alone, so the next run, 5 minutes later, picks up the rest.
 
 The token is `TRAINING_LOG_TOKEN`, a fine-grained token with read-only Contents access. A failed run records `last_error` and leaves the mirror as it was. Files that aren't valid JSON are stored with `parse_error` and skipped by the reader. There is no git clone, since Workers have no filesystem.
 

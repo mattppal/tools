@@ -13,6 +13,8 @@ const MIRRORED = /^((program|sessions)\/[^/]+\.json|prs\/profile\.json)$/;
 const SESSION_NOTE = /^sessions\/[^/]+\.md$/;
 export const BLOB_BATCH = 40;
 const BLOB_CONCURRENCY = 6;
+export const CHECK_HEARTBEAT_MINUTES = 60;
+const CHECK_STALE = "(checked_at is null or checked_at < now() - make_interval(mins => $1))";
 
 export type SyncResult =
 	| { status: "unchanged"; headSha: string | null }
@@ -109,14 +111,14 @@ export async function syncTrainingLog(db: Database, env: Env, { force = false, f
 		if (!force && stored.head_etag !== null) extra["if-none-match"] = stored.head_etag;
 		const head = await fetcher(`${API}/commits/${BRANCH}`, { headers: headers(env, extra) });
 		if (head.status === 304) {
-			await db.query("update workouts.repo_sync set checked_at = now(), last_error = null");
+			await db.query(`update workouts.repo_sync set checked_at = now(), last_error = null where last_error is not null or ${CHECK_STALE}`, [CHECK_HEARTBEAT_MINUTES]);
 			return { status: "unchanged", headSha: stored.head_sha };
 		}
 		if (!head.ok) throw new SyncError(`GitHub returned ${head.status} for the ${BRANCH} head`);
 		const headSha = (await head.text()).trim();
 		const etag = head.headers.get("etag");
 		if (!force && headSha === stored.head_sha) {
-			await db.query("update workouts.repo_sync set head_etag = $1, checked_at = now(), last_error = null", [etag]);
+			await db.query(`update workouts.repo_sync set head_etag = $2, checked_at = now(), last_error = null where head_etag is distinct from $2 or last_error is not null or ${CHECK_STALE}`, [CHECK_HEARTBEAT_MINUTES, etag]);
 			return { status: "unchanged", headSha };
 		}
 
@@ -156,7 +158,7 @@ export async function syncTrainingLog(db: Database, env: Env, { force = false, f
 		return complete ? { status: "synced", headSha, changed: blobs.length, removed: removed.length } : { status: "partial", headSha, changed: blobs.length, remaining: changed.length - blobs.length };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		await db.query("update workouts.repo_sync set checked_at = now(), last_error = $1", [message]).catch(() => undefined);
+		await db.query(`update workouts.repo_sync set checked_at = now(), last_error = $2 where last_error is distinct from $2 or ${CHECK_STALE}`, [CHECK_HEARTBEAT_MINUTES, message]).catch(() => undefined);
 		return { status: "failed", error: message };
 	}
 }

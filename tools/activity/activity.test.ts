@@ -178,7 +178,35 @@ test("sync pulls the last week, then backfills to the floor in windows", async (
 
 	const [day] = await listDays(client, windows[0]?.[1] ?? "", windows[0]?.[1] ?? "");
 	expect(day).toMatchObject({ source: "withings", steps: 8000, activeKcal: 410.5, totalKcal: 2600, distanceM: 6200 });
-	expect(await syncWithings(client, creds, fakeWithings)).toMatchObject({ status: "synced", calls: 0 });
+	expect(await syncWithings(client, creds, fakeWithings)).toEqual({ status: "idle" });
+});
+
+test("a run with nothing due writes nothing, and each due job still runs on time", async () => {
+	await connect();
+	await pg.query("update activity.withings set backfill_cursor = null");
+	const at = (minutes: number) => new Date(Date.now() + minutes * 60_000);
+	let runs = 0;
+	while ((await syncWithings(client, creds, fakeWithings, at(0))).status !== "idle" && runs++ < 100);
+	expect(runs).toBeGreaterThan(0);
+	const versions = async () => (await pg.query<{ xmin: string }>("select xmin::text from activity.withings union all select xmin::text from activity.withings_streams order by 1")).rows.map((row) => row.xmin);
+	const before = await versions();
+	calls = [];
+	for (const minutes of [0, 10, 20]) expect(await syncWithings(client, creds, fakeWithings, at(minutes))).toEqual({ status: "idle" });
+	expect(await versions()).toEqual(before);
+	expect(calls).toHaveLength(0);
+
+	const actions = () => calls.splice(0).map((call) => call.form.get("action"));
+	expect(await syncWithings(client, creds, fakeWithings, at(30))).toMatchObject({ status: "synced", calls: CALLS_PER_RUN - 1 });
+	expect(actions()).toEqual(["getactivity", "getmeas", "getmeas", "getworkouts", "getsummary"]);
+
+	const intraday = async () => (await pg.query<{ xmin: string }>("select xmin::text from activity.withings_streams where name = 'intraday'")).rows[0]?.xmin;
+	const untouched = await intraday();
+	await pg.query("update activity.withings set meas_offset = 5");
+	expect(await syncWithings(client, creds, fakeWithings, at(0))).toMatchObject({ status: "synced" });
+	expect(actions()).toEqual(["getmeas"]);
+	expect(await intraday()).toBe(untouched);
+	expect((await readConnection(client))?.measOffset).toBe(0);
+	expect(await syncWithings(client, creds, fakeWithings, at(0))).toEqual({ status: "idle" });
 });
 
 test("an expiring token is refreshed and the new refresh token replaces the old one", async () => {

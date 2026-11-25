@@ -115,6 +115,10 @@ export async function readAccount(client: Database): Promise<XAccount | null> {
 }
 
 export async function accessToken(client: Database, fetcher: Fetch, creds: Credentials, now: Date): Promise<{ token: string; username: string }> {
+	const current = (await client.query<{ username: string; access_token: string; expires_at: Date | string; last_error: string | null }>("select username, access_token, expires_at, last_error from x_posts.account")).rows[0];
+	if (current !== undefined && current.last_error === null && new Date(current.expires_at).getTime() - now.getTime() > REFRESH_EARLY_MS) {
+		return { token: await unseal(creds.clientSecret, current.access_token), username: current.username };
+	}
 	await client.query("begin");
 	let failure: Error | null = null;
 	try {

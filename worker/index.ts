@@ -6,7 +6,7 @@ import { bundledMigrations, checkMigrations, type MigrationDrift } from "./migra
 import type { ToolApi, ToolCron } from "./tool-api.ts";
 import type { ToolDebug } from "./tool-debug.ts";
 import { withScriptNonce, withSecurityHeaders } from "./security-headers.ts";
-import { deliverDue, type Webhook } from "./webhooks.ts";
+import { deliverDue, dueWebhooks, type Webhook } from "./webhooks.ts";
 
 function bySlug<T>(modules: Record<string, { default: T }>): Map<string, T> {
 	return new Map(
@@ -98,13 +98,20 @@ export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		return withSecurityHeaders(await route(request, env, ctx));
 	},
-	async scheduled(_controller, env, ctx): Promise<void> {
+	async scheduled(controller, env, ctx): Promise<void> {
+		const scheduledAt = new Date(controller.scheduledTime);
 		await withRequestDb(env.DB, ctx, async (withDb) => {
 			const failed = async (source: string, error: unknown) => {
 				console.error(`${source} failed`, error);
 				await noticeCronFailure(withDb, source, error).catch((noticeError: unknown) => console.error(`Could not queue a liaison notice for ${source}`, noticeError));
 			};
-			for (const webhook of WEBHOOKS.values()) {
+			let due: Webhook[] = [];
+			try {
+				due = await dueWebhooks(withDb, [...WEBHOOKS.values()], env);
+			} catch (error) {
+				await failed("Webhook retries", error);
+			}
+			for (const webhook of due) {
 				try {
 					await deliverDue(withDb, webhook, env);
 				} catch (error) {
@@ -113,7 +120,7 @@ export default {
 			}
 			for (const [slug, cron] of CRONS) {
 				try {
-					await cron({ env, ctx, db: withDb });
+					await cron({ env, ctx, db: withDb, scheduledAt });
 				} catch (error) {
 					await failed(`Tool cron ${slug}`, error);
 				}

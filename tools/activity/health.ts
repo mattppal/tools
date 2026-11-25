@@ -268,10 +268,17 @@ export type FeedState = { lastupdate: number | null; pending: number | null; off
 export type IntradayState = { cursor: string | null; empty: number; recentAt: string | null };
 export type StreamRow<S> = { state: S; syncedAt: string | null; doneAt: string | null };
 
-export async function readStream<S>(client: Database, name: Feed | "intraday", initial: S): Promise<StreamRow<S>> {
-	const row = (await client.query<Row>("select state, synced_at, done_at from activity.withings_streams where name = $1", [name])).rows[0];
+export function streamRow<S>(row: Row | undefined, initial: S): StreamRow<S> {
 	if (row === undefined) return { state: initial, syncedAt: null, doneAt: null };
 	return { state: { ...initial, ...(row["state"] as S) }, syncedAt: isoOrNull(row["synced_at"]), doneAt: isoOrNull(row["done_at"]) };
+}
+
+export async function readStream<S>(client: Database, name: Feed | "intraday", initial: S): Promise<StreamRow<S>> {
+	return streamRow((await client.query<Row>("select state, synced_at, done_at from activity.withings_streams where name = $1", [name])).rows[0], initial);
+}
+
+export async function readStreams(client: Database): Promise<Map<string, Row>> {
+	return new Map((await client.query<Row>("select name, state, synced_at, done_at from activity.withings_streams")).rows.map((row) => [String(row["name"]), row]));
 }
 
 export async function saveStream(client: Database, name: Feed | "intraday", state: object, synced: boolean, done = false): Promise<void> {

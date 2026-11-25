@@ -49,7 +49,7 @@ Read every TLC result with the pstack `/statechart` skill. It shows a violation 
 | `ClaimExpires` | `claimed_until < now()`. With `SlowSenders`, that can happen while the holder is still sending. |
 | `SendAgain` | `requeue` in `tools/workouts/store.ts`. It doesn't touch the claim. Its first attempt goes through `claimOne`, so while a send is in flight it claims nothing, and that send's result stands. If that send fails, the cron retries. |
 | `TimePasses` | `next_attempt_at` comes due. Requests claim within a minute of their insert or requeue, so time can't pass while one is about to claim. |
-| `cron1`, `cron2` | `scheduled` in `worker/index.ts`. A cron run sends up to 20 rows one at a time, so it can outlast the next minute's run. |
+| `cron1`, `cron2` | `scheduled` in `worker/index.ts`. A cron run sends up to 20 rows one at a time, so it can outlast the next minute's run. It first reads every outbox in one query (`dueWebhooks`) and skips an outbox with no due, unclaimed row. That read takes no lock and changes nothing, so a skip is the same as a `Claim` that finds no row. |
 
 ## Real bug or modeling error
 

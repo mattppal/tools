@@ -13,6 +13,7 @@ export const USER_MILLS = 10;
 export const MENTION_PAGES_PER_RUN = 3;
 const PAGE = 100;
 const PAGE_WORST_MILLS = PAGE * (MENTION_MILLS + USER_MILLS);
+export const RUN_HEARTBEAT_MINUTES = 15;
 
 const MentionId = z.string().regex(/^[1-9]\d{0,18}$/, "id must be a post id");
 export const mentionReplyRequest = z.strictObject({ id: MentionId, text: z.string().max(4000) });
@@ -63,11 +64,14 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 	let spent = state.month === month ? state.spent_mills : 0;
 	if (state.paused_month === month) return { ...result, status: "paused", spentMills: spent };
 	let paused: "budget" | "capped" | null = null;
-	const save = (patch: Record<string, unknown>) =>
-		withDb((client) => {
-			const keys = Object.keys(patch);
-			return client.query(`update x_posts.mention_sync set ${keys.map((key, index) => `${key} = $${index + 1}`).join(", ")}`, Object.values(patch));
-		});
+	let wrote = false;
+	const save = async (patch: Record<string, unknown>) => {
+		const keys = Object.keys(patch);
+		const saved = await withDb((client) =>
+			client.query(`update x_posts.mention_sync set ${keys.map((key, index) => `${key} = $${index + 1}`).join(", ")} where ${keys.map((key, index) => `${key} is distinct from $${index + 1}`).join(" or ")}`, Object.values(patch)),
+		);
+		if ((saved.rowCount ?? 0) > 0) wrote = true;
+	};
 	const fits = (worst: number) => {
 		if (spent + worst <= cap) return true;
 		paused = "budget";
@@ -136,7 +140,13 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 		result.status = "paused";
 		await save({ paused_month: month, paused_reason: paused });
 	}
-	await save(result.status === "error" ? { last_run_at: now, last_error: result.error } : { last_run_at: now, last_success_at: now, last_error: null });
+	await withDb((client) =>
+		client.query(
+			`update x_posts.mention_sync set last_run_at = $1, last_error = $2, last_success_at = case when $3 then $1 else last_success_at end
+			where $4 or last_error is distinct from $2 or last_run_at is null or last_run_at < $1::timestamptz - make_interval(mins => $5)`,
+			[now, result.error, result.status !== "error", wrote, RUN_HEARTBEAT_MINUTES],
+		),
+	);
 	result.spentMills = spent;
 	console.log(JSON.stringify({ xPosts: "mentions", actor: "cron", ...result }));
 	return result;

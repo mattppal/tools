@@ -8,7 +8,7 @@ import api, { parseSet } from "./api.ts";
 import { buildLog, checkLog, pacificMidnight } from "./log.ts";
 import { formatLoad, formatVolume, parseProgram, programDays, weekOf, type Program } from "./program.ts";
 import { buildWeek, currentWeek, findDay as findIn, nextDay, parseRepoSession, trainingLogFrom, weekRefs } from "./schedule.ts";
-import { BLOB_BATCH, readMirror, readSyncState, syncTrainingLog, type Fetcher, type MirroredFile } from "./sync.ts";
+import { BLOB_BATCH, CHECK_HEARTBEAT_MINUTES, readMirror, readSyncState, syncTrainingLog, type Fetcher, type MirroredFile } from "./sync.ts";
 import { createSession, deleteOpenSession, finishSession, getSession, putSet, requeue, sessionRow, updateExercise } from "./store.ts";
 import liaison from "../liaison/webhook.ts";
 import webhook from "./webhook.ts";
@@ -439,6 +439,35 @@ describe("training-log sync", () => {
 		repo.head = "c".repeat(40);
 		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "synced", headSha: repo.head, changed: 1, removed: 1 });
 		expect((await readMirror(client)).sessions.map((file) => file.path)).toEqual(["sessions/2026-11-21-bc-w4-d4.md"]);
+	});
+
+	test("an unchanged HEAD writes nothing until an error clears or the hourly heartbeat is due", async () => {
+		const version = async () => (await pg.query<{ xmin: string }>("select xmin::text from workouts.repo_sync")).rows[0]?.xmin;
+		const checkedAt = async () => (await readSyncState(client)).checkedAt;
+		await syncTrainingLog(client, syncEnv, { fetcher });
+		const synced = await version();
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "unchanged", headSha: repo.head });
+		expect(await version()).toBe(synced);
+
+		await pg.query("update workouts.repo_sync set head_etag = null");
+		const etagCleared = await version();
+		expect(await syncTrainingLog(client, syncEnv, { fetcher })).toEqual({ status: "unchanged", headSha: repo.head });
+		expect(await version()).not.toBe(etagCleared);
+
+		await pg.query("update workouts.repo_sync set last_error = 'GitHub returned 502'");
+		await syncTrainingLog(client, syncEnv, { fetcher });
+		expect((await readSyncState(client)).lastError).toBeNull();
+
+		const broken: Fetcher = async () => new Response(null, { status: 502 });
+		expect(await syncTrainingLog(client, syncEnv, { fetcher: broken })).toMatchObject({ status: "failed" });
+		const failed = await version();
+		expect(await syncTrainingLog(client, syncEnv, { fetcher: broken })).toMatchObject({ status: "failed" });
+		expect(await version()).toBe(failed);
+
+		await pg.query(`update workouts.repo_sync set checked_at = now() - make_interval(mins => ${CHECK_HEARTBEAT_MINUTES + 1}), last_error = null`);
+		const stale = await checkedAt();
+		await syncTrainingLog(client, syncEnv, { fetcher });
+		expect(Date.parse((await checkedAt()) ?? "")).toBeGreaterThan(Date.parse(stale ?? ""));
 	});
 
 	test("syncs a large tree over several runs and records HEAD only when complete", async () => {

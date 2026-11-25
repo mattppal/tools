@@ -19,10 +19,15 @@ export type ToolCronContext = {
 	env: Env;
 	ctx: ExecutionContext;
 	db: WithDb;
+	scheduledAt: Date;
 };
 
 export type ToolCron = (context: ToolCronContext) => Promise<void>;
 
 export function defineToolCron(handler: ToolCron): ToolCron {
 	return handler;
+}
+
+export function onCadence(scheduledAt: Date, everyMinutes: number): boolean {
+	return Math.floor(scheduledAt.getTime() / 60_000) % everyMinutes === 0;
 }

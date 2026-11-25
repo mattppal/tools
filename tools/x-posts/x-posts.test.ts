@@ -13,7 +13,7 @@ import { ackJob, applyDecisions, claimJob, type DecisionsResult, type Job, QUEUE
 const openApi = xPostsApi({ queueOpen: true });
 const closedApi = xPostsApi({ queueOpen: false });
 import { checkReplies, QUERY_MAX, replyQueries, replyQuery } from "./reply-check.ts";
-import { type Mention, type MentionSync, syncMentions } from "./mentions.ts";
+import { type Mention, type MentionSync, RUN_HEARTBEAT_MINUTES, syncMentions } from "./mentions.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
@@ -720,6 +720,35 @@ test("mentions sync reads new mentions with since_id, looks up each author once,
 		["2200000000000000001", "bo", null, "2200000000000000009"],
 	]);
 	expect(listed.sync).toMatchObject({ paused: null, spentMills: 24, lastError: null });
+});
+
+test("a mentions run that finds nothing writes nothing until the heartbeat, and keeps since_id", async () => {
+	await connectAs();
+	const empty = () => fakeOAuthX([() => Response.json({ meta: { result_count: 0 } }), () => Response.json({ meta: { result_count: 0 } })]);
+	const later = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+	const stamp = (minutes: number) => later(minutes).toISOString().replace(".000Z", "Z");
+	const first = fakeOAuthX([() => Response.json({ data: [mention("2200000000000000002", "u1")], meta: { newest_id: "2200000000000000002" } }), () => Response.json({ data: [{ id: "u1", username: "ada", name: "Ada" }] }), () => Response.json({ meta: { result_count: 0 } })]);
+	expect((await syncMentions(db, { fetcher: first.fetcher, creds: CREDS, now: NOW })).status).toBe("ok");
+	const versions = async () => (await pg.query<{ xmin: string }>("select xmin::text from x_posts.mention_sync union all select xmin::text from x_posts.account order by 1")).rows.map((row) => row.xmin);
+	const before = await versions();
+	for (const minutes of [1, 2, RUN_HEARTBEAT_MINUTES - 1]) {
+		const x = empty();
+		expect(await syncMentions(db, { fetcher: x.fetcher, creds: CREDS, now: later(minutes) })).toMatchObject({ status: "ok", mentions: 0 });
+		expect(new URL(x.calls[0]?.url ?? "").searchParams.get("since_id")).toBe("2200000000000000002");
+	}
+	expect(await versions()).toEqual(before);
+
+	const broken = fakeOAuthX([() => new Response("down", { status: 503 })]);
+	expect(await syncMentions(db, { fetcher: broken.fetcher, creds: CREDS, now: later(RUN_HEARTBEAT_MINUTES) })).toMatchObject({ status: "error" });
+	const listed = async () => ((await (await sendAs("/mentions", fakeOAuthX([]).fetcher)).json()) as { sync: MentionSync }).sync;
+	expect((await listed()).lastError).not.toBeNull();
+	expect(await syncMentions(db, { fetcher: empty().fetcher, creds: CREDS, now: later(RUN_HEARTBEAT_MINUTES + 1) })).toMatchObject({ status: "ok" });
+	expect(await listed()).toMatchObject({ lastError: null, lastRunAt: stamp(RUN_HEARTBEAT_MINUTES + 1) });
+
+	await syncMentions(db, { fetcher: empty().fetcher, creds: CREDS, now: later(2 * RUN_HEARTBEAT_MINUTES + 1) });
+	expect((await listed()).lastRunAt).toBe(stamp(RUN_HEARTBEAT_MINUTES + 1));
+	await syncMentions(db, { fetcher: empty().fetcher, creds: CREDS, now: later(2 * RUN_HEARTBEAT_MINUTES + 2) });
+	expect((await listed()).lastRunAt).toBe(stamp(2 * RUN_HEARTBEAT_MINUTES + 2));
 });
 
 test("mentions stop at the monthly cap before reading, and say so", async () => {

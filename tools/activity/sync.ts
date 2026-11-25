@@ -1,8 +1,8 @@
 import type { Database } from "../../worker/db.ts";
 import { addDays, today } from "./dates.ts";
-import { dayStart, type FeedState, type IntradayState, readStream, refreshWorkoutLinks, saveIntraday, saveMeasures, saveSleep, saveStream, saveWorkouts } from "./health.ts";
+import { dayStart, type FeedState, type IntradayState, readStream, readStreams, refreshWorkoutLinks, saveIntraday, saveMeasures, saveSleep, saveStream, saveWorkouts, type StreamRow, streamRow } from "./health.ts";
 import { unseal } from "./secrets.ts";
-import { claimConnection, releaseConnection, type SyncProgress, saveTokens, upsertWithingsDays } from "./store.ts";
+import { claimConnection, readConnection, releaseConnection, type SyncProgress, saveTokens, upsertWithingsDays } from "./store.ts";
 import { saveWeighins, toWeighins } from "./weights.ts";
 import { type Credentials, type Feed, type Fetch, getActivity, getFeed, getIntraday, getWeights, refreshTokens, WithingsError } from "./withings.ts";
 
@@ -10,16 +10,45 @@ export const BACKFILL_FLOOR = "2009-01-01";
 const BACKFILL_WINDOW_DAYS = 180;
 const RECENT_DAYS = 7;
 const RECENT_EVERY_MS = 30 * 60_000;
+const DUE_SLACK_MS = 2 * 60_000;
 export const CALLS_PER_RUN = 6;
 const INTRADAY_EMPTY_STOP = 120;
 const FEEDS: Feed[] = ["measures", "workouts", "sleep"];
 const SAVE_FEED: Record<Feed, (client: Database, items: Record<string, unknown>[]) => Promise<number>> = { measures: saveMeasures, workouts: saveWorkouts, sleep: saveSleep };
 const REFRESH_MARGIN_MS = 5 * 60_000;
 
+const FEED_START: FeedState = { lastupdate: null, pending: null, offset: 0 };
+const INTRADAY_START: IntradayStream = { cursor: null, empty: 0, recentAt: null };
+
+type IntradayStream = IntradayState & { error?: string | null; failedAt?: string | null };
+
 export type SyncResult = { status: "idle" } | { status: "synced"; calls: number; changed: number; backfillCursor: string | null } | { status: "failed"; error: string };
 
-function due(syncedAt: string | null, now: Date): boolean {
-	return syncedAt === null || now.getTime() - Date.parse(syncedAt) >= RECENT_EVERY_MS;
+function due(syncedAt: string | null | undefined, now: Date): boolean {
+	return syncedAt === null || syncedAt === undefined || now.getTime() - Date.parse(syncedAt) >= RECENT_EVERY_MS - DUE_SLACK_MS;
+}
+
+function feedDue(stream: StreamRow<FeedState>, now: Date): boolean {
+	return stream.state.offset > 0 || due(stream.syncedAt, now);
+}
+
+function intradayPaused(state: IntradayStream, now: Date): boolean {
+	return state.failedAt !== null && state.failedAt !== undefined && !due(state.failedAt, now);
+}
+
+export async function workDue(client: Database, now: Date): Promise<boolean> {
+	const connection = await readConnection(client);
+	if (connection === null) return false;
+	if (connection.backfillCursor !== null || due(connection.recentSyncedAt, now) || connection.measOffset > 0 || due(connection.weightsSyncedAt, now)) return true;
+	const streams = await readStreams(client);
+	if (FEEDS.some((feed) => feedDue(streamRow(streams.get(feed), FEED_START), now))) return true;
+	const intraday = streamRow(streams.get("intraday"), INTRADAY_START).state;
+	return !intradayPaused(intraday, now) && (intraday.cursor !== null || due(intraday.recentAt, now));
+}
+
+function sameState(a: object, b: object): boolean {
+	const entries = (state: object) => JSON.stringify(Object.entries(state).filter(([, value]) => value !== undefined).toSorted(([x], [y]) => x.localeCompare(y)));
+	return entries(a) === entries(b);
 }
 
 function softError(error: unknown): string {
@@ -33,6 +62,7 @@ function message(error: unknown): string {
 }
 
 export async function syncWithings(client: Database, creds: Credentials, fetcher: Fetch = fetch, now = new Date()): Promise<SyncResult> {
+	if (!(await workDue(client, now))) return { status: "idle" };
 	const connection = await claimConnection(client);
 	if (connection === null) return { status: "idle" };
 	const progress: SyncProgress = {
@@ -57,8 +87,7 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 		}
 
 		const day = today(now);
-		const recentDue = connection.recentSyncedAt === null || now.getTime() - Date.parse(connection.recentSyncedAt) >= RECENT_EVERY_MS;
-		if (recentDue) {
+		if (due(connection.recentSyncedAt, now)) {
 			let offset = 0;
 			do {
 				const page = await getActivity(fetcher, accessToken, addDays(day, 1 - RECENT_DAYS), day, offset);
@@ -69,7 +98,7 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 			progress.recentSynced = offset === 0;
 		}
 
-		const weightsDue = progress.measOffset > 0 || connection.weightsSyncedAt === null || now.getTime() - Date.parse(connection.weightsSyncedAt) >= RECENT_EVERY_MS;
+		const weightsDue = progress.measOffset > 0 || due(connection.weightsSyncedAt, now);
 		while (weightsDue && calls < CALLS_PER_RUN && !progress.weightsSynced) {
 			const page = await getWeights(fetcher, accessToken, progress.measLastupdate ?? 0, progress.measOffset);
 			calls++;
@@ -87,8 +116,8 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 
 		for (const feed of FEEDS) {
 			if (calls >= CALLS_PER_RUN) break;
-			const stream = await readStream<FeedState>(client, feed, { lastupdate: null, pending: null, offset: 0 });
-			if (stream.state.offset === 0 && !due(stream.syncedAt, now)) continue;
+			const stream = await readStream(client, feed, FEED_START);
+			if (!feedDue(stream, now)) continue;
 			const state: FeedState & { error?: string | null } = { ...stream.state, error: null };
 			let synced = false;
 			try {
@@ -134,9 +163,9 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 			} else progress.backfillCursor = next;
 		}
 		if (calls < CALLS_PER_RUN) {
-			const stream = await readStream<IntradayState>(client, "intraday", { cursor: null, empty: 0, recentAt: null });
-			const state: IntradayState & { error?: string | null; failedAt?: string | null } = { ...stream.state, error: null };
-			const paused = state.failedAt !== null && state.failedAt !== undefined && !due(state.failedAt, now);
+			const stream = await readStream(client, "intraday", INTRADAY_START);
+			const state: IntradayStream = { ...stream.state, error: null };
+			const paused = intradayPaused(state, now);
 			let done = false;
 			const pull = async (date: string): Promise<number> => {
 				const start = dayStart(date);
@@ -167,7 +196,8 @@ export async function syncWithings(client: Database, creds: Credentials, fetcher
 				progress.error = `intraday: ${state.error}`;
 			}
 			if (state.error === null && !paused) state.failedAt = null;
-			await saveStream(client, "intraday", state, state.recentAt !== stream.state.recentAt, done);
+			const pulled = state.recentAt !== stream.state.recentAt;
+			if (pulled || done || !sameState(state, stream.state)) await saveStream(client, "intraday", state, pulled, done);
 		}
 
 		return { status: "synced", calls, changed, backfillCursor: progress.backfillCursor };
