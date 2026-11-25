@@ -26,7 +26,7 @@ All routes are under `/api/tools/nutrition` and sit behind Cloudflare Access.
 | Route | Does |
 | --- | --- |
 | `GET /day?date=` | The day with entries, totals, targets, progress, and check-in. Defaults to today in America/Los_Angeles. |
-| `POST /day/food` | `{ date, add?, edit?, remove? }`. Each add takes a `client_key`, so a retry doesn't log twice. An edit names its entry by `id` or `client_key`, and `remove` takes either. Removing an entry that is already gone is skipped. An add may send `logged_at`, an ISO 8601 time with an offset, for when the food was eaten; it defaults to now. Every entry in the result carries its `clientKey` and `loggedAt`, an ISO time in UTC or null. |
+| `POST /day/food` | `{ date, add?, edit?, remove? }`. Each add takes a `client_key`, so a retry doesn't log twice. An edit names its entry by `id` or `client_key`, and `remove` takes either. Removing an entry that is already gone is skipped. An add may send `logged_at`, an ISO 8601 time with an offset, for when the food was eaten; it defaults to now. It must fall on `date` in America/Los_Angeles and be no more than 5 minutes ahead of now, or the change is rejected. A retried add keeps the `logged_at` stored by the first one. Every entry in the result carries its `clientKey` and `loggedAt`, an ISO time in UTC or null. |
 | `POST /day/close` | `{ date, test? }`. Closes the day and queues the webhook. |
 | `POST /day/reopen` | Reopens the day. |
 | `GET /history` | The last 400 days with totals, kcal target, and the partial flag. |
@@ -78,7 +78,7 @@ Every object in a tool's input is strict. An argument name the tool doesn't know
 Log a food:
 
 ```json
-{ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "log_food", "arguments": { "date": "2099-01-01", "add": [{ "client_key": "bot:msg-1:0", "logged_at": "2099-01-01T08:30:00-08:00", "food": "Greek yogurt, plain nonfat", "qty": 200, "unit": "g", "kcal": 118, "protein_g": 20.6, "carbs_g": 7.2, "fat_g": 0.8, "fiber_g": 0, "source": "USDA FDC 170894 (Yogurt, Greek, plain, nonfat)" }] } } }
+{ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "log_food", "arguments": { "date": "2099-01-01", "add": [{ "client_key": "bot:msg-1:0", "food": "Greek yogurt, plain nonfat", "qty": 200, "unit": "g", "kcal": 118, "protein_g": 20.6, "carbs_g": 7.2, "fat_g": 0.8, "fiber_g": 0, "source": "USDA FDC 170894 (Yogurt, Greek, plain, nonfat)" }] } } }
 ```
 
 Edit it by its key, then remove it:

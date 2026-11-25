@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Caller } from "../../worker/access.ts";
 import type { Database, WithDb } from "../../worker/db.ts";
 import api from "./api.ts";
+import { today } from "./dates.ts";
 
 const pg = new PGlite();
 for (const slug of ["nutrition", "activity", "liaison"]) {
@@ -102,14 +103,41 @@ test("every day read returns each food's source as the bot wrote it", async () =
 
 test("each food returns when it was logged, from logged_at on the add or the time of the call", async () => {
 	const before = Date.now();
-	const logged = await call("log_food", { date: "2099-02-05", add: [{ ...yogurt, client_key: "bot:time:0", logged_at: "2099-02-05T12:30:00-08:00" }, { ...yogurt, client_key: "bot:time:1" }] });
+	const logged = await call("log_food", { date: "2026-01-05", add: [{ ...yogurt, client_key: "bot:time:0", logged_at: "2026-01-05T23:30:00-08:00" }, { ...yogurt, client_key: "bot:time:1" }] });
 	const [given, now] = (logged.structuredContent as { entries: { loggedAt: string }[] }).entries;
-	expect(given?.loggedAt).toBe("2099-02-05T20:30:00.000Z");
+	expect(given?.loggedAt).toBe("2026-01-06T07:30:00.000Z");
 	expect(Date.parse(now?.loggedAt ?? "")).toBeGreaterThanOrEqual(before - 1000);
-	const bad = await call("log_food", { date: "2099-02-05", add: [{ ...yogurt, client_key: "bot:time:2", logged_at: "12:30" }] });
+	const bad = await call("log_food", { date: "2026-01-05", add: [{ ...yogurt, client_key: "bot:time:2", logged_at: "12:30" }] });
 	expect(bad.isError).toBe(true);
-	const edit = await call("log_food", { date: "2099-02-05", edit: [{ client_key: "bot:time:0", logged_at: "2099-02-05T13:00:00Z" }] });
+	const edit = await call("log_food", { date: "2026-01-05", edit: [{ client_key: "bot:time:0", logged_at: "2026-01-05T13:00:00Z" }] });
 	expect(edit.content[0]?.text).toContain("Unrecognized key");
+});
+
+test("logged_at must fall on the day being logged, in Matt's time zone, and not in the future", async () => {
+	const otherDay = await call("log_food", { date: "2026-01-05", add: [{ ...yogurt, client_key: "bot:when:0", logged_at: "2026-01-05T07:30:00Z" }] });
+	expect({ isError: otherDay.isError, text: otherDay.content[0]?.text }).toEqual({
+		isError: true,
+		text: "logged_at 2026-01-05T07:30:00Z falls on 2026-01-04 in America/Los_Angeles, not 2026-01-05. Log the food on 2026-01-04, or send a time on 2026-01-05.",
+	});
+	const soon = new Date(Date.now() + 2 * 60_000).toISOString();
+	const later = new Date(Date.now() + 60 * 60_000).toISOString();
+	const date = today(new Date(later));
+	const future = await call("log_food", { date, add: [{ ...yogurt, client_key: "bot:when:1", logged_at: later }] });
+	expect({ isError: future.isError, text: future.content[0]?.text }).toEqual({ isError: true, text: `logged_at ${later} is in the future. Send when the food was eaten, no later than now.` });
+	const clockSkew = await call("log_food", { date: today(new Date(soon)), add: [{ ...yogurt, client_key: "bot:when:2", logged_at: soon }] });
+	expect(clockSkew.isError).toBeUndefined();
+	await call("log_food", { date: today(new Date(soon)), remove: ["bot:when:2"] });
+	expect((await day("2026-01-04")).entries).toEqual([]);
+});
+
+test("a retried add keeps the logged_at stored by the first one", async () => {
+	const first = { ...yogurt, client_key: "bot:keep:0", logged_at: "2026-01-07T08:00:00-08:00" };
+	await call("log_food", { date: "2026-01-07", add: [first] });
+	await call("log_food", { date: "2026-01-07", add: [{ ...first, logged_at: "2026-01-07T09:00:00-08:00" }] });
+	const { logged_at: _, ...omitted } = first;
+	const retried = await call("log_food", { date: "2026-01-07", add: [omitted] });
+	const entries = (retried.structuredContent as { entries: { clientKey: string; loggedAt: string }[] }).entries;
+	expect(entries.map((entry) => [entry.clientKey, entry.loggedAt])).toEqual([["bot:keep:0", "2026-01-07T16:00:00.000Z"]]);
 });
 
 test("an argument name the tool does not know fails the call instead of being dropped", async () => {
