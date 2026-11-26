@@ -75,7 +75,7 @@ function partialEightSleep(eight: Candidate, watch: Candidate): boolean {
 }
 
 function pick(list: readonly Candidate[]): Candidate[] {
-	const ranked = list.toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source) || b.asleepS - a.asleepS);
+	const ranked = list.toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source) || b.asleepS - a.asleepS || a.sleepStart - b.sleepStart);
 	const [first] = ranked;
 	const watch = ranked.find((candidate) => /apple watch/i.test(candidate.source));
 	if (first === undefined || watch === undefined || sourceRank(first.source) !== 0 || !partialEightSleep(first, watch)) return ranked;

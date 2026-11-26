@@ -89,7 +89,13 @@ A push with `step_count`, `walking_running_distance`, `active_energy` or `basal_
 
 - Segments from one source join into a sleep when the gap between them is 2 hours or less. A sleep's date is the local date it ends, so a nap and the night before it stay apart.
 - Each date keeps one sleep. Eight Sleep wins, then any other Apple Health source, then Withings. Within a rank the longest asleep wins. The others are listed in `alsoFrom`.
-- One exception, approved by Matt on 2026-11-25: an Apple Watch night replaces the Eight Sleep night when Eight Sleep is partial, meaning both of these hold. First, Eight Sleep's in-bed span starts at least 90 minutes after the Watch fell asleep or ends at least 90 minutes before it woke. Second, the Watch has at least 60 minutes more time asleep. Eight Sleep moves to `alsoFrom`, and the night's vitals come from the Watch. An Eight Sleep night that spans the whole night stays, however little of it was asleep, because that's a measured bad night, not a gap. No other Apple source can replace Eight Sleep.
+- One exception, approved by Matt on 2026-11-25: an Apple Watch night replaces the Eight Sleep night for the same date when both of these hold:
+  1. Eight Sleep's in-bed span starts at least 90 minutes (`PARTIAL_EDGE_MS`) after the Watch fell asleep, or ends at least 90 minutes before the Watch woke. This deliberately compares Eight Sleep's in-bed time with the Watch's sleep onset and wake, not asleep against asleep, so that a night Eight Sleep was in bed for but scored as mostly awake is never treated as a gap.
+  2. The Watch has at least 60 minutes (`PARTIAL_LONGER_S`) more time asleep.
+
+  Both limits are inclusive. When more than one Watch sleep ends on that date (for example a night and an afternoon nap), only the one with the most time asleep is weighed; on equal time asleep, the earlier one is. When the Watch wins, Eight Sleep moves to `alsoFrom`. An Eight Sleep night that spans the whole night stays, however little of it was asleep, because that's a measured bad night, not a gap. No other Apple source can replace Eight Sleep.
+- The pick happens at read time from whatever is stored, so a night can change from Eight Sleep to the Watch, or back, when either source's data syncs late. Readers should re-read recent nights rather than cache yesterday's answer.
+- When the Watch wins, the night's vitals (`restingHr`, `hrv`, `respiratoryRate`, and `/health`'s `restingHr` and `sleepRrAvg`) come from the Watch, a different sensor from Eight Sleep. Check `source` before comparing vitals across nights or calling a change a trend.
 - Light is Core. A source with no Core, Deep or REM has no stage totals, and its timeline uses the `asleep` lane.
 - Resting HR, HRV and breathing come from samples between going to bed and an hour after waking, from the night's own source when it has one, so values from different sensors never mix in one night.
 

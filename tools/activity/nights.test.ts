@@ -63,6 +63,27 @@ test("an Eight Sleep night that covered the whole night stays, however little of
 	).toMatchObject({ source: "Eight Sleep", alsoFrom: [WATCH] });
 });
 
+test("the boundaries are inclusive: exactly 90 minutes missed and exactly 60 minutes longer gives way to the watch", () => {
+	expect(picked([segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T14:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T08:30:00Z", "2026-11-25T14:30:00Z")])[0]?.source).toBe(WATCH);
+	expect(picked([segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T14:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T08:29:00Z", "2026-11-25T14:29:00Z")])[0]?.source).toBe("Eight Sleep");
+	expect(picked([segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T14:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T08:30:00Z", "2026-11-25T14:31:00Z")])[0]?.source).toBe("Eight Sleep");
+});
+
+test("when two watch sleeps share a wake date, the one with the most time asleep is weighed against Eight Sleep", () => {
+	const eight = segment("Eight Sleep", "core", "2026-11-25T09:00:00Z", "2026-11-25T13:00:00Z");
+	const night = segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T14:30:00Z");
+	const nap = segment(WATCH, "core", "2026-11-25T21:00:00Z", "2026-11-25T22:00:00Z");
+	expect(picked([nap, eight, night])).toEqual([{ date: "2026-11-25", source: WATCH, asleepS: 7.5 * 3600, alsoFrom: ["Eight Sleep"] }]);
+	expect(picked([nap, eight])[0]?.source).toBe("Eight Sleep");
+});
+
+test("two watch sleeps with the same time asleep are weighed by the earlier one", () => {
+	const eight = segment("Eight Sleep", "core", "2026-11-25T09:00:00Z", "2026-11-25T11:00:00Z");
+	const night = segment(WATCH, "core", "2026-11-25T06:00:00Z", "2026-11-25T09:00:00Z");
+	const nap = segment(WATCH, "core", "2026-11-25T19:00:00Z", "2026-11-25T22:00:00Z");
+	expect(buildNights([nap, eight, night], [], [])[0]).toMatchObject({ source: WATCH, bedtime: "22:00", wake: "01:00" });
+});
+
 test("Eight Sleep stays when it started late but the watch slept less than an hour more", () => {
 	expect(picked([segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T13:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T09:00:00Z", "2026-11-25T14:30:00Z")])[0]?.source).toBe("Eight Sleep");
 });
