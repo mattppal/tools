@@ -35,6 +35,42 @@ test("Eight Sleep beats the watch, and both beat Withings, on the same night", (
 	expect(nights.map(({ date, source, alsoFrom }) => ({ date, source, alsoFrom }))).toEqual([{ date: "2026-11-21", source: "Eight Sleep", alsoFrom: ["Matt’s Apple Watch", "Withings"] }]);
 });
 
+const WATCH = "Matt’s Apple Watch";
+const picked = (segments: Segment[]) => buildNights(segments, [], []).map(({ date, source, asleepS, alsoFrom }) => ({ date, source, asleepS, alsoFrom }));
+
+test("a partial Eight Sleep night that starts hours after the watch fell asleep gives way to the longer watch night", () => {
+	expect(
+		picked([
+			segment(WATCH, "core", "2026-11-25T07:06:00Z", "2026-11-25T14:40:00Z"),
+			segment("Eight Sleep", "in_bed", "2026-11-25T09:12:00Z", "2026-11-25T15:10:00Z"),
+			segment("Eight Sleep", "core", "2026-11-25T09:12:30Z", "2026-11-25T14:48:00Z"),
+		]),
+	).toEqual([{ date: "2026-11-25", source: WATCH, asleepS: 27_240, alsoFrom: ["Eight Sleep"] }]);
+});
+
+test("a partial Eight Sleep night that ends hours before the watch woke also gives way", () => {
+	expect(picked([segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T15:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T07:10:00Z", "2026-11-25T12:00:00Z")])[0]?.source).toBe(WATCH);
+});
+
+test("an Eight Sleep night that covered the whole night stays, however little of it was asleep", () => {
+	expect(
+		picked([
+			segment(WATCH, "core", "2026-11-23T05:30:00Z", "2026-11-23T13:00:00Z"),
+			segment("Eight Sleep", "in_bed", "2026-11-23T05:24:00Z", "2026-11-23T13:11:30Z"),
+			segment("Eight Sleep", "awake", "2026-11-23T05:24:00Z", "2026-11-23T12:10:00Z"),
+			segment("Eight Sleep", "core", "2026-11-23T12:10:00Z", "2026-11-23T13:11:30Z"),
+		])[0],
+	).toMatchObject({ source: "Eight Sleep", alsoFrom: [WATCH] });
+});
+
+test("Eight Sleep stays when it started late but the watch slept less than an hour more", () => {
+	expect(picked([segment(WATCH, "core", "2026-11-25T07:00:00Z", "2026-11-25T13:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T09:00:00Z", "2026-11-25T14:30:00Z")])[0]?.source).toBe("Eight Sleep");
+});
+
+test("only the watch can replace a partial Eight Sleep night, not another sleep app", () => {
+	expect(picked([segment("AutoSleep", "asleep", "2026-11-25T06:00:00Z", "2026-11-25T15:00:00Z"), segment("Eight Sleep", "core", "2026-11-25T09:00:00Z", "2026-11-25T13:00:00Z")])[0]?.source).toBe("Eight Sleep");
+});
+
 test("a wake in the middle of the night stays one night, and an afternoon nap does not replace it", () => {
 	const nights = buildNights(
 		[

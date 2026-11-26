@@ -89,6 +89,7 @@ A push with `step_count`, `walking_running_distance`, `active_energy` or `basal_
 
 - Segments from one source join into a sleep when the gap between them is 2 hours or less. A sleep's date is the local date it ends, so a nap and the night before it stay apart.
 - Each date keeps one sleep. Eight Sleep wins, then any other Apple Health source, then Withings. Within a rank the longest asleep wins. The others are listed in `alsoFrom`.
+- One exception, approved by Matt on 2026-11-25: an Apple Watch night replaces the Eight Sleep night when Eight Sleep is partial, meaning both of these hold. First, Eight Sleep's in-bed span starts at least 90 minutes after the Watch fell asleep or ends at least 90 minutes before it woke. Second, the Watch has at least 60 minutes more time asleep. Eight Sleep moves to `alsoFrom`, and the night's vitals come from the Watch. An Eight Sleep night that spans the whole night stays, however little of it was asleep, because that's a measured bad night, not a gap. No other Apple source can replace Eight Sleep.
 - Light is Core. A source with no Core, Deep or REM has no stage totals, and its timeline uses the `asleep` lane.
 - Resting HR, HRV and breathing come from samples between going to bed and an hour after waking, from the night's own source when it has one, so values from different sensors never mix in one night.
 

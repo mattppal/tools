@@ -45,11 +45,15 @@ export type Night = {
 type Candidate = Omit<Night, "restingHr" | "hrv" | "respiratoryRate" | "alsoFrom"> & {
 	bedStart: number;
 	bedEnd: number;
+	sleepStart: number;
+	sleepEnd: number;
 	restingHr: number | null;
 	respiratoryRate: number | null;
 };
 
 const GAP_MS = 2 * 3600_000;
+const PARTIAL_EDGE_MS = 90 * 60_000;
+const PARTIAL_LONGER_S = 60 * 60;
 const VITALS_AFTER_MS = 3600_000;
 const ASLEEP = new Set<SleepStage>(["asleep", "core", "deep", "rem", "unspecified"]);
 const TIMELINE: Partial<Record<SleepStage, TimelineStage>> = { awake: "awake", rem: "rem", core: "light", deep: "deep", asleep: "asleep", unspecified: "asleep" };
@@ -63,6 +67,19 @@ const mean = (values: number[]) => (values.length === 0 ? null : values.reduce((
 export function sourceRank(source: string): number {
 	if (/eight ?sleep/i.test(source)) return 0;
 	return source === WITHINGS ? 2 : 1;
+}
+
+function partialEightSleep(eight: Candidate, watch: Candidate): boolean {
+	const missed = Math.max(eight.bedStart - watch.sleepStart, watch.sleepEnd - eight.bedEnd);
+	return missed >= PARTIAL_EDGE_MS && watch.asleepS - eight.asleepS >= PARTIAL_LONGER_S;
+}
+
+function pick(list: readonly Candidate[]): Candidate[] {
+	const ranked = list.toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source) || b.asleepS - a.asleepS);
+	const [first] = ranked;
+	const watch = ranked.find((candidate) => /apple watch/i.test(candidate.source));
+	if (first === undefined || watch === undefined || sourceRank(first.source) !== 0 || !partialEightSleep(first, watch)) return ranked;
+	return [watch, ...ranked.filter((candidate) => candidate !== watch)];
 }
 
 function sessions(segments: readonly Segment[]): Segment[][] {
@@ -118,6 +135,8 @@ function appleCandidate(session: readonly Segment[]): Candidate | null {
 			.toSorted((a, b) => a.startS - b.startS),
 		bedStart,
 		bedEnd,
+		sleepStart,
+		sleepEnd,
 		restingHr: null,
 		respiratoryRate: null,
 	};
@@ -141,6 +160,8 @@ function withingsCandidate(night: WithingsNight): Candidate {
 		timeline: [],
 		bedStart: night.start,
 		bedEnd: night.end,
+		sleepStart: night.start,
+		sleepEnd: night.end,
 		restingHr: night.hrMin,
 		respiratoryRate: night.rrAvg,
 	};
@@ -158,10 +179,10 @@ export function buildNights(segments: readonly Segment[], samples: readonly Samp
 	return [...byDate.entries()]
 		.toSorted(([a], [b]) => a.localeCompare(b))
 		.flatMap(([date, list]) => {
-			const ranked = list.toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source) || b.asleepS - a.asleepS);
+			const ranked = pick(list);
 			const chosen = ranked[0];
 			if (chosen === undefined) return [];
-			const { bedStart, bedEnd, ...night } = chosen;
+			const { bedStart, bedEnd, sleepStart, sleepEnd, ...night } = chosen;
 			const during = (metric: string) => samples.filter((sample) => sample.metric === metric && sample.at >= bedStart && sample.at <= bedEnd + VITALS_AFTER_MS);
 			const resting = sourced(
 				samples.filter((sample) => sample.metric === "resting_heart_rate" && localIso(sample.at, sample.offsetMin).slice(0, 10) === date),
