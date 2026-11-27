@@ -1,15 +1,9 @@
 import { z } from "zod";
-import { requireBot } from "../../worker/bot-auth.ts";
 import { defineToolApi, type ToolApi } from "../../worker/tool-api.ts";
-import { FeedError, parseFeedRequest, readFeed } from "./feed.ts";
-import { blocklistRequest, listPosts, POST_STATUSES, readStatus, replaceBlocklist } from "./owner.ts";
-import { checkNow, runIngest } from "./ingest.ts";
-import { CHECK_NOW_COOLDOWN_MS, LIVE_INGEST, QUEUE_OPEN } from "./query.ts";
-import { ackJob, ackRequest, applyDecisions, claimJob, claimRequest, Closed, QUEUE_CLOSED, decisionsRequest, pendingTotal, requeueJob, reviewQueue, skipBacklog } from "./queue.ts";
-import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, NotMentioned, pkce, replyRequest, saveAccount, sendReply, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
+import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, NotMentioned, pkce, saveAccount, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
 import type { Fetch } from "./x.ts";
 import { dismissMention, dismissRequest, listMentions, mentionReplyRequest, replyToMention } from "./mentions.ts";
-import { BadRequest, Conflict, NotFound } from "./shared.ts";
+import { BadRequest, NotFound } from "./shared.ts";
 
 const NO_STORE = { "cache-control": "no-store" };
 
@@ -23,9 +17,6 @@ function databaseDown(error: unknown): boolean {
 	if (typeof code === "string" && (code.startsWith("08") || DB_DOWN_CODES.has(code))) return true;
 	return DB_DOWN_MESSAGE.test(error.message);
 }
-const BOT_ROUTES = new Set(["GET /feed", "GET /review", "POST /decisions", "POST /jobs/claim", "POST /jobs/ack"]);
-const requeueRequest = z.strictObject({ jobId: z.uuid() });
-const skipRequest = z.strictObject({ before: z.iso.datetime({ offset: true }) });
 const OAUTH_COOKIE = "x_oauth";
 const OAUTH_COOKIE_MAX_AGE_S = 15 * 60;
 const CLEAR_OAUTH = `${OAUTH_COOKIE}=; Path=${CALLBACK_PATH}; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
@@ -64,49 +55,13 @@ function limitParam(url: URL, fallback: number, max: number): number {
 	return Number(raw);
 }
 
-export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, init) }: { queueOpen: boolean; fetcher?: Fetch }): ToolApi {
+export function xPostsApi({ fetcher = (input, init) => fetch(input, init) }: { fetcher?: Fetch } = {}): ToolApi {
 	return async (request, context) => {
 		const { path, db, caller } = context;
 		const url = new URL(request.url);
 		const route = `${request.method} ${path}`;
 		const now = new Date();
 		try {
-			if (BOT_ROUTES.has(route)) {
-				const bot = await requireBot(request, context, "x-posts");
-				if (bot instanceof Response) return bot;
-				switch (route) {
-					case "GET /feed": {
-						const feed = parseFeedRequest(url, now);
-						return Response.json(await db((client) => readFeed(client, feed, now)), { headers: NO_STORE });
-					}
-					case "GET /review": {
-						only(url, ["limit", "idsOnly"]);
-						const idsOnly = url.searchParams.get("idsOnly") ?? "false";
-						if (idsOnly !== "true" && idsOnly !== "false") throw new BadRequest("idsOnly must be true or false");
-						const limit = limitParam(url, 25, 100);
-						return Response.json(await db((client) => reviewQueue(client, limit, idsOnly === "true")), { headers: NO_STORE });
-					}
-					case "POST /decisions": {
-						only(url, []);
-						const input = await body(request, decisionsRequest);
-						return Response.json(await db((client) => applyDecisions(client, input, "prints-review", now, queueOpen)), { headers: NO_STORE });
-					}
-					case "POST /jobs/claim": {
-						only(url, []);
-						const { bridge } = await body(request, claimRequest);
-						const pending = await db(pendingTotal);
-						const headers = { ...NO_STORE, "x-pending-total": String(pending) };
-						if (!queueOpen) return Response.json({ error: QUEUE_CLOSED }, { status: 503, headers });
-						const claimed = await db((client) => claimJob(client, { bridge, actor: "prints-bridge" }, now, queueOpen));
-						return claimed === null ? new Response(null, { status: 204, headers }) : Response.json(claimed, { headers });
-					}
-					default: {
-						only(url, []);
-						const ack = await body(request, ackRequest);
-						return Response.json(await db((client) => ackJob(client, ack, "prints-bridge", now)), { headers: NO_STORE });
-					}
-				}
-			}
 			if (caller.kind === "bot") return Response.json({ error: `Forbidden: bot ${caller.bot} may not call ${route} on x-posts` }, { status: 403, headers: NO_STORE });
 			if (caller.kind !== "owner" && caller.kind !== "local") return Response.json({ error: "Forbidden" }, { status: 403, headers: NO_STORE });
 			switch (route) {
@@ -139,19 +94,6 @@ export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, i
 					}
 					return new Response(null, { status: 302, headers: { ...NO_STORE, ...clear, location: "/x-posts" } });
 				}
-				case "POST /reply": {
-					const input = await body(request, replyRequest);
-					const creds = credentials(context.env);
-					if (creds === null) return Response.json({ error: "Replies aren't set up on the server yet." }, { status: 503, headers: NO_STORE });
-					try {
-						return Response.json(await db((client) => sendReply(client, { fetcher, creds, now }, input)), { headers: NO_STORE });
-					} catch (failure) {
-						if (failure instanceof Disconnected) return Response.json({ error: failure.message, connect: true }, { status: 409, headers: NO_STORE });
-						if (failure instanceof NotMentioned) return Response.json({ error: failure.message, onX: true }, { status: 422, headers: NO_STORE });
-						if (failure instanceof XRefused) return Response.json({ error: failure.message }, { status: 502, headers: NO_STORE });
-						throw failure;
-					}
-				}
 				case "GET /mentions": {
 					only(url, ["limit"]);
 					const limit = limitParam(url, 100, 200);
@@ -175,49 +117,12 @@ export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, i
 					await db((client) => dismissMention(client, id, now));
 					return Response.json({ id }, { headers: NO_STORE });
 				}
-				case "GET /posts": {
-					only(url, ["status", "before", "limit"]);
-					const status = url.searchParams.get("status");
-					if (status !== null && !(POST_STATUSES as readonly string[]).includes(status)) throw new BadRequest(`status must be one of ${POST_STATUSES.join(", ")}`);
-					const before = url.searchParams.get("before");
-					if (before !== null && !/^[1-9]\d{0,18}$/.test(before)) throw new BadRequest("before must be a post id");
-					const limit = limitParam(url, 50, 200);
-					return Response.json(await db((client) => listPosts(client, { status, before, limit })), { headers: NO_STORE });
-				}
-				case "GET /status":
-					only(url, []);
-					return Response.json(await db((client) => readStatus(client, now)), { headers: NO_STORE });
-				case "POST /decide": {
-					const input = await body(request, decisionsRequest);
-					return Response.json(await db((client) => applyDecisions(client, input, "matt", now, queueOpen)), { headers: NO_STORE });
-				}
-				case "POST /check": {
-					const token = context.env.X_BEARER_TOKEN?.trim();
-					if (!LIVE_INGEST || !token) return Response.json({ error: "Ingest is off" }, { status: 503, headers: NO_STORE });
-					await db((client) => checkNow(client, now, CHECK_NOW_COOLDOWN_MS));
-					const result = await runIngest(db, { fetch: (input, init) => fetch(input, init), token, now });
-					return Response.json(result, { headers: NO_STORE });
-				}
-				case "POST /jobs/requeue": {
-					const { jobId } = await body(request, requeueRequest);
-					return Response.json({ jobId: await db((client) => requeueJob(client, jobId, now)) }, { headers: NO_STORE });
-				}
-				case "POST /backlog/skip": {
-					const { before } = await body(request, skipRequest);
-					return Response.json({ before: new Date(before).toISOString(), skipped: await db((client) => skipBacklog(client, new Date(before), now)) }, { headers: NO_STORE });
-				}
-				case "PUT /blocklist": {
-					const { terms } = await body(request, blocklistRequest);
-					return Response.json(await db((client) => replaceBlocklist(client, terms, now)), { headers: NO_STORE });
-				}
 				default:
 					return Response.json({ error: "Not found" }, { status: 404, headers: NO_STORE });
 			}
 		} catch (error) {
-			if (error instanceof BadRequest || error instanceof FeedError) return Response.json({ error: error.message }, { status: 400, headers: NO_STORE });
+			if (error instanceof BadRequest) return Response.json({ error: error.message }, { status: 400, headers: NO_STORE });
 			if (error instanceof NotFound) return Response.json({ error: error.message }, { status: 404, headers: NO_STORE });
-			if (error instanceof Closed) return Response.json({ error: error.message }, { status: 503, headers: NO_STORE });
-			if (error instanceof Conflict) return Response.json({ error: error.message }, { status: 409, headers: NO_STORE });
 			if (databaseDown(error)) {
 				console.error(`x-posts ${request.method} ${path}: database unavailable`, error);
 				return Response.json({ error: DB_DOWN }, { status: 503, headers: NO_STORE });
@@ -227,4 +132,4 @@ export function xPostsApi({ queueOpen, fetcher = (input, init) => fetch(input, i
 	};
 }
 
-export default defineToolApi(xPostsApi({ queueOpen: QUEUE_OPEN }));
+export default defineToolApi(xPostsApi());

@@ -78,10 +78,8 @@ test("the production allowlist is exactly the registry's Access clients", () => 
 		"3764ccd9a5d87214d1032418b8c228ed.access": "smoke",
 		"9ae32c65cfb73a1cf83b0196b682ba65.access": "apple-health",
 		"acfc8c269c4412bc69e52f3f59d9d965.access": "gtd",
-		"d0acd83d5a6ab3a29010e0c14b492dca.access": "prints-review",
-		"e794aceb6214e9dade024072a3322e0e.access": "prints-bridge",
 	});
-	expect(Object.values(BOTS).map((bot) => bot.serviceToken)).toEqual(["nutrition-bot", "coach-bot", "tools-coordinator", "tools-agent-verify", "apple-health-export", "gtd-bot", "prints-review", "prints-bridge"]);
+	expect(Object.values(BOTS).map((bot) => bot.serviceToken)).toEqual(["nutrition-bot", "coach-bot", "tools-coordinator", "tools-agent-verify", "apple-health-export", "gtd-bot"]);
 });
 
 test("refuses a valid Access token for an identity off the allowlist", async () => {
@@ -174,18 +172,10 @@ const APP_ROUTES = [
 	["activity", "POST /apple-health"],
 	["liaison", "GET /deliveries"],
 	["liaison", "POST /notices"],
-	["x-posts", "GET /feed"],
-	["x-posts", "GET /review"],
-	["x-posts", "POST /decisions"],
-	["x-posts", "POST /jobs/claim"],
-	["x-posts", "POST /jobs/ack"],
-	["x-posts", "GET /posts"],
-	["x-posts", "GET /status"],
-	["x-posts", "POST /decide"],
-	["x-posts", "POST /check"],
-	["x-posts", "POST /jobs/requeue"],
-	["x-posts", "POST /backlog/skip"],
-	["x-posts", "PUT /blocklist"],
+	["x-posts", "GET /mentions"],
+	["x-posts", "GET /x/connect"],
+	["x-posts", "POST /mentions/reply"],
+	["x-posts", "POST /mentions/dismiss"],
 ] as const;
 
 const SMOKE_READS = APP_ROUTES.filter(([tool, route]) => tool !== "liaison" && tool !== "x-posts" && route.startsWith("GET ") && route !== "GET /withings/connect").map(([tool, route]) => `${tool} ${route}`);
@@ -197,8 +187,6 @@ const REACHABLE: Record<string, readonly string[]> = {
 	smoke: [...SMOKE_READS, "nutrition POST /mcp"],
 	"apple-health": ["activity POST /apple-health"],
 	gtd: [],
-	"prints-review": ["x-posts GET /feed", "x-posts GET /review", "x-posts POST /decisions"],
-	"prints-bridge": ["x-posts POST /jobs/claim", "x-posts POST /jobs/ack"],
 };
 
 test("a bot identity reaches only its scopes, on app routes as well as bot routes", () => {

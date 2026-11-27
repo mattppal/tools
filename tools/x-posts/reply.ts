@@ -1,9 +1,8 @@
-import { z } from "zod";
 import type { Database } from "../../worker/db.ts";
 import { base64url, secrets } from "../activity/secrets.ts";
 import { REPLY_MAX, replyLength } from "./reply-length.ts";
 import { type Fetch, USER_AGENT, X_API } from "./x.ts";
-import { BadRequest, iso, NotFound, postUrl } from "./shared.ts";
+import { BadRequest, iso } from "./shared.ts";
 
 declare global {
 	interface Env {
@@ -23,9 +22,6 @@ const RECONNECT = "X signed you out. Connect X again.";
 
 export const { seal, unseal, signState, verifyState } = secrets("tools-x-posts", "X");
 
-const PostId = z.string().regex(/^[1-9]\d{0,18}$/, "id must be a post id");
-export const replyRequest = z.strictObject({ id: PostId, text: z.string().max(4000) });
-
 export type Credentials = { clientId: string; clientSecret: string };
 export type Tokens = { accessToken: string; refreshToken: string; expiresAt: Date; scope: string };
 export type XAccount = { username: string; connectedAt: string; lastError: string | null };
@@ -40,8 +36,6 @@ export class NotMentioned extends Error {
 		super("X only takes replies from here on posts that @mention you.");
 	}
 }
-
-export const REPLY_HERE = `(select case when posts.addressed is null then posts.text ~* ('(^|[^a-z0-9_])@' || username || '([^a-z0-9_]|$)') else user_id = any(posts.addressed) end from x_posts.account)`;
 
 export function credentials(env: Env): Credentials | null {
 	const clientId = env.X_CLIENT_ID?.trim();
@@ -196,14 +190,4 @@ export function replyText(text: string): string {
 export async function postReply(client: Database, { fetcher, creds, now }: { fetcher: Fetch; creds: Credentials; now: Date }, id: string, body: string): Promise<{ replyId: string; username: string }> {
 	const { token: bearer, username } = await accessToken(client, fetcher, creds, now);
 	return { replyId: await signedOut(client, () => createReply(fetcher, bearer, id, body)), username };
-}
-
-export async function sendReply(client: Database, deps: { fetcher: Fetch; creds: Credentials; now: Date }, { id, text }: { id: string; text: string }): Promise<Reply> {
-	const body = replyText(text);
-	const found = (await client.query<{ reply_here: boolean | null }>(`select ${REPLY_HERE} as reply_here from x_posts.posts where id = $1::bigint`, [id])).rows[0];
-	if (found === undefined) throw new NotFound(`No post ${id}`);
-	if (found.reply_here === false) throw new NotMentioned();
-	const { replyId, username } = await postReply(client, deps, id, body);
-	await client.query("insert into x_posts.replies (reply_id, post_id, text, username, created_at) values ($1::bigint, $2::bigint, $3, $4, $5) on conflict (reply_id) do nothing", [replyId, id, body, username, deps.now]);
-	return { id: replyId, url: postUrl(username, replyId), text: body, at: iso(deps.now) };
 }

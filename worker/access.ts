@@ -51,18 +51,6 @@ export const BOTS = {
 		bearer: null,
 		tools: { goals: "all" },
 	},
-	"prints-review": {
-		serviceToken: "prints-review",
-		clientId: "d0acd83d5a6ab3a29010e0c14b492dca.access",
-		bearer: null,
-		tools: { "x-posts": ["GET /feed", "GET /review", "POST /decisions"] },
-	},
-	"prints-bridge": {
-		serviceToken: "prints-bridge",
-		clientId: "e794aceb6214e9dade024072a3322e0e.access",
-		bearer: null,
-		tools: { "x-posts": ["POST /jobs/claim", "POST /jobs/ack"] },
-	},
 } as const satisfies Record<string, Bot>;
 
 export type BotName = keyof typeof BOTS;

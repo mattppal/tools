@@ -6,7 +6,7 @@ import styles from "./x-posts.module.css";
 
 export const API = "/api/tools/x-posts";
 
-export type Load<T> = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: T };
+type Load<T> = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: T };
 
 export function describe(error: unknown): string {
 	if (error instanceof TypeError) return "Couldn't reach the server. Reload the page to sign in again.";
@@ -39,7 +39,7 @@ export function replySender(path: string): (body: { id: string; text: string }) 
 	};
 }
 
-export const NARROW = "(max-width: 900px)";
+const NARROW = "(max-width: 900px)";
 
 function subscribeNarrow(onChange: () => void): () => void {
 	const media = window.matchMedia(NARROW);
@@ -97,28 +97,6 @@ export function useVisibleInterval(callback: () => void, ms: number): void {
 	}, [ms]);
 }
 
-const COPIED_MS = 1500;
-
-export function CopyLink({ url }: { url: string }) {
-	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-	useEffect(() => {
-		if (state === "idle") return;
-		const timer = setTimeout(() => setState("idle"), COPIED_MS);
-		return () => clearTimeout(timer);
-	}, [state]);
-	return (
-		<Button
-			size="sm"
-			variant="quiet"
-			className={styles.copyLink}
-			aria-label={state === "idle" ? "Copy link to post" : undefined}
-			onClick={() => navigator.clipboard.writeText(url).then(() => setState("copied"), () => setState("failed"))}
-		>
-			<span aria-live="polite">{state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy" : "Copy link"}</span>
-		</Button>
-	);
-}
-
 export function LoadState({ load, retry }: { load: Exclude<Load<unknown>, { status: "ready" }>; retry: () => void }) {
 	if (load.status === "loading") return <div className={styles.loading} aria-busy="true" aria-label="Loading" />;
 	return (
@@ -135,7 +113,7 @@ export function Avatar({ url }: { url: string | null }) {
 
 export function PostLink({ url, createdAt, children }: { url: string; createdAt: string; children: string }) {
 	return (
-		<a className={styles.postLink} href={url} target="_blank" rel="noreferrer" title={`${when(createdAt)}, open on X`}>
+		<a className={styles.postLink} href={url} target="_blank" rel="noopener noreferrer" title={`${when(createdAt)}, open on X`}>
 			<time dateTime={createdAt}>{children}</time>
 		</a>
 	);

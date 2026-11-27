@@ -2,6 +2,6 @@ import { defineTool } from "../../src/tool.ts";
 
 export default defineTool({
 	name: "X posts",
-	description: "A log of X posts matching one query, screened, for Matt and matty prints.",
+	description: "Matt's @mentions and mattyp summons on X, in one place, with replies.",
 	emoji: "💬",
 });

@@ -2,7 +2,7 @@ import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "../../src/kit/button.tsx";
 import type { Mention, MentionSync } from "./mentions.ts";
-import type { Reply } from "./reply.ts";
+import type { Reply, XAccount } from "./reply.ts";
 import { ConnectX, ReplyBox } from "./reply-box.tsx";
 import { ago, Avatar, describe, LoadState, PostLink, replySender, request, useLoad, useNarrow, useVisibleInterval } from "./ui.tsx";
 import styles from "./x-posts.module.css";
@@ -19,18 +19,22 @@ function nextMonth(now: number): string {
 	return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+function dollars(mills: number): string {
+	return `$${(mills / 1000).toFixed(2)}`;
+}
+
 function SyncLine({ sync, now }: { sync: MentionSync; now: number }) {
 	if (sync.paused === "budget") return <p className={styles.muted}>Paused: budget. Resumes {nextMonth(now)}.</p>;
 	if (sync.paused === "capped") return <p className={styles.muted}>Paused: X usage cap. Resumes {nextMonth(now)}.</p>;
 	return (
 		<p className={styles.muted} aria-live="polite">
-			Checked {sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)}.{sync.lastError === null ? "" : ` ${sync.lastError}`}
+			Checked {sync.lastRunAt === null ? "never" : ago(sync.lastRunAt, now)} · {dollars(sync.spentMills)} of {dollars(sync.capMills)} this month.{sync.lastError === null ? "" : ` ${sync.lastError}`}
 		</p>
 	);
 }
 
-export function MentionsPage({ connected }: { connected: boolean | null }) {
-	const [load, retry] = useLoad<{ mentions: Mention[]; sync: MentionSync }>("/mentions");
+export function MentionsPage() {
+	const [load, retry] = useLoad<{ mentions: Mention[]; sync: MentionSync; x: XAccount | null }>("/mentions");
 	const [now, setNow] = useState(Date.now());
 	const [chosen, setChosen] = useState<string | null>(null);
 	const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(new Map());
@@ -84,6 +88,7 @@ export function MentionsPage({ connected }: { connected: boolean | null }) {
 			}
 			return;
 		}
+		if (event.key === "Enter" && event.target instanceof Element && event.target.closest("a, button")) return;
 		const index = selected === null ? -1 : mentions.findIndex((item) => item.id === selected.id);
 		if (event.key === "j") select(mentions[Math.min(index + 1, mentions.length - 1)]?.id, "row");
 		else if (event.key === "k") select(mentions[Math.max(index - 1, 0)]?.id, "row");
@@ -98,10 +103,11 @@ export function MentionsPage({ connected }: { connected: boolean | null }) {
 		return () => document.removeEventListener("keydown", listener);
 	}, []);
 	if (load.status !== "ready") return <LoadState load={load} retry={retry} />;
+	const connected = load.data.x !== null;
 	return (
 		<>
 			<SyncLine sync={load.data.sync} now={now} />
-			{connected === false ? <ConnectX /> : null}
+			{connected ? null : <ConnectX />}
 			{error === null ? null : <p className={styles.error}>{error}</p>}
 			{mentions.length === 0 ? (
 				<p className={styles.muted}>No mentions yet.</p>
@@ -132,7 +138,7 @@ export function MentionsPage({ connected }: { connected: boolean | null }) {
 										{ago(item.createdAt, now)}
 									</PostLink>
 									{item.reply !== null ? (
-										<a className={styles.rowReplied} href={item.reply.url} target="_blank" rel="noreferrer">
+										<a className={styles.rowReplied} href={item.reply.url} target="_blank" rel="noopener noreferrer">
 											Replied
 										</a>
 									) : narrow && !current ? (
@@ -142,6 +148,12 @@ export function MentionsPage({ connected }: { connected: boolean | null }) {
 									) : null}
 								</p>
 								<p className={styles.text}>{item.text}</p>
+								<p className={styles.rowFoot}>
+									<a className={styles.openOnX} href={item.url} target="_blank" rel="noopener noreferrer">
+										Open on X
+									</a>
+									{item.summons ? <span>Summons</span> : null}
+								</p>
 								{current ? (
 									<div className={styles.inlineReply} data-box>
 										{item.reply === null && connected ? (
