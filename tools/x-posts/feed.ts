@@ -1,7 +1,7 @@
 import type { Database } from "../../worker/db.ts";
 import { QUERY, STALE_FEED_MS } from "./query.ts";
-import { iso } from "./queue.ts";
-import { FLAGS, postUrl } from "./screen.ts";
+import { FLAGS } from "./screen.ts";
+import { iso, postUrl } from "./shared.ts";
 
 export const FEED_LIMIT = 50;
 export const FEED_MAX_LIMIT = 200;

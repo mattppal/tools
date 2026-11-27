@@ -3,6 +3,7 @@ import { queueNotice, Refused } from "../liaison/notices.ts";
 import { ACTIVE_INTERVAL_MINUTES, ACTIVE_WINDOW_MINUTES, INTERVAL_MINUTES, MONTHLY_READ_BUDGET, PAGES_PER_RUN, REFRESH_CALLS_PER_RUN, REFRESH_SHARE, STALE_NOTICE_MS } from "./query.ts";
 import { rejectingFlags, SCREEN_VERSION, screen, validHandle } from "./screen.ts";
 import { type Fetch, lookupMetrics, type Rate, searchRecent, type XMetrics, type XPage, type XPost, XError } from "./x.ts";
+import { monthOf } from "./shared.ts";
 
 export type SyncState = {
 	sinceId: string | null;
@@ -70,10 +71,6 @@ export async function readSyncState(client: Database): Promise<SyncState> {
 	const row = (await client.query<StateRow>(`select ${STATE_COLUMNS} from x_posts.sync_state`)).rows[0];
 	if (row === undefined) throw new Error("x_posts.sync_state has no row");
 	return toState(row);
-}
-
-export function monthOf(at: Date): string {
-	return at.toISOString().slice(0, 7);
 }
 
 function nextMonth(at: Date): Date {

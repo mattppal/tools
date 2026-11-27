@@ -14,6 +14,7 @@ const openApi = xPostsApi({ queueOpen: true });
 const closedApi = xPostsApi({ queueOpen: false });
 import { checkReplies, QUERY_MAX, replyQueries, replyQuery } from "./reply-check.ts";
 import { type Mention, type MentionSync, RUN_HEARTBEAT_MINUTES, syncMentions } from "./mentions.ts";
+import { runSteps } from "./cron.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 import { handleOk, normalizeTerm, screen } from "./screen.ts";
 import type { XPost, XUser } from "./x.ts";
@@ -775,4 +776,22 @@ test("Matt replies to a mention from here, dismisses another, and bots can't tou
 	for (const [method, path] of [["GET", "/mentions"], ["POST", "/mentions/reply"], ["POST", "/mentions/dismiss"]] as const) {
 		expect((await sendAs(path, fakeOAuthX([]).fetcher, { method, caller: REVIEW, ...(method === "POST" ? { body: { id: "2200000000000000001", text: "x" } } : {}) })).status).toBe(403);
 	}
+});
+
+test("a failing cron step doesn't stop the steps after it, and its error still reaches the cron", async () => {
+	const ran: string[] = [];
+	const failing = runSteps([
+		async () => {
+			ran.push("mentions");
+		},
+		async () => {
+			throw new Error("sweep broke");
+		},
+		async () => {
+			ran.push("ingest");
+		},
+	]);
+	await expect(failing).rejects.toThrow("sweep broke");
+	expect(ran).toEqual(["mentions", "ingest"]);
+	await expect(runSteps([async () => Promise.reject(new Error("a")), async () => Promise.reject(new Error("b"))])).rejects.toThrow("a; b");
 });

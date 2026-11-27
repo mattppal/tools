@@ -241,10 +241,6 @@ export function handleOk(handle: string, blocklist: readonly string[]): boolean 
 	});
 }
 
-export function postUrl(handle: string, id: string): string {
-	return handle === "unknown" ? `https://x.com/i/status/${id}` : `https://x.com/${handle}/status/${id}`;
-}
-
 export function rejectingFlags(flags: readonly string[]): string[] {
 	return flags.filter((flag) => (REJECTING as readonly string[]).includes(flag));
 }

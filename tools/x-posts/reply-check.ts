@@ -1,8 +1,8 @@
 import type { WithDb } from "../../worker/db.ts";
-import { monthOf } from "./ingest.ts";
 import { MONTHLY_READ_BUDGET, REFRESH_SHARE } from "./query.ts";
 import { accessToken, type Credentials, Disconnected, XRefused } from "./reply.ts";
 import { type Fetch, searchReplies, XError } from "./x.ts";
+import { monthOf } from "./shared.ts";
 
 export const QUERY_MAX = 512;
 export const CHECK_CALLS_PER_RUN = 3;
