@@ -302,6 +302,34 @@ test("the migration starts summons where the old print-queue search left off", a
 	expect((await pg.query("select column_default from information_schema.columns where table_schema = 'x_posts' and table_name = 'mentions' and column_name = 'sources'")).rows[0]).toEqual({ column_default: "'{mention}'::text[]" });
 });
 
+test("before dropping the print queue, its summons, their authors and Matt's replies move into mentions", async () => {
+	await pg.exec("drop schema x_posts cascade; create schema x_posts");
+	await migrate(migrationFiles.filter((name) => name < "0009"));
+	await pg.exec(`insert into x_posts.account (user_id, username, scope, access_token, refresh_token, expires_at, connected_at) values ('${MATT_X_ID}', 'mattyp', 'tweet.read', 'sealed', 'sealed', now(), now());
+		insert into x_posts.x_users (id, username, name, fetched_at) values ('u1', 'ada_now', 'Ada Now', now());
+		insert into x_posts.mentions (id, author_id, text, created_at, ingested_at, dismissed_at) values (2200000000000000001, 'u1', '@mattyp mattyp mattyp mattyp', now(), now(), now());
+		insert into x_posts.posts (id, author_id, handle, name, clean_name, text, clean_text, created_at, is_reply, is_quote, metrics_at, screen_version, status, ingested_at, addressed, avatar_url) values
+			(2200000000000000001, 'u1', 'ada_then', 'Ada', 'Ada', '@mattyp mattyp mattyp mattyp', '', '2026-11-20T10:00:00Z', false, false, now(), 1, 'overflow', '2026-11-20T10:01:00Z', '{${MATT_X_ID}}', null),
+			(2200000000000000002, 'u2', 'bo', 'Bo', 'Bo', 'mattyp mattyp mattyp', '', '2026-11-21T10:00:00Z', false, false, now(), 1, 'rejected', '2026-11-21T10:01:00Z', '{}', 'https://pbs.twimg.com/b.jpg'),
+			(2200000000000000003, 'u2', 'bo', 'Bo', 'Bo', 'hey @MattyP mattyp mattyp mattyp', '', '2026-11-22T10:00:00Z', false, false, now(), 1, 'pending', '2026-11-22T10:01:00Z', null, null),
+			(2200000000000000004, 'u3', 'cy', 'Cy', 'Cy', 'mattyp mattyp mattyp @mattypalmer', '', '2026-11-23T10:00:00Z', false, false, now(), 1, 'overflow', '2026-11-23T10:01:00Z', null, null);
+		insert into x_posts.replies (reply_id, post_id, text, username, created_at, via) values (2200000000000000009, 2200000000000000002, 'hi bo', 'mattyp', now(), 'x');`);
+	await migrate(migrationFiles.filter((name) => name >= "0009"));
+	expect((await pg.query("select id::text, author_id, text, created_at, sources, dismissed_at is not null as dismissed from x_posts.mentions order by id")).rows).toEqual([
+		{ id: "2200000000000000001", author_id: "u1", text: "@mattyp mattyp mattyp mattyp", created_at: expect.any(Date), sources: ["mention", "summons"], dismissed: true },
+		{ id: "2200000000000000002", author_id: "u2", text: "mattyp mattyp mattyp", created_at: new Date("2026-11-21T10:00:00Z"), sources: ["summons"], dismissed: false },
+		{ id: "2200000000000000003", author_id: "u2", text: "hey @MattyP mattyp mattyp mattyp", created_at: new Date("2026-11-22T10:00:00Z"), sources: ["mention", "summons"], dismissed: false },
+		{ id: "2200000000000000004", author_id: "u3", text: "mattyp mattyp mattyp @mattypalmer", created_at: new Date("2026-11-23T10:00:00Z"), sources: ["summons"], dismissed: false },
+	]);
+	expect((await pg.query("select id, username, avatar_url from x_posts.x_users order by id")).rows).toEqual([
+		{ id: "u1", username: "ada_now", avatar_url: null },
+		{ id: "u2", username: "bo", avatar_url: "https://pbs.twimg.com/b.jpg" },
+		{ id: "u3", username: "cy", avatar_url: null },
+	]);
+	expect((await pg.query("select reply_id::text, mention_id::text, via from x_posts.mention_replies")).rows).toEqual([{ reply_id: "2200000000000000009", mention_id: "2200000000000000002", via: "x" }]);
+	expect((await pg.query<{ table_name: string }>("select table_name from information_schema.tables where table_schema = 'x_posts' order by 1")).rows.map((row) => row.table_name)).toEqual(["account", "mention_replies", "mention_sync", "mentions", "x_users"]);
+});
+
 test("a mentions run that finds nothing writes nothing until the heartbeat, and keeps since_id", async () => {
 	await connectAs();
 	const nothing = () => fakeOAuthX([empty, empty, empty]);

@@ -44,6 +44,6 @@ On self-serve API plans, X accepts API replies only to posts that mention or quo
 
 ## Tables
 
-Schema `x_posts`. In use: `mentions` (one per post, `sources` is `{mention}`, `{summons}` or both, `dismissed_at`), `mention_replies` (one per reply Matt made, by `mention_id`; `via` is `tools` or `x`), `x_users` (authors looked up once: username, name, picture, only ever on `pbs.twimg.com`), `mention_sync` (one row: `since_id`, `summons_since_id`, `own_since_id`, the month's spend in mills, the pause), `account` (one row: Matt's X user, AES-GCM sealed tokens, expiry, `last_error`).
+Schema `x_posts`: `mentions` (one per post, `sources` is `{mention}`, `{summons}` or both, `dismissed_at`), `mention_replies` (one per reply Matt made, by `mention_id`; `via` is `tools` or `x`), `x_users` (authors looked up once: username, name, picture, only ever on `pbs.twimg.com`), `mention_sync` (one row: `since_id`, `summons_since_id`, `own_since_id`, the month's spend in mills, the pause), `account` (one row: Matt's X user, AES-GCM sealed tokens, expiry, `last_error`).
 
-Left from the retired print queue, read by no code: `posts`, `jobs`, `replies`, `runs`, `sync_state`, `blocklist`.
+Migration `0009` copied the retired print queue's summons, their authors and Matt's replies into these tables, then dropped `posts`, `jobs`, `replies`, `runs`, `sync_state` and `blocklist`.
