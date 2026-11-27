@@ -25,6 +25,7 @@ const ROUTES = [
 	["goals", "GET /goals"],
 	["notes", "GET /"],
 	["x-posts", "GET /mentions"],
+	["x-posts", "GET /mentions/context"],
 	["x-posts", "POST /mentions/reply"],
 ] as const;
 

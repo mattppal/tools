@@ -173,6 +173,7 @@ const APP_ROUTES = [
 	["liaison", "GET /deliveries"],
 	["liaison", "POST /notices"],
 	["x-posts", "GET /mentions"],
+	["x-posts", "GET /mentions/context"],
 	["x-posts", "GET /x/connect"],
 	["x-posts", "POST /mentions/reply"],
 	["x-posts", "POST /mentions/dismiss"],
