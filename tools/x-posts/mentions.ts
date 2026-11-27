@@ -19,7 +19,7 @@ export const mentionReplyRequest = z.strictObject({ id: MentionId, text: z.strin
 export const dismissRequest = z.strictObject({ id: MentionId });
 
 export type Source = "mention" | "summons";
-export type Mention = { id: string; handle: string; name: string; avatarUrl: string | null; text: string; createdAt: string; url: string; reply: Reply | null; replyHere: boolean; summons: boolean };
+export type Mention = { id: string; handle: string; name: string; avatarUrl: string | null; text: string; createdAt: string; url: string; reply: Reply | null; replyHere: boolean; summons: boolean; context: "reply" | "quote" | "none" | null };
 export type MentionSync = { lastRunAt: string | null; lastSuccessAt: string | null; lastError: string | null; paused: "budget" | "capped" | null; spentMills: number; capMills: number };
 export type SyncResult = { status: "disconnected" | "paused" | "ok" | "error"; mentions: number; summons: number; replies: number; users: number; spentMills: number; error: string | null };
 
@@ -48,6 +48,15 @@ async function saveUsers(client: Database, users: readonly XUser[], now: Date): 
 		);
 }
 
+export function referenced(post: XPost, type: "replied_to" | "quoted"): string | null {
+	const id = post.referenced_tweets?.find((ref) => ref.type === type)?.id;
+	return id !== undefined && /^[1-9]\d{0,18}$/.test(id) ? id : null;
+}
+
+export async function addSpend(client: Database, month: string, mills: number): Promise<void> {
+	await client.query("update x_posts.mention_sync set spent_mills = (case when month = $1 then spent_mills else 0 end) + $2, month = $1", [month, mills]);
+}
+
 export function mentionsUser(post: XPost, userId: string): boolean {
 	return post.in_reply_to_user_id === userId || (post.entities?.mentions ?? []).some((mention) => mention.id === userId);
 }
@@ -58,10 +67,10 @@ async function saveMentions(client: Database, posts: readonly XPost[], sourcesOf
 		if (typeof post.author_id !== "string") continue;
 		const created = post.created_at === undefined ? Number.NaN : Date.parse(post.created_at);
 		const result = await client.query(
-			`insert into x_posts.mentions (id, author_id, text, created_at, conversation_id, ingested_at, sources) values ($1::bigint, $2, $3, $4, $5, $6, $7::text[])
+			`insert into x_posts.mentions (id, author_id, text, created_at, conversation_id, ingested_at, sources, refs_known, replied_to_id, quoted_id) values ($1::bigint, $2, $3, $4, $5, $6, $7::text[], true, $8::bigint, $9::bigint)
 			on conflict (id) do update set sources = array(select distinct unnest(mentions.sources || excluded.sources) order by 1)
 			where not mentions.sources @> excluded.sources`,
-			[post.id, post.author_id, post.note_tweet?.text ?? post.text, new Date(Number.isFinite(created) ? created : now.getTime()), post.conversation_id ?? null, now, sourcesOf(post)],
+			[post.id, post.author_id, post.note_tweet?.text ?? post.text, new Date(Number.isFinite(created) ? created : now.getTime()), post.conversation_id ?? null, now, sourcesOf(post), referenced(post, "replied_to"), referenced(post, "quoted")],
 		);
 		saved += result.rowCount ?? 0;
 	}
@@ -78,6 +87,15 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 	let paused: "budget" | "capped" | null = null;
 	const stored: Record<string, unknown> = { ...state };
 	let wrote = false;
+	let flushed = spent;
+	const flushSpend = async () => {
+		if (spent === flushed && stored["month"] === month) return;
+		const delta = spent - flushed;
+		await withDb((client) => addSpend(client, month, delta));
+		flushed = spent;
+		stored["month"] = month;
+		wrote = true;
+	};
 	const save = async (patch: Record<string, unknown>) => {
 		const changed = Object.entries(patch).filter(([key, value]) => stored[key] !== value);
 		if (changed.length === 0) return;
@@ -115,7 +133,7 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 				return await saveMentions(client, found.posts, sourcesOf, now);
 			});
 			result.users += users.length;
-			await save({ month, spent_mills: spent });
+			await flushSpend();
 			nextToken = found.nextToken;
 			if (nextToken === null) break;
 		}
@@ -153,7 +171,8 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 					result.replies += inserted.rowCount ?? 0;
 				}
 			});
-			await save({ month, spent_mills: spent, ...(own.newestId === null ? {} : { own_since_id: own.newestId }) });
+			await flushSpend();
+			if (own.newestId !== null) await save({ own_since_id: own.newestId });
 		}
 	} catch (error) {
 		if (!(error instanceof XError)) throw error;
@@ -162,7 +181,7 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 			result.status = "error";
 			result.error = error.message;
 		}
-		await save({ month, spent_mills: spent });
+		await flushSpend();
 	}
 	if (paused !== null) {
 		result.status = "paused";
@@ -179,8 +198,8 @@ export async function syncMentions(withDb: WithDb, { fetcher, creds, now, cap = 
 
 export async function listMentions(client: Database, limit: number, now: Date): Promise<{ mentions: Mention[]; sync: MentionSync; x: XAccount | null }> {
 	const rows = (
-		await client.query<{ id: string; username: string | null; name: string | null; avatar_url: string | null; text: string; created_at: Date | string; sources: Source[]; reply_id: string | null; reply_text: string | null; reply_username: string | null; replied_at: Date | string | null }>(
-			`select mentions.id::text, users.username, users.name, users.avatar_url, mentions.text, mentions.created_at, mentions.sources, latest.reply_id, latest.reply_text, latest.reply_username, latest.replied_at
+		await client.query<{ id: string; username: string | null; name: string | null; avatar_url: string | null; text: string; created_at: Date | string; sources: Source[]; reply_id: string | null; reply_text: string | null; reply_username: string | null; replied_at: Date | string | null; refs_known: boolean; replied_to_id: string | null; quoted_id: string | null }>(
+			`select mentions.id::text, users.username, users.name, users.avatar_url, mentions.text, mentions.created_at, mentions.sources, mentions.refs_known, mentions.replied_to_id::text, mentions.quoted_id::text, latest.reply_id, latest.reply_text, latest.reply_username, latest.replied_at
 			from x_posts.mentions
 			left join x_posts.x_users as users on users.id = mentions.author_id
 			left join lateral (
@@ -210,6 +229,7 @@ export async function listMentions(client: Database, limit: number, now: Date): 
 			reply: row.reply_id === null || row.reply_username === null || row.replied_at === null ? null : { id: row.reply_id, url: postUrl(row.reply_username, row.reply_id), text: row.reply_text ?? "", at: iso(row.replied_at) },
 			replyHere: row.sources.includes("mention"),
 			summons: row.sources.includes("summons"),
+			context: !row.refs_known ? null : row.replied_to_id !== null ? "reply" : row.quoted_id !== null ? "quote" : "none",
 		})),
 		sync: {
 			lastRunAt: sync?.last_run_at == null ? null : iso(sync.last_run_at),

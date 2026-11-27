@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { Button } from "../../src/kit/button.tsx";
 import type { Mention, MentionSync } from "./mentions.ts";
 import type { Reply, XAccount } from "./reply.ts";
+import { ReplyContext } from "./context-view.tsx";
 import { ConnectX, ReplyBox } from "./reply-box.tsx";
 import { ago, Avatar, describe, LoadState, PostLink, replySender, request, useLoad, useNarrow, useVisibleInterval } from "./ui.tsx";
 import styles from "./x-posts.module.css";
@@ -112,77 +113,85 @@ export function MentionsPage() {
 			{mentions.length === 0 ? (
 				<p className={styles.muted}>No mentions yet.</p>
 			) : (
-				<ul className={`${styles.list} ${styles.mentions}`}>
-					{mentions.map((item) => {
-						const current = selected?.id === item.id;
-						return (
-							<li
-								key={item.id}
-								ref={(node) => {
-									if (node === null) rows.current.delete(item.id);
-									else rows.current.set(item.id, node);
-								}}
-								className={styles.liveRow}
-								tabIndex={-1}
-								aria-current={current || undefined}
-								onClick={(event: MouseEvent<HTMLElement>) => {
-									if ((event.target as HTMLElement).closest("a, button, textarea, [data-box]")) return;
-									select(item.id, item.reply === null ? "box" : "row");
-								}}
-							>
-								<p className={styles.liveHead}>
-									<Avatar url={item.avatarUrl} />
-									<span className={styles.liveName}>{item.name || item.handle}</span>
-									{item.handle === "" ? null : <span>@{item.handle}</span>}
-									<PostLink url={item.url} createdAt={item.createdAt}>
-										{ago(item.createdAt, now)}
-									</PostLink>
-									{item.reply !== null ? (
-										<a className={styles.rowReplied} href={item.reply.url} target="_blank" rel="noopener noreferrer">
-											Replied
-										</a>
-									) : narrow && !current ? (
-										<Button size="sm" variant="quiet" className={styles.rowReply} onClick={() => select(item.id, "box")}>
-											Reply
-										</Button>
-									) : null}
-								</p>
-								<p className={styles.text}>{item.text}</p>
-								<p className={styles.rowFoot}>
-									<a className={styles.openOnX} href={item.url} target="_blank" rel="noopener noreferrer">
-										Open on X
-									</a>
-									{item.summons ? <span>Summons</span> : null}
-								</p>
-								{current ? (
-									<div className={styles.inlineReply} data-box>
-										{item.reply === null && connected ? (
-											<ReplyBox
-												key={item.id}
-												post={item}
-												send={sendMention}
-												draft={drafts.get(item.id) ?? ""}
-												onDraft={(text) => setDrafts((all) => new Map(all).set(item.id, text))}
-												onSent={(reply) => {
-													const next = nextOpen(item.id, new Set([item.id]));
-													setSent((all) => new Map(all).set(item.id, reply));
-													if (next !== undefined) select(next.id, "box");
-												}}
-												inputRef={input}
-											/>
-										) : null}
-										<div className={styles.rowTools}>
-											{narrow ? null : <span className={styles.meta}>j k move · r reply · d dismiss · Esc leaves the box</span>}
-											<Button size="sm" variant="quiet" onClick={() => void dismiss(item.id)}>
-												Dismiss
+				<div className={styles.mentionsLayout}>
+					<ul className={`${styles.list} ${styles.mentions}`}>
+						{mentions.map((item) => {
+							const current = selected?.id === item.id;
+							return (
+								<li
+									key={item.id}
+									ref={(node) => {
+										if (node === null) rows.current.delete(item.id);
+										else rows.current.set(item.id, node);
+									}}
+									className={styles.liveRow}
+									tabIndex={-1}
+									aria-current={current || undefined}
+									onClick={(event: MouseEvent<HTMLElement>) => {
+										if ((event.target as HTMLElement).closest("a, button, textarea, [data-box]")) return;
+										select(item.id, item.reply === null && !narrow ? "box" : "row");
+									}}
+								>
+									<p className={styles.liveHead}>
+										<Avatar url={item.avatarUrl} />
+										<span className={styles.liveName}>{item.name || item.handle}</span>
+										{item.handle === "" ? null : <span>@{item.handle}</span>}
+										<PostLink url={item.url} createdAt={item.createdAt}>
+											{ago(item.createdAt, now)}
+										</PostLink>
+										{item.reply !== null ? (
+											<a className={styles.rowReplied} href={item.reply.url} target="_blank" rel="noopener noreferrer">
+												Replied
+											</a>
+										) : narrow && !current ? (
+											<Button size="sm" variant="quiet" className={styles.rowReply} onClick={() => select(item.id, "box")}>
+												Reply
 											</Button>
+										) : null}
+									</p>
+									<p className={styles.text}>{item.text}</p>
+									<p className={styles.rowFoot}>
+										<a className={styles.openOnX} href={item.url} target="_blank" rel="noopener noreferrer">
+											Open on X
+										</a>
+										{item.summons ? <span>Summons</span> : null}
+									</p>
+									{current ? (
+										<div className={styles.inlineReply} data-box>
+											{narrow ? <ReplyContext key={item.id} mention={item} now={now} /> : null}
+											{item.reply === null && connected ? (
+												<ReplyBox
+													key={item.id}
+													post={item}
+													send={sendMention}
+													draft={drafts.get(item.id) ?? ""}
+													onDraft={(text) => setDrafts((all) => new Map(all).set(item.id, text))}
+													onSent={(reply) => {
+														const next = nextOpen(item.id, new Set([item.id]));
+														setSent((all) => new Map(all).set(item.id, reply));
+														if (next !== undefined) select(next.id, "box");
+													}}
+													inputRef={input}
+												/>
+											) : null}
+											<div className={styles.rowTools}>
+												{narrow ? null : <span className={styles.meta}>j k move · r reply · d dismiss · Esc leaves the box</span>}
+												<Button size="sm" variant="quiet" onClick={() => void dismiss(item.id)}>
+													Dismiss
+												</Button>
+											</div>
 										</div>
-									</div>
-								) : null}
-							</li>
-						);
-					})}
-				</ul>
+									) : null}
+								</li>
+							);
+						})}
+					</ul>
+					{narrow || selected === null ? null : (
+						<aside className={styles.ctxPane}>
+							<ReplyContext key={selected.id} mention={selected} now={now} />
+						</aside>
+					)}
+				</div>
 			)}
 		</>
 	);

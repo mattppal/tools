@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Caller } from "../../worker/access.ts";
 import type { Database, WithDb } from "../../worker/db.ts";
 import { DB_DOWN, xPostsApi } from "./api.ts";
+import { segments } from "./context.ts";
 import { type Mention, type MentionSync, RUN_HEARTBEAT_MINUTES, SUMMONS_QUERY, syncMentions } from "./mentions.ts";
 import { isSendKey, REPLY_MAX, replyLength } from "./reply-length.ts";
 
@@ -34,7 +35,7 @@ const MATT_X_ID = "1518984544421965824";
 const CREDS = { clientId: "client", clientSecret: "client-secret" };
 
 beforeEach(async () => {
-	await pg.exec(`truncate x_posts.account, x_posts.mentions, x_posts.mention_replies, x_posts.x_users cascade;
+	await pg.exec(`truncate x_posts.account, x_posts.post_context, x_posts.mentions, x_posts.mention_replies, x_posts.x_users cascade;
 		update x_posts.mention_sync set since_id = null, summons_since_id = null, own_since_id = null, last_run_at = null, last_success_at = null, last_error = null, month = '', spent_mills = 0, paused_month = null, paused_reason = null;`);
 });
 
@@ -327,7 +328,7 @@ test("before dropping the print queue, its summons, their authors and Matt's rep
 		{ id: "u3", username: "cy", avatar_url: null },
 	]);
 	expect((await pg.query("select reply_id::text, mention_id::text, via from x_posts.mention_replies")).rows).toEqual([{ reply_id: "2200000000000000009", mention_id: "2200000000000000002", via: "x" }]);
-	expect((await pg.query<{ table_name: string }>("select table_name from information_schema.tables where table_schema = 'x_posts' order by 1")).rows.map((row) => row.table_name)).toEqual(["account", "mention_replies", "mention_sync", "mentions", "x_users"]);
+	expect((await pg.query<{ table_name: string }>("select table_name from information_schema.tables where table_schema = 'x_posts' order by 1")).rows.map((row) => row.table_name)).toEqual(["account", "mention_replies", "mention_sync", "mentions", "post_context", "x_users"]);
 });
 
 test("a mentions run that finds nothing writes nothing until the heartbeat, and keeps since_id", async () => {
@@ -380,4 +381,116 @@ test("Matt replies to a mention from here and dismisses another", async () => {
 	expect(JSON.parse(x.calls[0]?.body ?? "")).toEqual({ text: "thanks", reply: { in_reply_to_tweet_id: "2200000000000000001" } });
 	expect((await sendAs("/mentions/dismiss", fakeOAuthX([]).fetcher, { method: "POST", body: { id: "2200000000000000002" } })).status).toBe(200);
 	expect((await list()).mentions.map((item) => [item.id, item.reply?.text ?? null, item.url])).toEqual([["2200000000000000001", "thanks", "https://x.com/i/status/2200000000000000001"]]);
+});
+
+test("post text links its URLs, mentions and hashtags by code point, and hides media and quote links", () => {
+	const text = "👋 hi @ada see https://t.co/a1 &amp; #ship https://t.co/m1 https://t.co/q1";
+	const at = (needle: string) => Array.from(text.slice(0, text.indexOf(needle))).length;
+	const span = (needle: string) => ({ start: at(needle), end: at(needle) + Array.from(needle).length });
+	expect(
+		segments(
+			text,
+			{
+				mentions: [{ ...span("@ada"), username: "ada" }],
+				hashtags: [{ ...span("#ship"), tag: "ship" }],
+				urls: [
+					{ ...span("https://t.co/a1"), expanded_url: "https://example.com/a/long/path", display_url: "example.com/a/long…" },
+					{ ...span("https://t.co/m1"), expanded_url: "https://x.com/ada/status/1/photo/1", media_key: "3_1" },
+					{ ...span("https://t.co/q1"), expanded_url: "https://x.com/bo/status/99" },
+				],
+			},
+			(url) => url === "https://x.com/bo/status/99",
+		),
+	).toEqual([
+		{ text: "👋 hi " },
+		{ text: "@ada", href: "https://x.com/ada" },
+		{ text: " see " },
+		{ text: "example.com/a/long…", href: "https://example.com/a/long/path" },
+		{ text: " & " },
+		{ text: "#ship", href: "https://x.com/hashtag/ship" },
+	]);
+});
+
+test("selecting a mention reads the post it replies to once, with media, quote and authors, and counts the spend", async () => {
+	await connectAs();
+	await pg.query("insert into x_posts.mentions (id, author_id, text, created_at, ingested_at) values (2200000000000000001, 'u1', '@mattyp look', now(), now())");
+	await pg.query("insert into x_posts.x_users (id, username, name, fetched_at) values ('u7', 'bo', 'Bo', now())");
+	const x = fakeOAuthX([
+		(call) => {
+			expect(new URL(call.url).searchParams.get("ids")).toBe("2200000000000000001");
+			return Response.json({ data: [{ id: "2200000000000000001", text: "@mattyp look", referenced_tweets: [{ type: "replied_to", id: "2100000000000000005" }] }] });
+		},
+		(call) => {
+			const sent = new URL(call.url);
+			expect(sent.searchParams.get("ids")).toBe("2100000000000000005");
+			expect(sent.searchParams.get("expansions")).toBe("attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys");
+			return Response.json({
+				data: [{ id: "2100000000000000005", text: "new build https://t.co/v https://t.co/q", author_id: "u6", created_at: "2026-11-22T18:00:00.000Z", attachments: { media_keys: ["7_1"] }, referenced_tweets: [{ type: "quoted", id: "2100000000000000004" }], entities: { urls: [{ start: 10, end: 24, expanded_url: "https://x.com/cy/status/2100000000000000005/video/1", media_key: "7_1" }, { start: 25, end: 39, expanded_url: "https://x.com/bo/status/2100000000000000004" }] } }],
+				includes: {
+					media: [{ media_key: "7_1", type: "video", preview_image_url: "https://pbs.twimg.com/v.jpg", width: 1280, height: 720, variants: [{ content_type: "video/mp4", bit_rate: 256000, url: "https://video.twimg.com/low.mp4" }, { content_type: "video/mp4", bit_rate: 2176000, url: "https://video.twimg.com/high.mp4" }, { content_type: "application/x-mpegURL", url: "https://video.twimg.com/pl.m3u8" }] }, { media_key: "3_2", type: "photo", url: "https://pbs.twimg.com/q.jpg" }],
+					tweets: [{ id: "2100000000000000004", text: "the old one", author_id: "u7", attachments: { media_keys: ["3_2"] } }],
+				},
+			});
+		},
+		(call) => {
+			expect(new URL(call.url).searchParams.get("ids")).toBe("u6");
+			return Response.json({ data: [{ id: "u6", username: "cy", name: "Cy", profile_image_url: "https://pbs.twimg.com/cy.jpg" }] });
+		},
+	]);
+	const response = await sendAs("/mentions/context?id=2200000000000000001", x.fetcher);
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({
+		kind: "reply",
+		post: {
+			id: "2100000000000000005",
+			url: "https://x.com/cy/status/2100000000000000005",
+			handle: "cy",
+			name: "Cy",
+			avatarUrl: "https://pbs.twimg.com/cy.jpg",
+			createdAt: "2026-11-22T18:00:00.000Z",
+			segments: [{ text: "new build" }],
+			media: [{ type: "video", url: "https://pbs.twimg.com/v.jpg", width: 1280, height: 720, alt: null, videoUrl: "https://video.twimg.com/high.mp4" }],
+			quoted: { id: "2100000000000000004", url: "https://x.com/bo/status/2100000000000000004", handle: "bo", name: "Bo", avatarUrl: null, createdAt: null, segments: [{ text: "the old one" }], media: [{ type: "photo", url: "https://pbs.twimg.com/q.jpg", width: null, height: null, alt: null, videoUrl: null }], quoted: null },
+		},
+	});
+	expect((await list()).sync.spentMills).toBe(5 + 2 * 5 + 10);
+	expect((await list()).mentions[0]?.context).toBe("reply");
+	expect(await (await sendAs("/mentions/context?id=2200000000000000001", fakeOAuthX([]).fetcher)).json()).toMatchObject({ kind: "reply", post: { id: "2100000000000000005" } });
+	expect((await list()).sync.spentMills).toBe(25);
+});
+
+test("a mention that replies to nothing, a deleted parent, and a spent budget cost nothing more", async () => {
+	await connectAs();
+	await pg.query("insert into x_posts.mentions (id, author_id, text, created_at, ingested_at, refs_known, replied_to_id) values (2200000000000000001, 'u1', 'a', now(), now(), true, null), (2200000000000000002, 'u1', 'b', now(), now(), true, 2100000000000000009), (2200000000000000003, 'u1', 'c', now(), now(), true, 2100000000000000008)");
+	expect(await (await sendAs("/mentions/context?id=2200000000000000001", fakeOAuthX([]).fetcher)).json()).toEqual({ kind: "none", post: null });
+	const gone = fakeOAuthX([() => Response.json({ errors: [{ resource_id: "2100000000000000009", title: "Not Found Error" }] })]);
+	expect(await (await sendAs("/mentions/context?id=2200000000000000002", gone.fetcher)).json()).toEqual({ kind: "reply", post: null });
+	expect(await (await sendAs("/mentions/context?id=2200000000000000002", fakeOAuthX([]).fetcher)).json()).toEqual({ kind: "reply", post: null });
+	expect((await list()).sync.spentMills).toBe(0);
+	await pg.query("update x_posts.mention_sync set month = $1, spent_mills = 19990", [new Date().toISOString().slice(0, 7)]);
+	expect(await (await sendAs("/mentions/context?id=2200000000000000003", fakeOAuthX([]).fetcher)).json()).toEqual({ kind: "paused", post: null });
+	expect((await sendAs("/mentions/context?id=2200000000000000099", fakeOAuthX([]).fetcher)).status).toBe(404);
+	expect((await sendAs("/mentions/context?id=abc", fakeOAuthX([]).fetcher)).status).toBe(400);
+	expect((await sendAs("/mentions/context?id=2200000000000000001", fakeOAuthX([]).fetcher, { caller: BOT })).status).toBe(403);
+});
+
+test("ingest keeps what each mention replies to or quotes, so selecting it skips a lookup", async () => {
+	await connectAs();
+	const x = fakeOAuthX([
+		(call) => {
+			expect(new URL(call.url).searchParams.get("tweet.fields")).toContain("referenced_tweets");
+			return Response.json({ data: [{ ...mention("2200000000000000002", "u1"), referenced_tweets: [{ type: "quoted", id: "2100000000000000001" }] }, mention("2200000000000000001", "u1")], meta: { newest_id: "2200000000000000002" } });
+		},
+		() => Response.json({ data: [{ id: "u1", username: "ada", name: "Ada" }] }),
+		(call) => {
+			expect(new URL(call.url).searchParams.get("tweet.fields")).toContain("referenced_tweets");
+			return empty();
+		},
+		empty,
+	]);
+	await syncMentions(db, { fetcher: x.fetcher, creds: CREDS, now: NOW });
+	expect((await list()).mentions.map((item) => [item.id, item.context])).toEqual([
+		["2200000000000000002", "quote"],
+		["2200000000000000001", "none"],
+	]);
 });

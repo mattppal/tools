@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { defineToolApi, type ToolApi } from "../../worker/tool-api.ts";
 import { authorizeUrl, CALLBACK_PATH, credentials, Disconnected, exchangeCode, NotMentioned, pkce, saveAccount, signState, verifyState, whoAmI, XRefused } from "./reply.ts";
-import type { Fetch } from "./x.ts";
+import { contextRequest, NotSetUp, readContext } from "./context.ts";
+import { type Fetch, XError } from "./x.ts";
 import { dismissMention, dismissRequest, listMentions, mentionReplyRequest, replyToMention } from "./mentions.ts";
 import { BadRequest, NotFound } from "./shared.ts";
 
@@ -98,6 +99,19 @@ export function xPostsApi({ fetcher = (input, init) => fetch(input, init) }: { f
 					only(url, ["limit"]);
 					const limit = limitParam(url, 100, 200);
 					return Response.json(await db((client) => listMentions(client, limit, now)), { headers: NO_STORE });
+				}
+				case "GET /mentions/context": {
+					only(url, ["id"]);
+					const parsed = contextRequest.safeParse({ id: url.searchParams.get("id") ?? "" });
+					if (!parsed.success) throw new BadRequest(z.prettifyError(parsed.error));
+					try {
+						return Response.json(await readContext(db, { fetcher, creds: credentials(context.env), now }, parsed.data.id), { headers: NO_STORE });
+					} catch (failure) {
+						if (failure instanceof NotSetUp) return Response.json({ error: failure.message }, { status: 503, headers: NO_STORE });
+						if (failure instanceof Disconnected) return Response.json({ error: failure.message, connect: true }, { status: 409, headers: NO_STORE });
+						if (failure instanceof XRefused || failure instanceof XError) return Response.json({ error: `X didn't answer: ${failure.message}` }, { status: 502, headers: NO_STORE });
+						throw failure;
+					}
 				}
 				case "POST /mentions/reply": {
 					const input = await body(request, mentionReplyRequest);

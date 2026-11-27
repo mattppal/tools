@@ -2,7 +2,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-4);
-	max-width: 720px;
+	max-width: 1200px;
 	padding-top: var(--space-3);
 	padding-bottom: var(--space-7);
 }
@@ -257,20 +257,8 @@
 }
 
 @media (max-width: 900px) {
-	.mentions .liveRow {
-		position: relative;
-	}
-
-	.mentions .postLink::after {
-		content: "";
-		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-	}
-
-	.mentions :is(button, .rowReplied, .openOnX, .inlineReply) {
-		position: relative;
-		z-index: 1;
+	.mentionsLayout {
+		grid-template-columns: minmax(0, 1fr);
 	}
 }
 
@@ -327,4 +315,103 @@
 .openOnX:focus-visible {
 	color: var(--text-1);
 	text-decoration: underline;
+}
+
+.mentionsLayout {
+	display: grid;
+	grid-template-columns: minmax(0, 640px) minmax(0, 1fr);
+	gap: var(--space-5);
+	align-items: start;
+}
+
+.ctxPane {
+	position: sticky;
+	top: var(--space-4);
+	max-height: calc(100dvh - 2 * var(--space-4));
+	overflow-y: auto;
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--sunken-bg);
+}
+
+.ctx {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.ctxPost,
+.ctxQuote {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.ctxQuote {
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--hover-bg);
+}
+
+.inlineReply .ctx {
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--sunken-bg);
+}
+
+.ctxLink {
+	color: inherit;
+	text-decoration: underline;
+	text-decoration-color: var(--text-3);
+	text-underline-offset: 2px;
+	overflow-wrap: anywhere;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.ctxLink:hover {
+		text-decoration-color: currentColor;
+	}
+}
+
+.ctxLink:focus-visible {
+	text-decoration-color: currentColor;
+}
+
+.ctxMedia {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 4px;
+	overflow: hidden;
+	border-radius: var(--radius-md);
+}
+
+.ctxMedia[data-count="1"] {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.ctxMedia[data-count="3"] > :first-child {
+	grid-row: span 2;
+}
+
+.ctxMedia img,
+.ctxMedia video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	max-height: 420px;
+	object-fit: cover;
+	background: var(--sunken-bg);
+}
+
+.ctxMedia[data-count="1"] img,
+.ctxMedia[data-count="1"] video {
+	height: auto;
+	object-fit: contain;
+}
+
+.ctxLoading {
+	height: 160px;
+	border-radius: var(--radius-md);
+	background: var(--sunken-bg);
 }
