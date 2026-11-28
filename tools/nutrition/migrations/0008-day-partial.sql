@@ -1,1 +1,1 @@
-alter table days add column partial boolean not null default false;
+alter table days add column partial_mark boolean;

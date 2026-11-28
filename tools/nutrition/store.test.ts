@@ -168,15 +168,37 @@ test("a closed day under half its kcal target is partial", async () => {
 	expect(history.find((day) => day.date === "2026-11-21")).toMatchObject({ entries: 0, partial: false });
 });
 
-test("a day marked partial on an open or closed day can be cleared, and keeps its weigh-in", async () => {
+test("the partial mark is three-state: true is partial, false counts even under half, null leaves it to the rule", async () => {
+	expect(await getDay(client, "2026-11-20")).toMatchObject({ closed: true, partial: true, partialMark: null, partialReason: "under_half" });
+	expect(await updateDay(client, "2026-11-20", { partial: false })).toMatchObject({ partial: false, partialMark: false, partialReason: null });
+	expect((await getHistory(client)).find((day) => day.date === "2026-11-20")?.partial).toBe(false);
+	expect(await updateDay(client, "2026-11-20", { partial: null })).toMatchObject({ partial: true, partialMark: null, partialReason: "under_half" });
+
 	await changeFood(client, "2026-11-17", { add: [{ ...egg, kcal: 2700, client_key: "p1" }] }, "bot");
-	expect(await updateDay(client, "2026-11-17", { partial: true, bodyweight_lb: 181 })).toMatchObject({ closed: false, partial: true });
+	expect(await updateDay(client, "2026-11-17", { partial: true, bodyweight_lb: 181 })).toMatchObject({ closed: false, partial: true, partialMark: true, partialReason: "marked" });
 	await updateDay(client, "2026-11-17", { closed: true });
 	expect(await getDay(client, "2026-11-17")).toMatchObject({ closed: true, partial: true, checkIn: { bodyweightLb: 181 } });
 	expect((await getHistory(client)).find((day) => day.date === "2026-11-17")).toMatchObject({ kcal: 2700, partial: true });
-	expect((await updateDay(client, "2026-11-17", { partial: false })).partial).toBe(false);
-	expect((await getHistory(client)).find((day) => day.date === "2026-11-17")?.partial).toBe(false);
+	expect(await updateDay(client, "2026-11-17", { partial: null })).toMatchObject({ partial: false, partialMark: null, partialReason: null });
 	await pg.exec("delete from nutrition.food_entries where day = '2026-11-17'; delete from nutrition.weigh_ins where measured_on = '2026-11-17'; delete from nutrition.days where day = '2026-11-17'");
+});
+
+test("estimated and the partial mark are independent", async () => {
+	const day = await updateDay(client, "2026-11-20", { estimated: true });
+	expect(day).toMatchObject({ estimated: true, partialMark: null, partialReason: "under_half" });
+	expect(await updateDay(client, "2026-11-20", { partial: false })).toMatchObject({ estimated: true, partialMark: false });
+	expect(await updateDay(client, "2026-11-20", { estimated: false, partial: null })).toMatchObject({ estimated: false, partialMark: null });
+});
+
+test("reads work before the partial_mark migration is applied", async () => {
+	await pg.exec("alter table nutrition.days rename column partial_mark to pending_mark");
+	try {
+		expect(await getDay(client, "2026-11-20")).toMatchObject({ partialMark: null, partialReason: "under_half" });
+		expect((await getHistory(client)).find((day) => day.date === "2026-11-20")?.partial).toBe(true);
+		expect((await getExpenditure(client, "2026-11-01", "2026-11-30")).partialDays).toBe(1);
+	} finally {
+		await pg.exec("alter table nutrition.days rename column pending_mark to partial_mark");
+	}
 });
 
 test("plan versions are never edited", async () => {

@@ -131,12 +131,12 @@ function DaySummary({ day }: { day: DayView }) {
 		<>
 			{day.progress === null ? (
 				<p className={styles.note}>
-					No targets cover this day. Kcal so far: {whole(day.totals.kcal)}.{day.partial ? " Partial." : null}
+					No targets cover this day. Kcal so far: {whole(day.totals.kcal)}.{day.partialMark === true ? " Partial." : null}
 				</p>
 			) : (
 				<div className={styles.bars}>
 					{BARS.map((bar) => (
-						<Bar key={bar.macro} day={day} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress} partial={bar.macro === "kcal" && day.partial}>
+						<Bar key={bar.macro} day={day} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress} partial={bar.macro === "kcal" && day.partialMark === true}>
 							{bar.macro === "kcal" ? <StepsLine day={day} /> : null}
 						</Bar>
 					))}

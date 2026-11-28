@@ -235,13 +235,18 @@ test("the tracker change log names the calling bot", async () => {
 	]);
 });
 
-test("update_day marks a day partial and every read and the phase summary show it", async () => {
+test("update_day marks a day partial, a retry changes nothing, and null clears it", async () => {
+	type Summary = { phase: { summary: { current: { daysLogged: number; partialDays: number } } }; day: { partial: boolean; partialMark: boolean | null; partialReason: string | null } };
+	const read = async () => (await call("get_phase_summary", { date: "2026-11-24" })).structuredContent as Summary;
 	await call("log_food", { date: "2026-11-24", add: [{ ...yogurt, kcal: 2400, client_key: "bot:partial:0" }] });
 	await call("update_day", { date: "2026-11-24", closed: true });
 	const marked = await call("update_day", { date: "2026-11-24", partial: true });
-	const summary = (await call("get_phase_summary", { date: "2026-11-24" })).structuredContent as { phase: { summary: { current: { daysLogged: number; partialDays: number } } }; day: { partial: boolean } };
-	expect([(marked.structuredContent as { partial: boolean }).partial, summary.day.partial, summary.phase.summary.current]).toMatchObject([true, true, { daysLogged: 0, partialDays: 1 }]);
-	await call("update_day", { date: "2026-11-24", partial: false });
-	const after = (await call("get_phase_summary", { date: "2026-11-24" })).structuredContent as typeof summary;
-	expect([after.day.partial, after.phase.summary.current]).toMatchObject([false, { daysLogged: 1, partialDays: 0 }]);
+	const retried = await call("update_day", { date: "2026-11-24", partial: true });
+	expect(retried.structuredContent).toEqual(marked.structuredContent);
+	expect(marked.structuredContent).toMatchObject({ partial: true, partialMark: true, partialReason: "marked" });
+	const summary = await read();
+	expect([summary.day, summary.phase.summary.current]).toMatchObject([{ partial: true, partialMark: true }, { daysLogged: 0, partialDays: 1 }]);
+	await call("update_day", { date: "2026-11-24", partial: null });
+	const after = await read();
+	expect([after.day, after.phase.summary.current]).toMatchObject([{ partial: false, partialMark: null, partialReason: null }, { daysLogged: 1, partialDays: 0 }]);
 });

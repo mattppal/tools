@@ -34,6 +34,8 @@ const day: DayView = {
 	closedAt: null,
 	estimated: true,
 	partial: true,
+	partialMark: true,
+	partialReason: "marked",
 	phase: "maintain",
 	entries: [],
 	totals,
