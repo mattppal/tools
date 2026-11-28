@@ -37,7 +37,7 @@ export const nutritionMcp = toolMcp({
 		defineMcpTool({
 			name: "update_day",
 			description:
-				"Read or update one day: bodyweight, steps, check-in scores, notes, estimated totals, and closed. Send only the date to read the day. Closing here never fires the day-closed webhook.",
+				"Read or update one day: bodyweight, steps, check-in scores, notes, estimated totals, partial, and closed. partial works on open or closed days. Send only the date to read the day. Closing here never fires the day-closed webhook.",
 			input: dayUpdate.extend({ date }),
 			run: ({ date: day, ...update }, { db }) => asTool(() => db((client) => updateDay(client, day ?? today(), update))),
 		}),

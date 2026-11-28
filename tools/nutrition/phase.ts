@@ -13,7 +13,7 @@ export type TrackerSettings = {
 };
 
 export type WeightPoint = { date: string; rolling7d: number; rolling14d: number };
-export type LoggedDay = { date: string; kcal: number };
+export type LoggedDay = { date: string; kcal: number; partial: boolean };
 export type Verdict = "on track" | "above plan" | "below plan" | "ahead" | "behind";
 
 export type PhaseWeek = {
@@ -27,6 +27,7 @@ export type PhaseWeek = {
 	weeklyChange: number | null;
 	avgLoggedKcal: number | null;
 	daysLogged: number;
+	partialDays: number;
 	measuredTdee: number | null;
 	vsPlan: number | null;
 	verdict: Verdict | null;
@@ -52,9 +53,10 @@ function lastOnOrBefore(weights: readonly WeightPoint[], date: string): WeightPo
 	return found;
 }
 
-function loggedBetween(days: readonly LoggedDay[], after: string, through: string): { count: number; mean: number | null } {
-	const kcal = days.filter((day) => day.kcal > 0 && day.date > after && day.date <= through).map((day) => day.kcal);
-	return { count: kcal.length, mean: kcal.length === 0 ? null : kcal.reduce((sum, value) => sum + value, 0) / kcal.length };
+function loggedBetween(days: readonly LoggedDay[], after: string, through: string): { count: number; mean: number | null; partial: number } {
+	const inside = days.filter((day) => day.kcal > 0 && day.date > after && day.date <= through);
+	const kcal = inside.filter((day) => !day.partial).map((day) => day.kcal);
+	return { count: kcal.length, mean: kcal.length === 0 ? null : kcal.reduce((sum, value) => sum + value, 0) / kcal.length, partial: inside.length - kcal.length };
 }
 
 function measuredTdee(weights: readonly WeightPoint[], days: readonly LoggedDay[], end: string, minLoggedDays: number): number | null {
@@ -92,6 +94,7 @@ export function phaseSummary(settings: TrackerSettings, weights: readonly Weight
 			weeklyChange: null,
 			avgLoggedKcal: null,
 			daysLogged: 0,
+			partialDays: 0,
 			measuredTdee: null,
 			vsPlan: null,
 			verdict: null,
@@ -111,6 +114,7 @@ export function phaseSummary(settings: TrackerSettings, weights: readonly Weight
 		const logged = loggedBetween(days, addDays(weekStart, -1), measureOn);
 		row.avgLoggedKcal = logged.mean;
 		row.daysLogged = logged.count;
+		row.partialDays = logged.partial;
 		row.measuredTdee = logged.count < settings.minLoggedDays ? null : measuredTdee(weights, days, measureOn, settings.minLoggedDays);
 
 		if (row.actual7d !== null && plannedWeight !== null) {

@@ -168,6 +168,39 @@ test("a closed day under half its kcal target is partial", async () => {
 	expect(history.find((day) => day.date === "2026-11-21")).toMatchObject({ entries: 0, partial: false });
 });
 
+test("the partial mark is three-state: true is partial, false counts even under half, null leaves it to the rule", async () => {
+	expect(await getDay(client, "2026-11-20")).toMatchObject({ closed: true, partial: true, partialMark: null, partialReason: "under_half" });
+	expect(await updateDay(client, "2026-11-20", { partial: false })).toMatchObject({ partial: false, partialMark: false, partialReason: null });
+	expect((await getHistory(client)).find((day) => day.date === "2026-11-20")?.partial).toBe(false);
+	expect(await updateDay(client, "2026-11-20", { partial: null })).toMatchObject({ partial: true, partialMark: null, partialReason: "under_half" });
+
+	await changeFood(client, "2026-11-17", { add: [{ ...egg, kcal: 2700, client_key: "p1" }] }, "bot");
+	expect(await updateDay(client, "2026-11-17", { partial: true, bodyweight_lb: 181 })).toMatchObject({ closed: false, partial: true, partialMark: true, partialReason: "marked" });
+	await updateDay(client, "2026-11-17", { closed: true });
+	expect(await getDay(client, "2026-11-17")).toMatchObject({ closed: true, partial: true, checkIn: { bodyweightLb: 181 } });
+	expect((await getHistory(client)).find((day) => day.date === "2026-11-17")).toMatchObject({ kcal: 2700, partial: true });
+	expect(await updateDay(client, "2026-11-17", { partial: null })).toMatchObject({ partial: false, partialMark: null, partialReason: null });
+	await pg.exec("delete from nutrition.food_entries where day = '2026-11-17'; delete from nutrition.weigh_ins where measured_on = '2026-11-17'; delete from nutrition.days where day = '2026-11-17'");
+});
+
+test("estimated and the partial mark are independent", async () => {
+	const day = await updateDay(client, "2026-11-20", { estimated: true });
+	expect(day).toMatchObject({ estimated: true, partialMark: null, partialReason: "under_half" });
+	expect(await updateDay(client, "2026-11-20", { partial: false })).toMatchObject({ estimated: true, partialMark: false });
+	expect(await updateDay(client, "2026-11-20", { estimated: false, partial: null })).toMatchObject({ estimated: false, partialMark: null });
+});
+
+test("reads work before the partial_mark migration is applied", async () => {
+	await pg.exec("alter table nutrition.days rename column partial_mark to pending_mark");
+	try {
+		expect(await getDay(client, "2026-11-20")).toMatchObject({ partialMark: null, partialReason: "under_half" });
+		expect((await getHistory(client)).find((day) => day.date === "2026-11-20")?.partial).toBe(true);
+		expect((await getExpenditure(client, "2026-11-01", "2026-11-30")).partialDays).toBe(1);
+	} finally {
+		await pg.exec("alter table nutrition.days rename column pending_mark to partial_mark");
+	}
+});
+
 test("plan versions are never edited", async () => {
 	const input = { effective_from: "2026-11-01", kcal: { min: 1, max: 2 }, protein_g: { min: 1, max: 2 }, fat_g: { min: 1, max: 2 }, carbs_g: { min: 1, max: 2 }, change: "x" };
 	await expect(addTargets(client, input, "bot")).rejects.toBeInstanceOf(Rejected);
@@ -325,4 +358,16 @@ test("steps list days with steps, calendar-window averages, and the target in ef
 	const later = (await getSteps(client)).at(-1);
 	expect(later).toMatchObject({ date: "2026-12-01", target: 10000 });
 	expect(later?.rolling7d).toBeCloseTo((11234 + 9000 + 8000) / 3);
+});
+
+test("a marked day leaves expenditure intake, isn't filled from Apple, and is counted", async () => {
+	await updateDay(client, "2026-12-15", { partial: true });
+	await changeFood(client, "2026-12-14", { add: [{ ...egg, kcal: 2600, client_key: "p2" }] }, "bot");
+	await updateDay(client, "2026-12-14", { closed: true });
+	const on = (spent: Awaited<ReturnType<typeof getExpenditure>>, date: string) => spent.days.find((day) => day.date === date)?.intake;
+	const before = await getExpenditure(client, "2026-12-10", "2026-12-15");
+	expect([on(before, "2026-12-14"), on(before, "2026-12-15"), before.loggedDays, before.partialDays]).toEqual([2600, null, 1, 0]);
+	await updateDay(client, "2026-12-14", { partial: true });
+	const after = await getExpenditure(client, "2026-12-10", "2026-12-15");
+	expect([on(after, "2026-12-14"), after.loggedDays, after.partialDays]).toEqual([null, 0, 1]);
 });

@@ -51,6 +51,11 @@ export const dayUpdate = z.strictObject({
 	stress: score,
 	notes: z.string().optional(),
 	estimated: z.boolean().optional().describe("Totals are estimates"),
+	partial: z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe("true marks the day partial: its kcal stay out of expenditure and phase math, its weigh-in still counts. false makes it count even under half its kcal target. null clears the mark"),
 	closed: z.boolean().optional().describe("true closes the day, false reopens it"),
 });
 

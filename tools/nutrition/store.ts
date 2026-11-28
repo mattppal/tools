@@ -8,7 +8,7 @@ import { type BodyComp, estimateExpenditure, MEASURED_MIN_DAYS, type Expenditure
 import { type LoggedDay, type PhaseSummary, phaseSummary, type TrackerSettings, type WeightPoint } from "./phase.ts";
 import type { DayUpdate, FoodChanges, FoodInput, PhaseInput, TargetsInput } from "./schemas.ts";
 import { formatSource, parseSource } from "./sources.ts";
-import { type DayView, type FoodEntry, type HistoryDay, isPartialDay, type Macro, type MacroProgress, macroProgress, type Range, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
+import { type DayView, type FoodEntry, type HistoryDay, type Macro, type MacroProgress, macroProgress, partialReason, type Range, type SourceKind, type StepsRow, type Targets, type Totals, type WeightRow } from "./types.ts";
 
 export class Rejected extends Error {}
 
@@ -75,10 +75,10 @@ export async function getDay(client: Database, date: string): Promise<DayView> {
 	const [day, entries, weight, phase, targets] = [
 		(
 			await client.query<Row>(
-				`select d.closed_at, coalesce(a.steps, d.steps) as steps, d.bloat_score, d.energy, d.sleep, d.stress, d.notes, d.totals_estimated
-				from (select $1::date as day) w
-				left join nutrition.days d on d.day = w.day
-				left join activity.daily_activity a on a.day = w.day`,
+				`select d.closed_at, coalesce(a.steps, d.steps) as steps, d.bloat_score, d.energy, d.sleep, d.stress, d.notes, d.totals_estimated, ${PARTIAL_MARK} as partial_mark, ${DAY_KCAL_TARGET} as kcal_target
+				from (select $1::date as day) t
+				left join nutrition.days d on d.day = t.day
+				left join activity.daily_activity a on a.day = t.day`,
 				[date],
 			)
 		).rows[0],
@@ -96,11 +96,17 @@ export async function getDay(client: Database, date: string): Promise<DayView> {
 		totals.fiber_g += entry.fiber_g ?? 0;
 	}
 	for (const key of Object.keys(totals) as (keyof Totals)[]) totals[key] = Math.round(totals[key] * 10) / 10;
+	const closed = day?.["closed_at"] != null;
+	const partialMark = (day?.["partial_mark"] as boolean | null | undefined) ?? null;
+	const reason = partialReason({ closed, entries: entries.length, kcal: totals.kcal, kcalTarget: numOrNull(day?.["kcal_target"]), mark: partialMark });
 	return {
 		date,
-		closed: day?.["closed_at"] != null,
+		closed,
 		closedAt: day?.["closed_at"] == null ? null : new Date(day["closed_at"] as string | Date).toISOString(),
 		estimated: day?.["totals_estimated"] === true,
+		partial: reason !== null,
+		partialMark,
+		partialReason: reason,
 		phase: (phase?.["kind"] as string | undefined) ?? null,
 		entries,
 		totals,
@@ -193,6 +199,7 @@ export async function updateDay(client: Database, date: string, update: DayUpdat
 			["stress", update.stress],
 			["notes", update.notes],
 			["totals_estimated", update.estimated],
+			["partial_mark", update.partial],
 		];
 		const set = fields.filter(([, value]) => value !== undefined);
 		if (update.closed !== undefined) set.push(["closed_at", update.closed ? new Date() : null]);
@@ -317,7 +324,7 @@ async function phaseView(client: Database, settings: TrackerSettings, date: stri
 	const weights: WeightPoint[] = (
 		await client.query<Row>("select measured_on::text as date, rolling_7d, rolling_14d from nutrition.weight_trend where measured_on >= $1 order by measured_on", [addDays(since, -28)])
 	).rows.map((weight) => ({ date: String(weight["date"]), rolling7d: num(weight["rolling_7d"]), rolling14d: num(weight["rolling_14d"]) }));
-	const days = await fullDays(client, since, date);
+	const days = await closedDays(client, since, date);
 	return { kind: settings.kind, startDate: settings.startDate, settings, summary: phaseSummary(settings, weights, days, date), upcoming };
 }
 
@@ -479,17 +486,22 @@ const dayKcal = (plan: string) => `coalesce(
 
 const DAY_KCAL_TARGET = dayKcal("(v.kcal_min + v.kcal_max) / 2.0");
 
-async function fullDays(client: Database, from: string, to: string): Promise<LoggedDay[]> {
+const PARTIAL_MARK = "(to_jsonb(d) ->> 'partial_mark')::boolean";
+
+async function closedDays(client: Database, from: string, to: string): Promise<LoggedDay[]> {
 	const { rows } = await client.query<Row>(
-		`select t.day::text as date, t.entries, t.kcal, ${DAY_KCAL_TARGET} as kcal_target from nutrition.day_totals t where t.closed and t.kcal > 0 and t.day >= $1 and t.day <= $2`,
+		`select t.day::text as date, t.entries, t.kcal, ${PARTIAL_MARK} as partial_mark, ${DAY_KCAL_TARGET} as kcal_target
+		from nutrition.day_totals t join nutrition.days d on d.day = t.day where t.closed and t.kcal > 0 and t.day >= $1 and t.day <= $2`,
 		[from, to],
 	);
-	return rows
-		.filter((day) => !isPartialDay({ closed: true, entries: num(day["entries"]), kcal: num(day["kcal"]), kcalTarget: numOrNull(day["kcal_target"]) }))
-		.map((day) => ({ date: String(day["date"]), kcal: num(day["kcal"]) }));
+	return rows.map((day) => ({
+		date: String(day["date"]),
+		kcal: num(day["kcal"]),
+		partial: partialReason({ closed: true, entries: num(day["entries"]), kcal: num(day["kcal"]), kcalTarget: numOrNull(day["kcal_target"]), mark: (day["partial_mark"] as boolean | null) ?? null }) !== null,
+	}));
 }
 
-export type ExpenditureView = ExpenditureResult & { minDays: number; avgSteps: number | null; stepDays: number };
+export type ExpenditureView = ExpenditureResult & { minDays: number; avgSteps: number | null; stepDays: number; partialDays: number };
 
 const LOOKBACK_DAYS = 35;
 const MEASURE_HEIGHT = 4;
@@ -622,8 +634,10 @@ async function watchWorkouts(client: Database, start: string, to: string, hasApp
 
 export async function getExpenditure(client: Database, from: string, to: string): Promise<ExpenditureView> {
 	const present = (await client.query<Row>("select to_regclass('nutrition.profile') is not null as profile, to_regclass('activity.apple_health_samples') is not null as apple")).rows[0];
-	const logged: IntakeDay[] = await fullDays(client, "1900-01-01", to);
-	const external = present?.["apple"] === true ? await appleIntake(client, to, new Set(logged.map((day) => day.date))) : [];
+	const closed = await closedDays(client, "1900-01-01", to);
+	const logged: IntakeDay[] = closed.filter((day) => !day.partial).map(({ date, kcal }) => ({ date, kcal }));
+	const marked = (await client.query<Row>(`select day::text as date from nutrition.days d where ${PARTIAL_MARK} and day <= $1`, [to])).rows.map((row) => String(row["date"]));
+	const external = present?.["apple"] === true ? await appleIntake(client, to, new Set([...logged.map((day) => day.date), ...marked])) : [];
 	const intake = [...logged, ...external].toSorted((a, b) => a.date.localeCompare(b.date));
 	const tracker: TrackerDay[] = (
 		await client.query<Row>(
@@ -659,12 +673,13 @@ export async function getExpenditure(client: Database, from: string, to: string)
 		[from, to],
 	);
 	const avg = numOrNull(rows[0]?.["avg_steps"]);
-	return { ...result, minDays: MEASURED_MIN_DAYS, avgSteps: avg === null ? null : Math.round(avg), stepDays: num(rows[0]?.["step_days"] ?? 0) };
+	const partialDays = closed.filter((day) => day.partial && day.date >= from).length;
+	return { ...result, minDays: MEASURED_MIN_DAYS, avgSteps: avg === null ? null : Math.round(avg), stepDays: num(rows[0]?.["step_days"] ?? 0), partialDays };
 }
 
 export async function getHistory(client: Database): Promise<HistoryDay[]> {
 	const { rows } = await client.query<Row>(
-		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target, ${dayKcal("v.kcal_min")} as kcal_min, ${dayKcal("v.kcal_max")} as kcal_max, nullif(coalesce(a.steps, d.steps), 0) as steps
+		`select t.day::text as date, t.closed, t.entries, t.kcal, t.protein_g, t.carbs_g, t.fat_g, ${DAY_KCAL_TARGET} as kcal_target, ${dayKcal("v.kcal_min")} as kcal_min, ${dayKcal("v.kcal_max")} as kcal_max, nullif(coalesce(a.steps, d.steps), 0) as steps, ${PARTIAL_MARK} as partial_mark
 		from nutrition.day_totals t join nutrition.days d on d.day = t.day left join activity.daily_activity a on a.day = t.day
 		order by t.day desc limit 400`,
 	);
@@ -681,7 +696,7 @@ export async function getHistory(client: Database): Promise<HistoryDay[]> {
 		};
 		const min = numOrNull(row["kcal_min"]);
 		const max = numOrNull(row["kcal_max"]);
-		return { ...day, partial: isPartialDay(day), steps: numOrNull(row["steps"]), kcalRange: min === null || max === null ? null : { min, max } };
+		return { ...day, partial: partialReason({ ...day, mark: (row["partial_mark"] as boolean | null) ?? null }) !== null, steps: numOrNull(row["steps"]), kcalRange: min === null || max === null ? null : { min, max } };
 	});
 }
 

@@ -234,3 +234,35 @@ test("the tracker change log names the calling bot", async () => {
 		{ field: "current_kcal_target", changed_by: "nutrition" },
 	]);
 });
+
+test("update_day marks a day partial, a retry changes nothing, and null clears it", async () => {
+	type Summary = { phase: { summary: { current: { daysLogged: number; partialDays: number } } }; day: { partial: boolean; partialMark: boolean | null; partialReason: string | null } };
+	const read = async () => (await call("get_phase_summary", { date: "2026-11-24" })).structuredContent as Summary;
+	await call("log_food", { date: "2026-11-24", add: [{ ...yogurt, kcal: 2400, client_key: "bot:partial:0" }] });
+	await call("update_day", { date: "2026-11-24", closed: true });
+	const marked = await call("update_day", { date: "2026-11-24", partial: true });
+	const retried = await call("update_day", { date: "2026-11-24", partial: true });
+	expect(retried.structuredContent).toEqual(marked.structuredContent);
+	expect(marked.structuredContent).toMatchObject({ partial: true, partialMark: true, partialReason: "marked" });
+	const summary = await read();
+	expect([summary.day, summary.phase.summary.current]).toMatchObject([{ partial: true, partialMark: true }, { daysLogged: 0, partialDays: 1 }]);
+	await call("update_day", { date: "2026-11-24", partial: null });
+	const after = await read();
+	expect([after.day, after.phase.summary.current]).toMatchObject([{ partial: false, partialMark: null, partialReason: null }, { daysLogged: 1, partialDays: 0 }]);
+});
+
+test("update_day takes null on partial but not on estimated, closed, notes, or date", async () => {
+	for (const key of ["estimated", "closed", "notes", "date"]) {
+		const result = await call("update_day", { date: "2099-02-05", [key]: null });
+		expect({ key, isError: result.isError }).toEqual({ key, isError: true });
+	}
+	expect((await call("update_day", { date: "2099-02-05", partial: null })).structuredContent).toMatchObject({ partialMark: null });
+});
+
+test("partial: false on a closed day under half its target makes it count", async () => {
+	await call("log_food", { date: "2099-02-06", add: [{ ...yogurt, client_key: "bot:under:0" }] });
+	const closed = await call("update_day", { date: "2099-02-06", closed: true });
+	expect(closed.structuredContent).toMatchObject({ partial: true, partialMark: null, partialReason: "under_half" });
+	const counted = await call("update_day", { date: "2099-02-06", partial: false });
+	expect(counted.structuredContent).toMatchObject({ partial: false, partialMark: false, partialReason: null });
+});

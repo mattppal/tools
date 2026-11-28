@@ -53,7 +53,7 @@ function DayMeter({ day, range }: { day: HistoryDay; range: Range }) {
 	const scale = Math.max(range.max * 1.15, day.kcal, 1);
 	const at = (value: number) => Math.min(value / scale, 1);
 	return (
-		<Inspect className={styles.dayMeter} data-status={kcalStatus(day.kcal, range)} tip={<TipLines lines={[`Kcal · ${dayLabel(day.date)}`, `${whole(day.kcal)} of ${whole(range.min)}–${whole(range.max)}`]} />}>
+		<Inspect className={styles.dayMeter} data-status={kcalStatus(day.kcal, range)} data-partial={day.partial ? "" : undefined} tip={<TipLines lines={[`Kcal · ${dayLabel(day.date)}`, `${whole(day.kcal)} of ${whole(range.min)}–${whole(range.max)}`]} />}>
 			<div className={styles.track} role="meter" aria-label={`${whole(day.kcal)} of ${whole(range.min)} to ${whole(range.max)} kcal`} aria-valuemin={0} aria-valuemax={range.max} aria-valuenow={day.kcal}>
 				<div className={styles.band} style={{ left: `${at(range.min) * 100}%`, width: `${(at(range.max) - at(range.min)) * 100}%` }} />
 				<div className={styles.fill} style={{ transform: `scaleX(${at(day.kcal)})` }} />
