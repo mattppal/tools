@@ -250,3 +250,19 @@ test("update_day marks a day partial, a retry changes nothing, and null clears i
 	const after = await read();
 	expect([after.day, after.phase.summary.current]).toMatchObject([{ partial: false, partialMark: null, partialReason: null }, { daysLogged: 1, partialDays: 0 }]);
 });
+
+test("update_day takes null on partial but not on estimated, closed, notes, or date", async () => {
+	for (const key of ["estimated", "closed", "notes", "date"]) {
+		const result = await call("update_day", { date: "2099-02-05", [key]: null });
+		expect({ key, isError: result.isError }).toEqual({ key, isError: true });
+	}
+	expect((await call("update_day", { date: "2099-02-05", partial: null })).structuredContent).toMatchObject({ partialMark: null });
+});
+
+test("partial: false on a closed day under half its target makes it count", async () => {
+	await call("log_food", { date: "2099-02-06", add: [{ ...yogurt, client_key: "bot:under:0" }] });
+	const closed = await call("update_day", { date: "2099-02-06", closed: true });
+	expect(closed.structuredContent).toMatchObject({ partial: true, partialMark: null, partialReason: "under_half" });
+	const counted = await call("update_day", { date: "2099-02-06", partial: false });
+	expect(counted.structuredContent).toMatchObject({ partial: false, partialMark: false, partialReason: null });
+});
