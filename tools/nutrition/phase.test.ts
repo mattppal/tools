@@ -35,7 +35,7 @@ const SHEET_TRACKER: TrackerSettings = {
 
 test("matches the sheet's Phase tab on 2026-11-22", () => {
 	const weights = rolling(SHEET_WEIGHTS.map(([serial, weight]) => ({ date: isoDate(SHEET_EPOCH + serial), weight })));
-	const summary = phaseSummary(SHEET_TRACKER, weights, [{ date: "2026-11-22", kcal: 692 }], "2026-11-22");
+	const summary = phaseSummary(SHEET_TRACKER, weights, [{ date: "2026-11-22", kcal: 692, partial: false }], "2026-11-22");
 
 	expect(summary.startWeight).toBeCloseTo(180.82, 2);
 	expect(summary.weeks).toHaveLength(12);
@@ -51,7 +51,7 @@ test("matches the sheet's Phase tab on 2026-11-22", () => {
 function steadyCut(dropPerWeek: number) {
 	const start = "2026-01-01";
 	const raw = Array.from({ length: 50 }, (_, index) => ({ date: addDays(start, index), weight: 200 - (dropPerWeek / 7) * index }));
-	const days = raw.map(({ date }) => ({ date, kcal: 2400 }));
+	const days = raw.map(({ date }) => ({ date, kcal: 2400, partial: false }));
 	return { weights: rolling(raw), days };
 }
 
@@ -79,6 +79,12 @@ test("needs the minimum logged days before measuring TDEE", () => {
 	const { weights, days } = steadyCut(1);
 	const sparse = days.filter((day) => day.date < "2026-01-29" || day.date > "2026-02-01");
 	expect(phaseSummary(CUT, weights, sparse, "2026-02-04").current).toMatchObject({ daysLogged: 3, measuredTdee: null, nextWeekKcal: null });
+});
+
+test("partial days leave the kcal average and TDEE but are counted", () => {
+	const { weights, days } = steadyCut(1);
+	const marked = days.map((day) => (day.date === "2026-02-02" ? { ...day, kcal: 900, partial: true } : day));
+	expect(phaseSummary(CUT, weights, marked, "2026-02-04").current).toMatchObject({ daysLogged: 6, partialDays: 1, avgLoggedKcal: 2400, measuredTdee: 2900 });
 });
 
 test("calls a cut ahead or behind against the planned weight", () => {

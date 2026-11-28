@@ -78,18 +78,21 @@ function StepsLine({ day }: { day: DayView }) {
 	);
 }
 
-type BarProps = { day: DayView; label: string; unit: string; progress: MacroProgress; children?: ReactNode };
+type BarProps = { day: DayView; label: string; unit: string; progress: MacroProgress; partial?: boolean; children?: ReactNode };
 
-function Bar({ day, label, unit, progress, children }: BarProps) {
+function Bar({ day, label, unit, progress, partial = false, children }: BarProps) {
 	const { total, min, max, status } = progress;
 	const scale = Math.max(max * 1.15, total, 1);
 	const at = (value: number) => Math.min(value / scale, 1);
 	const suffix = unit === "" ? "" : ` ${unit}`;
 	const value = `${whole(total)} of ${whole(min)}–${whole(max)}${suffix}`;
 	return (
-		<div className={styles.bar} data-status={status}>
+		<div className={styles.bar} data-status={status} data-partial={partial ? "" : undefined}>
 			<Inspect className={styles.barInspect} tip={<TipLines lines={[`${label} · ${dayLabel(day.date)}`, value]} />}>
-				<div className={styles.barLabel}>{label}</div>
+				<div className={styles.barLabel}>
+					{label}
+					{partial ? <span className={styles.barTarget}> · Partial</span> : null}
+				</div>
 				<div className={styles.barValue}>
 					{whole(total)}
 					<span className={styles.barTarget}>
@@ -127,11 +130,13 @@ function DaySummary({ day }: { day: DayView }) {
 	return (
 		<>
 			{day.progress === null ? (
-				<p className={styles.note}>No targets cover this day. Kcal so far: {whole(day.totals.kcal)}.</p>
+				<p className={styles.note}>
+					No targets cover this day. Kcal so far: {whole(day.totals.kcal)}.{day.partial ? " Partial." : null}
+				</p>
 			) : (
 				<div className={styles.bars}>
 					{BARS.map((bar) => (
-						<Bar key={bar.macro} day={day} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress}>
+						<Bar key={bar.macro} day={day} label={bar.label} unit={bar.unit} progress={day.progress?.[bar.macro] as MacroProgress} partial={bar.macro === "kcal" && day.partial}>
 							{bar.macro === "kcal" ? <StepsLine day={day} /> : null}
 						</Bar>
 					))}

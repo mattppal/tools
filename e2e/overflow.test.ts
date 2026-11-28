@@ -33,6 +33,7 @@ const day: DayView = {
 	closed: false,
 	closedAt: null,
 	estimated: true,
+	partial: true,
 	phase: "maintain",
 	entries: [],
 	totals,
@@ -83,6 +84,7 @@ const expenditure: ExpenditureView = {
 	minDays: 14,
 	avgSteps: 13_205,
 	stepDays: 61,
+	partialDays: 2,
 };
 
 const FIXTURES: Record<string, unknown> = {

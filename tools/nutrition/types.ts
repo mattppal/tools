@@ -42,6 +42,7 @@ export type DayView = {
 	closed: boolean;
 	closedAt: string | null;
 	estimated: boolean;
+	partial: boolean;
 	phase: string | null;
 	entries: FoodEntry[];
 	totals: Totals;
@@ -54,8 +55,8 @@ export const PARTIAL_DAY_SHARE = 0.5;
 
 export type HistoryDay = { date: string; closed: boolean; entries: number; kcalTarget: number | null; partial: boolean; steps: number | null; kcalRange: Range | null } & Record<Macro, number>;
 
-export function isPartialDay(day: { closed: boolean; entries: number; kcal: number; kcalTarget: number | null }): boolean {
-	return day.closed && day.entries > 0 && day.kcalTarget !== null && day.kcal < day.kcalTarget * PARTIAL_DAY_SHARE;
+export function isPartialDay(day: { closed: boolean; entries: number; kcal: number; kcalTarget: number | null; marked: boolean }): boolean {
+	return day.marked || (day.closed && day.entries > 0 && day.kcalTarget !== null && day.kcal < day.kcalTarget * PARTIAL_DAY_SHARE);
 }
 
 export type StepsRow = { date: string; steps: number; rolling7d: number; rolling14d: number; rolling28d: number; target: number | null };

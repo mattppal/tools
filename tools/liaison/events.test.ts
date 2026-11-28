@@ -31,6 +31,7 @@ function widestDay(): DayView {
 		closed: true,
 		closedAt: new Date(8.64e15).toISOString(),
 		estimated: true,
+		partial: false,
 		phase: NASTY_TEXTS[0] ?? "",
 		entries: Array.from({ length: 10_000 }, () => entry),
 		totals: { kcal: WIDEST_NUMBER, protein_g: WIDEST_NUMBER, carbs_g: WIDEST_NUMBER, fat_g: WIDEST_NUMBER, fiber_g: WIDEST_NUMBER },

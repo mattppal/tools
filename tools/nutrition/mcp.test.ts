@@ -234,3 +234,14 @@ test("the tracker change log names the calling bot", async () => {
 		{ field: "current_kcal_target", changed_by: "nutrition" },
 	]);
 });
+
+test("update_day marks a day partial and every read and the phase summary show it", async () => {
+	await call("log_food", { date: "2026-11-24", add: [{ ...yogurt, kcal: 2400, client_key: "bot:partial:0" }] });
+	await call("update_day", { date: "2026-11-24", closed: true });
+	const marked = await call("update_day", { date: "2026-11-24", partial: true });
+	const summary = (await call("get_phase_summary", { date: "2026-11-24" })).structuredContent as { phase: { summary: { current: { daysLogged: number; partialDays: number } } }; day: { partial: boolean } };
+	expect([(marked.structuredContent as { partial: boolean }).partial, summary.day.partial, summary.phase.summary.current]).toMatchObject([true, true, { daysLogged: 0, partialDays: 1 }]);
+	await call("update_day", { date: "2026-11-24", partial: false });
+	const after = (await call("get_phase_summary", { date: "2026-11-24" })).structuredContent as typeof summary;
+	expect([after.day.partial, after.phase.summary.current]).toMatchObject([false, { daysLogged: 1, partialDays: 0 }]);
+});

@@ -66,7 +66,10 @@ function Body({ phase }: { phase: Phase }) {
 								<td>{maybe(week.actual7d, tenths)}</td>
 								<td>{maybe(week.weeklyChange, signed)}</td>
 								<td>{maybe(week.avgLoggedKcal, whole)}</td>
-								<td>{week.started ? week.daysLogged : "–"}</td>
+								<td>
+									{week.started ? week.daysLogged : "–"}
+									{week.partialDays > 0 ? <span className={styles.entryMeta}> · {week.partialDays} partial</span> : null}
+								</td>
 								<td>{maybe(week.measuredTdee, whole)}</td>
 								<td>{week.verdict ?? "–"}</td>
 							</tr>
